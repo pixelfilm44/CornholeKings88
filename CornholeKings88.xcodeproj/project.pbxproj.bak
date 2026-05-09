@@ -1,0 +1,626 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		1C8BA7102FA7E25B001D03A2 /* SKTiled in Frameworks */ = {isa = PBXBuildFile; productRef = 1C8BA70F2FA7E25B001D03A2 /* SKTiled */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		1C8BA6C62FA7DFBA001D03A2 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 1C8BA6A42FA7DFB9001D03A2 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 1C8BA6AB2FA7DFB9001D03A2;
+			remoteInfo = CornholeKings88;
+		};
+		1C8BA6D02FA7DFBA001D03A2 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 1C8BA6A42FA7DFB9001D03A2 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 1C8BA6AB2FA7DFB9001D03A2;
+			remoteInfo = CornholeKings88;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		1C8BA6AC2FA7DFB9001D03A2 /* CornholeKings88.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = CornholeKings88.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		1C8BA6C52FA7DFBA001D03A2 /* CornholeKings88Tests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CornholeKings88Tests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		1C8BA6CF2FA7DFBA001D03A2 /* CornholeKings88UITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CornholeKings88UITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		1C8BA6D72FA7DFBA001D03A2 /* Exceptions for "CornholeKings88" folder in "CornholeKings88" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 1C8BA6AB2FA7DFB9001D03A2 /* CornholeKings88 */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		1C8BA6AE2FA7DFB9001D03A2 /* CornholeKings88 */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				1C8BA6D72FA7DFBA001D03A2 /* Exceptions for "CornholeKings88" folder in "CornholeKings88" target */,
+			);
+			path = CornholeKings88;
+			sourceTree = "<group>";
+		};
+		1C8BA6C82FA7DFBA001D03A2 /* CornholeKings88Tests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = CornholeKings88Tests;
+			sourceTree = "<group>";
+		};
+		1C8BA6D22FA7DFBA001D03A2 /* CornholeKings88UITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = CornholeKings88UITests;
+			sourceTree = "<group>";
+		};
+/* End PBXFileSystemSynchronizedRootGroup section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		1C8BA6A92FA7DFB9001D03A2 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				1C8BA7102FA7E25B001D03A2 /* SKTiled in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		1C8BA6C22FA7DFBA001D03A2 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		1C8BA6CC2FA7DFBA001D03A2 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		1C8BA6A32FA7DFB9001D03A2 = {
+			isa = PBXGroup;
+			children = (
+				1C8BA6AE2FA7DFB9001D03A2 /* CornholeKings88 */,
+				1C8BA6C82FA7DFBA001D03A2 /* CornholeKings88Tests */,
+				1C8BA6D22FA7DFBA001D03A2 /* CornholeKings88UITests */,
+				1C8BA6AD2FA7DFB9001D03A2 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		1C8BA6AD2FA7DFB9001D03A2 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				1C8BA6AC2FA7DFB9001D03A2 /* CornholeKings88.app */,
+				1C8BA6C52FA7DFBA001D03A2 /* CornholeKings88Tests.xctest */,
+				1C8BA6CF2FA7DFBA001D03A2 /* CornholeKings88UITests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		1C8BA6AB2FA7DFB9001D03A2 /* CornholeKings88 */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 1C8BA6D82FA7DFBA001D03A2 /* Build configuration list for PBXNativeTarget "CornholeKings88" */;
+			buildPhases = (
+				1C8BA6A82FA7DFB9001D03A2 /* Sources */,
+				1C8BA6A92FA7DFB9001D03A2 /* Frameworks */,
+				1C8BA6AA2FA7DFB9001D03A2 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				1C8BA6AE2FA7DFB9001D03A2 /* CornholeKings88 */,
+			);
+			name = CornholeKings88;
+			packageProductDependencies = (
+				1C8BA70F2FA7E25B001D03A2 /* SKTiled */,
+			);
+			productName = CornholeKings88;
+			productReference = 1C8BA6AC2FA7DFB9001D03A2 /* CornholeKings88.app */;
+			productType = "com.apple.product-type.application";
+		};
+		1C8BA6C42FA7DFBA001D03A2 /* CornholeKings88Tests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 1C8BA6DD2FA7DFBA001D03A2 /* Build configuration list for PBXNativeTarget "CornholeKings88Tests" */;
+			buildPhases = (
+				1C8BA6C12FA7DFBA001D03A2 /* Sources */,
+				1C8BA6C22FA7DFBA001D03A2 /* Frameworks */,
+				1C8BA6C32FA7DFBA001D03A2 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				1C8BA6C72FA7DFBA001D03A2 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				1C8BA6C82FA7DFBA001D03A2 /* CornholeKings88Tests */,
+			);
+			name = CornholeKings88Tests;
+			packageProductDependencies = (
+			);
+			productName = CornholeKings88Tests;
+			productReference = 1C8BA6C52FA7DFBA001D03A2 /* CornholeKings88Tests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		1C8BA6CE2FA7DFBA001D03A2 /* CornholeKings88UITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 1C8BA6E02FA7DFBA001D03A2 /* Build configuration list for PBXNativeTarget "CornholeKings88UITests" */;
+			buildPhases = (
+				1C8BA6CB2FA7DFBA001D03A2 /* Sources */,
+				1C8BA6CC2FA7DFBA001D03A2 /* Frameworks */,
+				1C8BA6CD2FA7DFBA001D03A2 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				1C8BA6D12FA7DFBA001D03A2 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				1C8BA6D22FA7DFBA001D03A2 /* CornholeKings88UITests */,
+			);
+			name = CornholeKings88UITests;
+			packageProductDependencies = (
+			);
+			productName = CornholeKings88UITests;
+			productReference = 1C8BA6CF2FA7DFBA001D03A2 /* CornholeKings88UITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		1C8BA6A42FA7DFB9001D03A2 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 2640;
+				LastUpgradeCheck = 2640;
+				TargetAttributes = {
+					1C8BA6AB2FA7DFB9001D03A2 = {
+						CreatedOnToolsVersion = 26.4.1;
+					};
+					1C8BA6C42FA7DFBA001D03A2 = {
+						CreatedOnToolsVersion = 26.4.1;
+						TestTargetID = 1C8BA6AB2FA7DFB9001D03A2;
+					};
+					1C8BA6CE2FA7DFBA001D03A2 = {
+						CreatedOnToolsVersion = 26.4.1;
+						TestTargetID = 1C8BA6AB2FA7DFB9001D03A2;
+					};
+				};
+			};
+			buildConfigurationList = 1C8BA6A72FA7DFB9001D03A2 /* Build configuration list for PBXProject "CornholeKings88" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = 1C8BA6A32FA7DFB9001D03A2;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				1C8BA70E2FA7E25B001D03A2 /* XCRemoteSwiftPackageReference "SKTiled" */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 1C8BA6AD2FA7DFB9001D03A2 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				1C8BA6AB2FA7DFB9001D03A2 /* CornholeKings88 */,
+				1C8BA6C42FA7DFBA001D03A2 /* CornholeKings88Tests */,
+				1C8BA6CE2FA7DFBA001D03A2 /* CornholeKings88UITests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		1C8BA6AA2FA7DFB9001D03A2 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		1C8BA6C32FA7DFBA001D03A2 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		1C8BA6CD2FA7DFBA001D03A2 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		1C8BA6A82FA7DFB9001D03A2 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		1C8BA6C12FA7DFBA001D03A2 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		1C8BA6CB2FA7DFBA001D03A2 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		1C8BA6C72FA7DFBA001D03A2 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 1C8BA6AB2FA7DFB9001D03A2 /* CornholeKings88 */;
+			targetProxy = 1C8BA6C62FA7DFBA001D03A2 /* PBXContainerItemProxy */;
+		};
+		1C8BA6D12FA7DFBA001D03A2 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 1C8BA6AB2FA7DFB9001D03A2 /* CornholeKings88 */;
+			targetProxy = 1C8BA6D02FA7DFBA001D03A2 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		1C8BA6D92FA7DFBA001D03A2 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 6J6976TDAN;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = CornholeKings88/Info.plist;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.adventure-games";
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UIMainStoryboardFile = Main;
+				INFOPLIST_KEY_UIStatusBarHidden = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = JeffImagines.CornholeKings88;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		1C8BA6DA2FA7DFBA001D03A2 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 6J6976TDAN;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = CornholeKings88/Info.plist;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.adventure-games";
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UIMainStoryboardFile = Main;
+				INFOPLIST_KEY_UIStatusBarHidden = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = JeffImagines.CornholeKings88;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		1C8BA6DB2FA7DFBA001D03A2 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = 6J6976TDAN;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.4;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		1C8BA6DC2FA7DFBA001D03A2 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = 6J6976TDAN;
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.4;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		1C8BA6DE2FA7DFBA001D03A2 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 6J6976TDAN;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.4;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = JeffImagines.CornholeKings88Tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/CornholeKings88.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/CornholeKings88";
+			};
+			name = Debug;
+		};
+		1C8BA6DF2FA7DFBA001D03A2 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 6J6976TDAN;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.4;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = JeffImagines.CornholeKings88Tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/CornholeKings88.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/CornholeKings88";
+			};
+			name = Release;
+		};
+		1C8BA6E12FA7DFBA001D03A2 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 6J6976TDAN;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = JeffImagines.CornholeKings88UITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = CornholeKings88;
+			};
+			name = Debug;
+		};
+		1C8BA6E22FA7DFBA001D03A2 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 6J6976TDAN;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = JeffImagines.CornholeKings88UITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = CornholeKings88;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		1C8BA6A72FA7DFB9001D03A2 /* Build configuration list for PBXProject "CornholeKings88" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				1C8BA6DB2FA7DFBA001D03A2 /* Debug */,
+				1C8BA6DC2FA7DFBA001D03A2 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		1C8BA6D82FA7DFBA001D03A2 /* Build configuration list for PBXNativeTarget "CornholeKings88" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				1C8BA6D92FA7DFBA001D03A2 /* Debug */,
+				1C8BA6DA2FA7DFBA001D03A2 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		1C8BA6DD2FA7DFBA001D03A2 /* Build configuration list for PBXNativeTarget "CornholeKings88Tests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				1C8BA6DE2FA7DFBA001D03A2 /* Debug */,
+				1C8BA6DF2FA7DFBA001D03A2 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		1C8BA6E02FA7DFBA001D03A2 /* Build configuration list for PBXNativeTarget "CornholeKings88UITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				1C8BA6E12FA7DFBA001D03A2 /* Debug */,
+				1C8BA6E22FA7DFBA001D03A2 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		1C8BA70E2FA7E25B001D03A2 /* XCRemoteSwiftPackageReference "SKTiled" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/mfessenden/SKTiled";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.23.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		1C8BA70F2FA7E25B001D03A2 /* SKTiled */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 1C8BA70E2FA7E25B001D03A2 /* XCRemoteSwiftPackageReference "SKTiled" */;
+			productName = SKTiled;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = 1C8BA6A42FA7DFB9001D03A2 /* Project object */;
+}
