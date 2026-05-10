@@ -1267,11 +1267,11 @@ final class CornholeBaseballScene: SKScene {
         let title = makeLabel(titleText, size: fs * 1.1, color: titleColor)
         title.position = CGPoint(x: 0, y: panelH * 0.30); panel.addChild(title)
 
-        let youLbl = makeLabel("YOU AVG  \(userFt)ft", size: fs * 0.75,
+        let youLbl = makeLabel("YOU AVG  \(userFt)ft", size: 10,
                                color: SKColor(red: 0.90, green: 0.42, blue: 0.42, alpha: 1))
         youLbl.position = CGPoint(x: 0, y: panelH * 0.10); panel.addChild(youLbl)
 
-        let botLbl = makeLabel("BOT AVG  \(aiFt)ft", size: fs * 0.75,
+        let botLbl = makeLabel("BOT AVG  \(aiFt)ft", size: 10,
                                color: SKColor(red: 0.40, green: 0.60, blue: 0.90, alpha: 1))
         botLbl.position = CGPoint(x: 0, y: -panelH * 0.06); panel.addChild(botLbl)
 
@@ -1345,7 +1345,7 @@ final class CornholeBaseballScene: SKScene {
         let n    = SKNode()
         let back = SKSpriteNode(color: bg, size: size)
         back.zPosition = 0; n.addChild(back)
-        let lbl  = makeLabel(label, size: max(5, size.height * 0.52), color: fg)
+        let lbl  = makeLabel(label, size: 10, color: fg)
         lbl.zPosition = 1; n.addChild(lbl)
         return n
     }

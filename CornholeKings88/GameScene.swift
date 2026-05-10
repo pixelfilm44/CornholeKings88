@@ -966,6 +966,9 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         playerHearts -= 1
         updateHeartsDisplay()
 
+        // After one bite every dog that's currently latched on runs away off-screen.
+        fleeAllBitingDogs()
+
         if playerHearts <= 0 {
             triggerGameOver()
             return
@@ -988,6 +991,16 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
             .repeat(blink, count: 4),
             .run { p.alpha = 1.0 },
         ]), withKey: "blink")
+    }
+
+    /// Tell every dog currently touching the player to bolt away off-screen and
+    /// remove them from the active-contact set so damage stops immediately.
+    private func fleeAllBitingDogs() {
+        guard let p = player else { return }
+        for dog in dogs where dogsTouchingPlayer.contains(ObjectIdentifier(dog)) {
+            dog.startFleeing(awayFrom: p.position)
+            dogsTouchingPlayer.remove(ObjectIdentifier(dog))
+        }
     }
 
     private func updateHeartsDisplay() {

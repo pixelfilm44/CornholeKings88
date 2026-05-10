@@ -103,6 +103,14 @@ final class CornholeMiniGameScene: SKScene {
     private var rainParticleNode: SKNode?
     private var boardRainOverlay: SKSpriteNode?
 
+    // Thunderstorm scenario — mutually exclusive with rain; rolled once per game
+    private var stormActive      = false
+    private var stormStartRound  = -1
+    private var stormEndRound    = Int.max
+    private var stormDarkOverlay: SKSpriteNode?
+    private var stormParticleNode: SKNode?
+    private var stormFlashOverlay: SKSpriteNode?
+
     // Input
     private var touchStart: CGPoint?
     private var aimingLine: SKShapeNode?
@@ -124,6 +132,7 @@ final class CornholeMiniGameScene: SKScene {
         setupBoard()
         setupUI()
         rollRainScenario()
+        rollThunderstormScenario()
         startRound()
     }
 
@@ -288,7 +297,7 @@ final class CornholeMiniGameScene: SKScene {
     private func setupUI() {
         let topH    = size.height * 0.10
         let bottomH = size.height * 0.09
-        let fs      = max(6, size.width * 0.052)
+        let fs      = max(5, size.width * 0.052)
 
         // Top chrome bar
         addChrome(y: size.height / 2 - topH / 2, h: topH)
@@ -296,7 +305,7 @@ final class CornholeMiniGameScene: SKScene {
         addChrome(y: -size.height / 2 + bottomH / 2, h: bottomH)
 
         // Player score — top left
-        let pLabel = makeLabel(text: "YOU: 0", size: fs, color: SKColor(red: 0.90, green: 0.42, blue: 0.42, alpha: 1))
+        let pLabel = makeLabel(text: "YOU: 0", size: 10, color: SKColor(red: 0.90, green: 0.42, blue: 0.42, alpha: 1))
         pLabel.horizontalAlignmentMode = .left
         pLabel.position = CGPoint(x: -size.width / 2 + 8, y: size.height / 2 - topH / 2)
         pLabel.zPosition = 600
@@ -304,7 +313,7 @@ final class CornholeMiniGameScene: SKScene {
         playerScoreLabel = pLabel
 
         // AI score — top center-right (leave room for close button)
-        let aLabel = makeLabel(text: "BOT: 0", size: fs, color: SKColor(red: 0.40, green: 0.60, blue: 0.90, alpha: 1))
+        let aLabel = makeLabel(text: "BOT: 0", size: 10, color: SKColor(red: 0.40, green: 0.60, blue: 0.90, alpha: 1))
         aLabel.horizontalAlignmentMode = .right
         aLabel.position = CGPoint(x: size.width / 2 - 30, y: size.height / 2 - topH / 2)
         aLabel.zPosition = 600
@@ -312,7 +321,7 @@ final class CornholeMiniGameScene: SKScene {
         aiScoreLabel = aLabel
 
         // Wind label — bottom center
-        let wLabel = makeLabel(text: "CALM", size: max(5, fs * 0.80), color: SKColor(white: 0.75, alpha: 1))
+        let wLabel = makeLabel(text: "CALM", size: 10, color: SKColor(white: 0.75, alpha: 1))
         wLabel.horizontalAlignmentMode = .center
         wLabel.position = CGPoint(x: 0, y: -size.height / 2 + bottomH / 2)
         wLabel.zPosition = 600
@@ -320,14 +329,14 @@ final class CornholeMiniGameScene: SKScene {
         windLabel = wLabel
 
         // Round score labels (bottom left/right, shown during play)
-        let rndPLabel = makeLabel(text: "", size: fs, color: SKColor(red: 0.90, green: 0.42, blue: 0.42, alpha: 1))
+        let rndPLabel = makeLabel(text: "", size: 10, color: SKColor(red: 0.90, green: 0.42, blue: 0.42, alpha: 1))
         rndPLabel.horizontalAlignmentMode = .left
         rndPLabel.position = CGPoint(x: -size.width / 2 + 8, y: -size.height / 2 + bottomH / 2)
         rndPLabel.zPosition = 600
         rndPLabel.name = "rndPlayerLabel"
         addChild(rndPLabel)
 
-        let rndALabel = makeLabel(text: "", size: fs, color: SKColor(red: 0.40, green: 0.60, blue: 0.90, alpha: 1))
+        let rndALabel = makeLabel(text: "", size: 10, color: SKColor(red: 0.40, green: 0.60, blue: 0.90, alpha: 1))
         rndALabel.horizontalAlignmentMode = .right
         rndALabel.position = CGPoint(x: size.width / 2 - 8, y: -size.height / 2 + bottomH / 2)
         rndALabel.zPosition = 600
@@ -390,7 +399,7 @@ final class CornholeMiniGameScene: SKScene {
         backing.zPosition = 0
         n.addChild(backing)
         let lbl = SKLabelNode(fontNamed: "PressStart2P-Regular")
-        lbl.fontSize = max(5, size.height * 0.55)
+        lbl.fontSize = 10
         lbl.fontColor = fg
         lbl.text = label
         lbl.verticalAlignmentMode = .center
@@ -410,7 +419,18 @@ final class CornholeMiniGameScene: SKScene {
         if shouldRain && !rainActive  { activateRain() }
         if !shouldRain && rainActive  { deactivateRain() }
 
-        wind = CGVector(dx: CGFloat.random(in: -2.0...2.0), dy: 0)
+        // Toggle storm on/off for this round
+        let shouldStorm = stormStartRound >= 0 && roundNumber >= stormStartRound && roundNumber < stormEndRound
+        if shouldStorm && !stormActive  { activateStorm() }
+        if !shouldStorm && stormActive  { deactivateStorm() }
+
+        // Storm brings stronger, more consistent wind
+        if stormActive {
+            let dir: CGFloat = Bool.random() ? 1 : -1
+            wind = CGVector(dx: CGFloat.random(in: 3.5...5.5) * dir, dy: 0)
+        } else {
+            wind = CGVector(dx: CGFloat.random(in: -2.0...2.0), dy: 0)
+        }
         updateWindLabel()
 
         playerBagsThrown    = 0
@@ -867,7 +887,7 @@ final class CornholeMiniGameScene: SKScene {
         // Result title
         let title = makeLabel(
             text: playerWon ? "YOU WIN!" : "BOT WINS!",
-            size: fs * 1.10,
+            size: fs * 0.7,
             color: playerWon
                 ? SKColor(red: 0.90, green: 0.42, blue: 0.42, alpha: 1)
                 : SKColor(red: 0.40, green: 0.60, blue: 0.90, alpha: 1))
@@ -877,7 +897,7 @@ final class CornholeMiniGameScene: SKScene {
         // Final score
         let scoreLbl = makeLabel(
             text: "YOU \(playerScore)  —  \(aiScore) BOT",
-            size: fs * 0.80,
+            size: fs * 0.60,
             color: SKColor(white: 0.80, alpha: 1))
         scoreLbl.position = CGPoint(x: 0, y: panelH * 0.06)
         panel.addChild(scoreLbl)
@@ -977,10 +997,16 @@ final class CornholeMiniGameScene: SKScene {
             let arrow = wind.dx > 0 ? ">" : "<"
             windText = "\(arrow) \(String(format: "%.1f", strength))"
         }
-        windLabel?.text = rainActive ? "RAIN | \(windText)" : windText
-        windLabel?.fontColor = rainActive
-            ? SKColor(red: 0.55, green: 0.72, blue: 0.95, alpha: 1)
-            : SKColor(white: 0.75, alpha: 1)
+        if stormActive {
+            windLabel?.text = "STORM | \(windText)"
+            windLabel?.fontColor = SKColor(red: 0.95, green: 0.90, blue: 0.20, alpha: 1)
+        } else if rainActive {
+            windLabel?.text = "RAIN | \(windText)"
+            windLabel?.fontColor = SKColor(red: 0.55, green: 0.72, blue: 0.95, alpha: 1)
+        } else {
+            windLabel?.text = windText
+            windLabel?.fontColor = SKColor(white: 0.75, alpha: 1)
+        }
     }
 
     // MARK: - Rain
@@ -1115,6 +1141,268 @@ final class CornholeMiniGameScene: SKScene {
             SKAction.fadeIn(withDuration: 0.28),
             SKAction.wait(forDuration: 1.5),
             SKAction.fadeOut(withDuration: 0.38),
+            SKAction.removeFromParent(),
+        ]))
+    }
+
+    // MARK: - Thunderstorm
+
+    private func rollThunderstormScenario() {
+        stormStartRound = -1
+        stormEndRound   = Int.max
+
+        // Don't stack weather — rain takes precedence
+        guard rainStartRound < 0 else { return }
+
+        // 30% chance of thunderstorm this game
+        guard Int.random(in: 0..<10) < 3 else { return }
+
+        stormStartRound = Int.random(in: 1...2)
+        let wholeGame = Bool.random()
+        if !wholeGame {
+            let duration = Int.random(in: 1...2)
+            stormEndRound = stormStartRound + duration
+        }
+    }
+
+    private func activateStorm() {
+        stormActive = true
+        addStormDarkOverlay()
+        spawnStormParticles()
+        scheduleNextLightningFlash()
+        scheduleNextLightningStrike()
+        showStormAnnouncement()
+        updateWindLabel()
+    }
+
+    private func deactivateStorm() {
+        stormActive = false
+        removeAction(forKey: "stormFlash")
+        removeAction(forKey: "stormStrike")
+
+        stormDarkOverlay?.run(SKAction.sequence([
+            SKAction.fadeOut(withDuration: 0.8),
+            SKAction.removeFromParent(),
+        ]))
+        stormDarkOverlay = nil
+
+        stormParticleNode?.run(SKAction.sequence([
+            SKAction.fadeOut(withDuration: 0.6),
+            SKAction.removeFromParent(),
+        ]))
+        stormParticleNode = nil
+
+        stormFlashOverlay?.removeFromParent()
+        stormFlashOverlay = nil
+
+        let cleared = makeLabel(text: "STORM PASSED",
+                                size: max(7, size.width * 0.055),
+                                color: SKColor(red: 0.95, green: 0.90, blue: 0.50, alpha: 1))
+        cleared.position  = CGPoint(x: 0, y: size.height * 0.12)
+        cleared.zPosition = 800
+        cleared.alpha     = 0
+        addChild(cleared)
+        cleared.run(SKAction.sequence([
+            SKAction.fadeIn(withDuration: 0.25),
+            SKAction.wait(forDuration: 1.2),
+            SKAction.fadeOut(withDuration: 0.35),
+            SKAction.removeFromParent(),
+        ]))
+
+        updateWindLabel()
+    }
+
+    private func addStormDarkOverlay() {
+        let overlay = SKSpriteNode(
+            color: SKColor(red: 0.04, green: 0.04, blue: 0.16, alpha: 0.68),
+            size: CGSize(width: size.width * 2, height: size.height * 2))
+        overlay.zPosition = 95   // above game world, below storm particles
+        overlay.alpha = 0
+        addChild(overlay)
+        stormDarkOverlay = overlay
+        overlay.run(SKAction.fadeIn(withDuration: 0.8))
+    }
+
+    private func spawnStormParticles() {
+        // Add directly to scene (not gameWorldNode) to avoid render-bounds expansion bug
+        let container = SKNode()
+        container.zPosition = 102
+        addChild(container)
+        stormParticleNode = container
+
+        let w = size.width
+        let h = size.height
+
+        for _ in 0..<90 {
+            let drop = SKSpriteNode(
+                color: SKColor(red: 0.60, green: 0.65, blue: 0.85, alpha: 0.72),
+                size: CGSize(width: 2, height: 12))
+            drop.zRotation = -0.20   // steeper diagonal slant than normal rain
+
+            drop.position = CGPoint(
+                x: CGFloat.random(in: -w / 2 ... w / 2),
+                y: CGFloat.random(in: -h / 2 ... h / 2))
+            container.addChild(drop)
+
+            let duration = TimeInterval(CGFloat.random(in: 0.12...0.28))
+            let fallDist = h + 30
+            let driftX   = fallDist * -0.20
+
+            let resetAction = SKAction.customAction(withDuration: 0) { [weak drop] _, _ in
+                drop?.position = CGPoint(
+                    x: CGFloat.random(in: -w / 2 ... w / 2),
+                    y: h / 2 + 15)
+            }
+            let cycle = SKAction.sequence([
+                SKAction.moveBy(x: driftX, y: -fallDist, duration: duration),
+                resetAction,
+            ])
+            let delay = SKAction.wait(forDuration: TimeInterval(CGFloat.random(in: 0...0.3)))
+            drop.run(SKAction.sequence([delay, SKAction.repeatForever(cycle)]))
+        }
+    }
+
+    // Self-scheduling flash so each interval is freshly randomised
+    private func scheduleNextLightningFlash() {
+        guard stormActive else { return }
+        run(SKAction.sequence([
+            SKAction.wait(forDuration: TimeInterval.random(in: 2.5...6.0)),
+            SKAction.run { [weak self] in
+                guard let self, self.stormActive else { return }
+                self.triggerLightningFlash()
+                self.scheduleNextLightningFlash()
+            },
+        ]), withKey: "stormFlash")
+    }
+
+    private func triggerLightningFlash() {
+        if stormFlashOverlay == nil {
+            let flash = SKSpriteNode(
+                color: SKColor(red: 0.95, green: 0.95, blue: 0.78, alpha: 0),
+                size: CGSize(width: size.width * 2, height: size.height * 2))
+            flash.zPosition = 200
+            addChild(flash)
+            stormFlashOverlay = flash
+        }
+        guard let flash = stormFlashOverlay else { return }
+        // Double-pulse mimics a real lightning strike
+        flash.removeAllActions()
+        flash.run(SKAction.sequence([
+            SKAction.fadeAlpha(to: 0.80, duration: 0.04),
+            SKAction.fadeAlpha(to: 0.18, duration: 0.07),
+            SKAction.fadeAlpha(to: 0.55, duration: 0.03),
+            SKAction.fadeAlpha(to: 0.0,  duration: 0.28),
+        ]))
+        UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
+    }
+
+    // Self-scheduling strike so each interval is freshly randomised
+    private func scheduleNextLightningStrike() {
+        guard stormActive else { return }
+        run(SKAction.sequence([
+            SKAction.wait(forDuration: TimeInterval.random(in: 7.0...15.0)),
+            SKAction.run { [weak self] in
+                guard let self, self.stormActive else { return }
+                self.triggerLightningStrike()
+                self.scheduleNextLightningStrike()
+            },
+        ]), withKey: "stormStrike")
+    }
+
+    private func triggerLightningStrike() {
+        // Only target grounded on-board bags that haven't already scored or fallen off
+        let targets = activeBags.filter {
+            $0.isGrounded && !$0.hasScored && !$0.hasAppliedGroundScale && checkIsOnBoard($0)
+        }
+        guard let target = targets.randomElement() else { return }
+
+        spawnLightningBolt(at: CGPoint(x: target.bx, y: target.by))
+        triggerLightningFlash()
+
+        // Brief delay so the bolt is visible before the bag pops
+        run(SKAction.wait(forDuration: 0.15)) { [weak self] in
+            self?.zapBag(target)
+        }
+    }
+
+    private func zapBag(_ bag: MiniGameBag) {
+        activeBags.removeAll { $0 === bag }
+
+        bag.node.run(SKAction.sequence([
+            SKAction.group([
+                SKAction.scale(to: 1.4, duration: 0.08),
+                SKAction.fadeAlpha(to: 0.9, duration: 0.08),
+            ]),
+            SKAction.group([
+                SKAction.scale(to: 0.0, duration: 0.20),
+                SKAction.fadeOut(withDuration: 0.20),
+            ]),
+            SKAction.removeFromParent(),
+        ]))
+        bag.shadow.run(SKAction.sequence([
+            SKAction.fadeOut(withDuration: 0.22),
+            SKAction.removeFromParent(),
+        ]))
+
+        let zapLabel = makeLabel(text: "ZAP!",
+                                 size: max(8, size.width * 0.065),
+                                 color: SKColor(red: 1.0, green: 0.95, blue: 0.20, alpha: 1))
+        zapLabel.position  = CGPoint(x: bag.bx, y: bag.by + 20)
+        zapLabel.zPosition = 300
+        zapLabel.alpha     = 0
+        addChild(zapLabel)
+        zapLabel.run(SKAction.sequence([
+            SKAction.fadeIn(withDuration: 0.10),
+            SKAction.moveBy(x: 0, y: 30, duration: 0.60),
+            SKAction.fadeOut(withDuration: 0.25),
+            SKAction.removeFromParent(),
+        ]))
+    }
+
+    private func spawnLightningBolt(at position: CGPoint) {
+        let startY = size.height * 0.45
+        let steps  = 6
+        let stepH  = (startY - position.y) / CGFloat(steps)
+
+        var points = [CGPoint(x: position.x, y: startY)]
+        for i in 1..<steps {
+            points.append(CGPoint(
+                x: position.x + CGFloat.random(in: -18...18),
+                y: startY - stepH * CGFloat(i)))
+        }
+        points.append(position)
+
+        let path = CGMutablePath()
+        path.move(to: points[0])
+        for pt in points.dropFirst() { path.addLine(to: pt) }
+
+        let bolt = SKShapeNode(path: path)
+        bolt.strokeColor = SKColor(red: 1.0, green: 0.97, blue: 0.40, alpha: 1)
+        bolt.lineWidth   = 3
+        bolt.glowWidth   = 4
+        bolt.zPosition   = 250
+        addChild(bolt)
+
+        bolt.run(SKAction.sequence([
+            SKAction.wait(forDuration: 0.08),
+            SKAction.fadeAlpha(to: 0.5, duration: 0.08),
+            SKAction.fadeOut(withDuration: 0.20),
+            SKAction.removeFromParent(),
+        ]))
+    }
+
+    private func showStormAnnouncement() {
+        let lbl = makeLabel(text: "THUNDERSTORM!",
+                            size: max(7, size.width * 0.056),
+                            color: SKColor(red: 0.95, green: 0.90, blue: 0.20, alpha: 1))
+        lbl.position  = CGPoint(x: 0, y: size.height * 0.12)
+        lbl.zPosition = 800
+        lbl.alpha     = 0
+        addChild(lbl)
+        lbl.run(SKAction.sequence([
+            SKAction.fadeIn(withDuration: 0.15),
+            SKAction.wait(forDuration: 1.5),
+            SKAction.fadeOut(withDuration: 0.35),
             SKAction.removeFromParent(),
         ]))
     }

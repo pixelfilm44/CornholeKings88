@@ -8,6 +8,24 @@ final class DogNode: SKNode {
     // runs straight through rather than re-targeting the player.
     private var straightRunVelocity: CGVector? = nil
 
+    // After the first bite the dog bolts in the opposite direction and never
+    // re-targets the player. GameScene calls startFleeing(awayFrom:) to trigger.
+    private(set) var isFleeing = false
+    private var fleeVelocity: CGVector = .zero
+
+    /// Lock in a flee heading directly away from `playerPos` and switch the
+    /// dog into flee mode. After this the dog ignores the player entirely.
+    func startFleeing(awayFrom playerPos: CGPoint) {
+        guard !isFleeing else { return }
+        isFleeing = true
+        let dx = position.x - playerPos.x
+        let dy = position.y - playerPos.y
+        let dist = max(hypot(dx, dy), 0.001)
+        // Run away at 1.4× normal speed so the escape feels snappy.
+        let speed = chaseSpeed * 1.4
+        fleeVelocity = CGVector(dx: dx / dist * speed, dy: dy / dist * speed)
+    }
+
     private var legPhase: CGFloat = 0
     private var legFront: SKSpriteNode!
     private var legBack: SKSpriteNode!
@@ -118,7 +136,10 @@ final class DogNode: SKNode {
         }
 
         let targetVelocity: CGVector
-        if let sv = straightRunVelocity {
+        if isFleeing {
+            // Bolt away — ignore player position and any other state.
+            targetVelocity = fleeVelocity
+        } else if let sv = straightRunVelocity {
             targetVelocity = sv
         } else if isBiting {
             // Latched on. Snap our position to the player's feet and stay put
