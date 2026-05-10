@@ -115,6 +115,11 @@ final class CornholeMiniGameScene: SKScene {
     private var touchStart: CGPoint?
     private var aimingLine: SKShapeNode?
 
+    // Tutorial / confirm state
+    private var tutorialActive   = false
+    private var confirmingQuit   = false
+    private var confirmPanel:  SKNode?
+
     // MARK: - Node references
     private var gameWorldNode: SKEffectNode!
     private var turnIndicator: SKSpriteNode?
@@ -133,7 +138,12 @@ final class CornholeMiniGameScene: SKScene {
         setupUI()
         rollRainScenario()
         rollThunderstormScenario()
-        startRound()
+
+        // Always show on mini-game open. Player can dismiss instantly with "GOT IT!".
+        // hideTutorial() calls startRound() once dismissed.
+        // TODO: re-introduce one-time gating once rendering is confirmed.
+        showFirstTimeTutorial()
+        print("🎓 Cornhole tutorial requested in didMove")
     }
 
     // MARK: - Layout
@@ -297,7 +307,7 @@ final class CornholeMiniGameScene: SKScene {
     private func setupUI() {
         let topH    = size.height * 0.10
         let bottomH = size.height * 0.09
-        let fs      = max(5, size.width * 0.052)
+        let fs      = max(5, size.width * 0.040)
 
         // Top chrome bar
         addChrome(y: size.height / 2 - topH / 2, h: topH)
@@ -501,11 +511,16 @@ final class CornholeMiniGameScene: SKScene {
 
         if playerScore >= winScore || aiScore >= winScore {
             gameState = .gameOver
+            // PLACEHOLDER: add game_win.wav / game_lose.wav to Copy Bundle Resources
+            let resultSound = playerScore > aiScore ? "game_win.wav" : "game_lose.wav"
+            run(SKAction.playSoundFileNamed(resultSound, waitForCompletion: false))
             run(SKAction.wait(forDuration: 0.6)) { [weak self] in
                 guard let s = self else { return }
                 s.showGameOverPanel(playerWon: s.playerScore > s.aiScore)
             }
         } else {
+            // PLACEHOLDER: add round_end.wav to Copy Bundle Resources
+            run(SKAction.playSoundFileNamed("round_end.wav", waitForCompletion: false))
             showRoundResultMessage(roundPlayer: roundPlayer, roundAI: roundAI)
             run(SKAction.wait(forDuration: 2.0)) { [weak self] in self?.startRound() }
         }
@@ -625,6 +640,8 @@ final class CornholeMiniGameScene: SKScene {
                 if !bag.hasLanded {
                     bag.hasLanded = true
                     UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                    // PLACEHOLDER: add bag_land.wav to Copy Bundle Resources
+                    run(SKAction.playSoundFileNamed("bag_land.wav", waitForCompletion: false))
                 }
 
                 // Small bounce then slide — rain makes the surface very slippery
@@ -646,6 +663,8 @@ final class CornholeMiniGameScene: SKScene {
                     bag.isGrounded = true
                     bag.vx = 0; bag.vy = 0; bag.vz = 0; bag.rotV = 0
                     UINotificationFeedbackGenerator().notificationOccurred(.success)
+                    // PLACEHOLDER: add hole_score.wav to Copy Bundle Resources
+                    run(SKAction.playSoundFileNamed("hole_score.wav", waitForCompletion: false))
                     showHoleEffect(at: CGPoint(x: bag.bx, y: bag.by))
                     let sink = SKAction.sequence([
                         SKAction.group([
@@ -750,6 +769,12 @@ final class CornholeMiniGameScene: SKScene {
         guard let touch = touches.first else { return }
         let loc = touch.location(in: self)
 
+        // Tutorial overlay consumes all input until dismissed
+        if tutorialActive { handleButtonTap(at: loc); return }
+
+        // Quit-confirm modal consumes all input until resolved
+        if confirmingQuit { handleButtonTap(at: loc); return }
+
         guard gameState == .playerTurn else {
             // Allow tapping game-over buttons in any state
             handleButtonTap(at: loc)
@@ -822,7 +847,17 @@ final class CornholeMiniGameScene: SKScene {
             while let current = n {
                 switch current.name {
                 case "closeButton":
+                    showConfirmQuit()
+                    return true
+                case "confirmQuitBtn":
+                    hideConfirmPanel()
                     dismissScene(playerWon: false)
+                    return true
+                case "cancelQuitBtn":
+                    hideConfirmPanel()
+                    return true
+                case "tutorialDismissBtn":
+                    hideTutorial()
                     return true
                 case "playAgainBtn":
                     playerScore = 0
@@ -882,7 +917,7 @@ final class CornholeMiniGameScene: SKScene {
         border.lineWidth   = 3
         panel.addChild(border)
 
-        let fs = max(8, size.width * 0.065)
+        let fs = max(6, size.width * 0.050)
 
         // Result title
         let title = makeLabel(
@@ -943,7 +978,7 @@ final class CornholeMiniGameScene: SKScene {
         else if net < 0 { text = "+\(abs(net)) BOT" }
         else            { text = "WASH" }
 
-        let lbl = makeLabel(text: text, size: max(8, size.width * 0.07),
+        let lbl = makeLabel(text: text, size: max(6, size.width * 0.055),
                             color: net >= 0
                                 ? SKColor(red: 0.9, green: 0.42, blue: 0.42, alpha: 1)
                                 : SKColor(red: 0.4, green: 0.6, blue: 0.9, alpha: 1))
@@ -1032,6 +1067,8 @@ final class CornholeMiniGameScene: SKScene {
         addBoardWetOverlay()
         showRainAnnouncement()
         updateWindLabel()
+        // PLACEHOLDER: add rain_start.wav to Copy Bundle Resources
+        run(SKAction.playSoundFileNamed("rain_start.wav", waitForCompletion: false))
     }
 
     private func deactivateRain() {
@@ -1050,7 +1087,7 @@ final class CornholeMiniGameScene: SKScene {
         boardRainOverlay = nil
 
         let cleared = makeLabel(text: "RAIN STOPPED",
-                                size: max(7, size.width * 0.055),
+                                size: max(5, size.width * 0.042),
                                 color: SKColor(red: 0.75, green: 0.88, blue: 1.0, alpha: 1))
         cleared.position  = CGPoint(x: 0, y: size.height * 0.12)
         cleared.zPosition = 800
@@ -1130,7 +1167,7 @@ final class CornholeMiniGameScene: SKScene {
 
     private func showRainAnnouncement() {
         let lbl = makeLabel(text: "RAIN! SLIPPERY!",
-                            size: max(8, size.width * 0.062),
+                            size: max(6, size.width * 0.048),
                             color: SKColor(red: 0.55, green: 0.72, blue: 0.95, alpha: 1))
         lbl.position  = CGPoint(x: 0, y: size.height * 0.12)
         lbl.zPosition = 800
@@ -1405,6 +1442,134 @@ final class CornholeMiniGameScene: SKScene {
             SKAction.fadeOut(withDuration: 0.35),
             SKAction.removeFromParent(),
         ]))
+    }
+
+    // MARK: - First-time Tutorial
+
+    private func showFirstTimeTutorial() {
+        tutorialActive = true
+        print("🎓 Cornhole tutorial overlay added (zPosition 2000)")
+
+        let panelW = size.width  * 0.84
+        let panelH = size.height * 0.60
+        let fs     = max(5, size.width * 0.040)
+
+        let overlay = SKNode()
+        overlay.zPosition = 2000
+        overlay.name      = "tutorialOverlay"
+
+        let dim = SKSpriteNode(color: SKColor(white: 0, alpha: 0.78),
+                               size: CGSize(width: size.width * 2, height: size.height * 2))
+        overlay.addChild(dim)
+
+        let panel = SKSpriteNode(color: SKColor(red: 0.07, green: 0.05, blue: 0.03, alpha: 0.97),
+                                 size: CGSize(width: panelW, height: panelH))
+        overlay.addChild(panel)
+
+        let border = SKShapeNode(rectOf: CGSize(width: panelW + 3, height: panelH + 3))
+        border.strokeColor = SKColor(red: 0.60, green: 0.42, blue: 0.15, alpha: 1)
+        border.fillColor   = .clear
+        border.lineWidth   = 3
+        overlay.addChild(border)
+
+        let title = makeLabel(text: "CORNHOLE!", size: fs * 1.1,
+                              color: SKColor(red: 0.90, green: 0.42, blue: 0.42, alpha: 1))
+        title.position = CGPoint(x: 0, y: panelH * 0.34)
+        overlay.addChild(title)
+
+        let instructions: [(String, CGFloat)] = [
+            ("Swipe to aim \u{2192} release to throw", panelH * 0.18),
+            ("Distance = power",                        panelH * 0.06),
+            ("Hole = 3 pts \u{00B7} Board = 1 pt",     -panelH * 0.06),
+            ("First to 11 wins!",                       -panelH * 0.18),
+        ]
+        for (text, y) in instructions {
+            let lbl = makeLabel(text: text, size: fs * 0.72,
+                                color: SKColor(white: 0.82, alpha: 1))
+            lbl.position = CGPoint(x: 0, y: y)
+            overlay.addChild(lbl)
+        }
+
+        let gotIt = makeButton(label: "GOT IT!",
+                               fg: .white,
+                               bg: SKColor(red: 0.18, green: 0.45, blue: 0.18, alpha: 1),
+                               size: CGSize(width: panelW * 0.55, height: fs * 1.9))
+        gotIt.position = CGPoint(x: 0, y: -panelH * 0.36)
+        gotIt.name     = "tutorialDismissBtn"
+        overlay.addChild(gotIt)
+
+        overlay.alpha = 0
+        addChild(overlay)
+        overlay.run(.fadeIn(withDuration: 0.25))
+    }
+
+    private func hideTutorial() {
+        tutorialActive = false
+        childNode(withName: "tutorialOverlay")?.run(.sequence([
+            .fadeOut(withDuration: 0.20),
+            .removeFromParent(),
+        ]))
+        startRound()
+    }
+
+    // MARK: - Quit Confirmation
+
+    private func showConfirmQuit() {
+        guard !confirmingQuit else { return }
+        confirmingQuit = true
+
+        let panelW = size.width  * 0.70
+        let panelH = size.height * 0.30
+        let fs     = max(5, size.width * 0.042)
+
+        let panel = SKNode()
+        panel.zPosition = 3000
+        panel.name      = "confirmPanel"
+
+        let bg = SKSpriteNode(color: SKColor(red: 0.07, green: 0.05, blue: 0.03, alpha: 0.97),
+                              size: CGSize(width: panelW, height: panelH))
+        panel.addChild(bg)
+
+        let border = SKShapeNode(rectOf: CGSize(width: panelW + 3, height: panelH + 3))
+        border.strokeColor = SKColor(red: 0.60, green: 0.42, blue: 0.15, alpha: 1)
+        border.fillColor   = .clear
+        border.lineWidth   = 3
+        panel.addChild(border)
+
+        let question = makeLabel(text: "QUIT GAME?", size: fs,
+                                 color: SKColor(white: 0.88, alpha: 1))
+        question.position = CGPoint(x: 0, y: panelH * 0.22)
+        panel.addChild(question)
+
+        let cancelBtn = makeButton(label: "CANCEL",
+                                   fg: .white,
+                                   bg: SKColor(red: 0.20, green: 0.20, blue: 0.20, alpha: 1),
+                                   size: CGSize(width: panelW * 0.42, height: fs * 1.8))
+        cancelBtn.position = CGPoint(x: -panelW * 0.24, y: -panelH * 0.22)
+        cancelBtn.name     = "cancelQuitBtn"
+        panel.addChild(cancelBtn)
+
+        let quitBtn = makeButton(label: "QUIT",
+                                 fg: .white,
+                                 bg: SKColor(red: 0.50, green: 0.10, blue: 0.10, alpha: 1),
+                                 size: CGSize(width: panelW * 0.42, height: fs * 1.8))
+        quitBtn.position = CGPoint(x: panelW * 0.24, y: -panelH * 0.22)
+        quitBtn.name     = "confirmQuitBtn"
+        panel.addChild(quitBtn)
+
+        panel.alpha = 0
+        addChild(panel)
+        confirmPanel = panel
+        panel.run(.fadeIn(withDuration: 0.18))
+    }
+
+    private func hideConfirmPanel() {
+        confirmingQuit = false
+        confirmPanel?.run(.sequence([
+            .fadeOut(withDuration: 0.15),
+            .removeFromParent(),
+        ]))
+        confirmPanel = nil
     }
 
     // MARK: - Dismiss

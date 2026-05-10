@@ -20,16 +20,17 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     // Baseball interaction
     private var baseballPositions: [CGPoint] = []
     private var nearbyBaseballPosition: CGPoint?
-    private var baseballPrompt: SKNode?
     // GID for the baseball tileset (firstgid=921, tilecount=2)
     private let baseballGIDRange = 921...922
 
     // Tree interaction
     private var treePositions: [CGPoint] = []
     private var nearbyTreePosition: CGPoint?
-    private var treePrompt: SKNode?
     // GID range for tree tiles (firstgid=923, tilecount=8)
     private let treeGIDRange = 923...930
+
+    // Tutorial state
+    private var hasShownDogTutorial = false
 
     // Enemy dogs
     private var dogs: [DogNode] = []
@@ -303,6 +304,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         let b = makeActionButton(color: bronzeColor, label: "B", labelColor: SKColor(red: 0.85, green: 0.70, blue: 0.30, alpha: 1.0))
         b.position = CGPoint(x: bX, y: btnY)
         b.name = "btn_b"
+        b.isHidden = true   // shown when weapons are implemented
         cameraNode.addChild(b)
         btnB = b
     }
@@ -481,77 +483,59 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         print("🌳 Found \(treePositions.count) tree(s) on the map")
     }
 
-    /// Called every frame. Shows/hides the "▲A" interaction prompt and tracks
-    /// which board (if any) is close enough to interact with.
+    /// Called every frame. Shows a single "▲A" prompt for the nearest interactable
+    /// object — cornhole board, baseball zone, or tree — and hides it otherwise.
     private func checkBoardProximity() {
-        let triggerRadius: CGFloat = 26   // world units
+        let cornholeRadius: CGFloat = 26
+        let baseballRadius: CGFloat = 56
+        let treeRadius:     CGFloat = 20
 
-        var closest: CGPoint?
-        var minDist  = CGFloat.infinity
+        // Find the single closest object across all three categories.
+        var bestDist = CGFloat.infinity
+        var bestBoard:    CGPoint? = nil
+        var bestBaseball: CGPoint? = nil
+        var bestTree:     CGPoint? = nil
+
         for pos in cornholeBoardPositions {
             let d = hypot(player.position.x - pos.x, player.position.y - pos.y)
-            if d < triggerRadius && d < minDist { minDist = d; closest = pos }
+            if d < cornholeRadius && d < bestDist { bestDist = d; bestBoard = pos }
+        }
+        for pos in baseballPositions {
+            let d = hypot(player.position.x - pos.x, player.position.y - pos.y)
+            if d < baseballRadius && d < bestDist {
+                bestDist = d; bestBoard = nil; bestBaseball = pos
+            }
+        }
+        for pos in treePositions {
+            let d = hypot(player.position.x - pos.x, player.position.y - pos.y)
+            if d < treeRadius && d < bestDist {
+                bestDist = d; bestBoard = nil; bestBaseball = nil; bestTree = pos
+            }
         }
 
-        if let board = closest {
-            nearbyBoardPosition = board
+        nearbyBoardPosition    = bestBoard
+        nearbyBaseballPosition = bestBaseball
+        nearbyTreePosition     = bestTree
+
+        // Auto-descend when the player walks away from the tree they climbed.
+        if bestTree == nil && player.isInTree { player.descendTree() }
+
+        // Position the single shared prompt above the nearest object, or hide it.
+        let anchor: CGPoint?
+        if let p = bestBoard          { anchor = CGPoint(x: p.x, y: p.y + 22) }
+        else if let p = bestBaseball  { anchor = CGPoint(x: p.x, y: p.y + 22) }
+        else if let p = bestTree      { anchor = CGPoint(x: p.x, y: p.y + 22) }
+        else                          { anchor = nil }
+
+        if let pos = anchor {
             if interactPrompt == nil {
                 interactPrompt = makeInteractPrompt()
                 map?.mapNode.addChild(interactPrompt!)
             }
-            // Float the prompt above the board center
-            interactPrompt?.position = CGPoint(x: board.x, y: board.y + 22)
+            interactPrompt?.position = pos
         } else {
-            nearbyBoardPosition = nil
             interactPrompt?.removeFromParent()
             interactPrompt = nil
-        }
-
-        // Baseball proximity — larger radius since the player may be blocked by collision tiles
-        let baseballRadius: CGFloat = 56
-        var closestBaseball: CGPoint?
-        var minBaseballDist = CGFloat.infinity
-        for pos in baseballPositions {
-            let d = hypot(player.position.x - pos.x, player.position.y - pos.y)
-            if d < baseballRadius && d < minBaseballDist { minBaseballDist = d; closestBaseball = pos }
-        }
-
-        if let ball = closestBaseball {
-            nearbyBaseballPosition = ball
-            if baseballPrompt == nil {
-                baseballPrompt = makeInteractPrompt()
-                map?.mapNode.addChild(baseballPrompt!)
-            }
-            baseballPrompt?.position = CGPoint(x: ball.x, y: ball.y + 22)
-        } else {
-            nearbyBaseballPosition = nil
-            baseballPrompt?.removeFromParent()
-            baseballPrompt = nil
-        }
-
-        // Tree proximity — player can climb when adjacent to a tree tile
-        let treeRadius: CGFloat = 20
-        var closestTree: CGPoint?
-        var minTreeDist = CGFloat.infinity
-        for pos in treePositions {
-            let d = hypot(player.position.x - pos.x, player.position.y - pos.y)
-            if d < treeRadius && d < minTreeDist { minTreeDist = d; closestTree = pos }
-        }
-
-        if let tree = closestTree {
-            nearbyTreePosition = tree
-            // While already in a tree show "▲A" only if not climbing (to hint descend)
-            if treePrompt == nil {
-                treePrompt = makeInteractPrompt()
-                map?.mapNode.addChild(treePrompt!)
-            }
-            treePrompt?.position = CGPoint(x: tree.x, y: tree.y + 22)
-        } else {
-            nearbyTreePosition = nil
-            treePrompt?.removeFromParent()
-            treePrompt = nil
-            // Auto-descend if the player walked away from the tree
-            if player.isInTree { player.descendTree() }
         }
     }
 
@@ -801,6 +785,58 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         return dx * dx + dy * dy
     }
 
+    // MARK: - Hint Banner
+
+    /// Shows a transient tutorial hint in the stage area, auto-dismissed after 4 s.
+    /// Lines are separated by "\n".
+    private func showHintBanner(_ message: String) {
+        let lines = message.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        let fs: CGFloat = max(5, size.width * 0.036)
+        let lineH: CGFloat = fs + 7
+        let panelW = size.width * 0.76
+        let panelH = CGFloat(lines.count) * lineH + 18
+
+        let banner = SKNode()
+        banner.zPosition = 18_000
+
+        let bg = SKSpriteNode(color: SKColor(red: 0.05, green: 0.04, blue: 0.02, alpha: 0.93),
+                              size: CGSize(width: panelW, height: panelH))
+        banner.addChild(bg)
+
+        let border = SKShapeNode(rectOf: CGSize(width: panelW + 2, height: panelH + 2),
+                                 cornerRadius: 4)
+        border.strokeColor = SKColor(red: 0.60, green: 0.42, blue: 0.15, alpha: 0.9)
+        border.fillColor   = .clear
+        border.lineWidth   = 2
+        banner.addChild(border)
+
+        for (i, line) in lines.enumerated() {
+            let lbl = SKLabelNode(fontNamed: "PressStart2P-Regular")
+            lbl.text                  = line
+            lbl.fontSize              = fs
+            lbl.fontColor             = SKColor(red: 0.92, green: 0.82, blue: 0.42, alpha: 1)
+            lbl.verticalAlignmentMode = .center
+            lbl.horizontalAlignmentMode = .center
+            let totalH = CGFloat(lines.count - 1) * lineH
+            lbl.position  = CGPoint(x: 0, y: totalH / 2 - CGFloat(i) * lineH)
+            lbl.zPosition = 1
+            banner.addChild(lbl)
+        }
+
+        // Centre of the visible stage area
+        banner.position = CGPoint(x: 0, y: stageCenterY + stageSize * 0.22)
+        banner.alpha    = 0
+        cameraNode.addChild(banner)
+
+        HapticsManager.shared.lightImpact()
+        banner.run(.sequence([
+            .fadeIn(withDuration: 0.25),
+            .wait(forDuration: 4.0),
+            .fadeOut(withDuration: 0.50),
+            .removeFromParent(),
+        ]))
+    }
+
     override func update(_ currentTime: TimeInterval) {
         let dt = lastUpdateTime == 0 ? 0 : currentTime - lastUpdateTime
         lastUpdateTime = currentTime
@@ -851,6 +887,8 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
             item.collect()
             inventory.collect(item.itemType)
             showPickupText("+\(item.itemType.displayName)", at: worldPos)
+            // PLACEHOLDER: add item_pickup.wav to Copy Bundle Resources
+            run(SKAction.playSoundFileNamed("item_pickup.wav", waitForCompletion: false))
             return
         }
 
@@ -929,6 +967,11 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         dog.position = pos
         dogs.append(dog)
         m.mapNode.addChild(dog)
+
+        if !hasShownDogTutorial {
+            hasShownDogTutorial = true
+            showHintBanner("Dodge the dogs!\nClimb a tree for safety \u{25B2}A")
+        }
     }
 
     private func isDogOffScreen(_ dog: DogNode) -> Bool {
@@ -965,6 +1008,10 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         damageCooldown = damageCooldownDuration
         playerHearts -= 1
         updateHeartsDisplay()
+
+        HapticsManager.shared.heavyImpact()
+        // PLACEHOLDER: add dog_bite.wav to Copy Bundle Resources
+        run(SKAction.playSoundFileNamed("dog_bite.wav", waitForCompletion: false))
 
         // After one bite every dog that's currently latched on runs away off-screen.
         fleeAllBitingDogs()
@@ -1051,6 +1098,9 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         label.alpha = 0
         cameraNode.addChild(label)
         label.run(.sequence([.wait(forDuration: 0.55), .fadeIn(withDuration: 0.30)]))
+
+        // PLACEHOLDER: add game_over.wav to Copy Bundle Resources
+        run(SKAction.playSoundFileNamed("game_over.wav", waitForCompletion: false))
 
         // Restart with a fresh scene after the player has time to read the screen.
         run(.sequence([

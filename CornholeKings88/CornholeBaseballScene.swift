@@ -83,6 +83,9 @@ final class CornholeBaseballScene: SKScene {
     private var aiSwingFrame = 0
     private var aiFrameCount = 0
 
+    // Tutorial state
+    private var tutorialActive = false
+
     // User pitching gesture
     private var pitchTouchStart: CGPoint?
     private var pitchTouchTime:  TimeInterval = 0
@@ -136,7 +139,11 @@ final class CornholeBaseballScene: SKScene {
         setupFlashLabel()
         setupFielders()
         injectHUD(into: view)
-        startUserBatting()
+
+        // Always show on mini-game open. Player can dismiss instantly with "GOT IT!".
+        // TODO: re-introduce one-time gating once rendering is confirmed.
+        showFirstTimeTutorial()
+        print("🎓 Baseball tutorial requested in didMove")
     }
 
     override func willMove(from view: SKView) {
@@ -433,6 +440,9 @@ final class CornholeBaseballScene: SKScene {
         resetFielders()
         animateCamera(to: .zero, duration: 0.40)
         pushHUD()
+        UIImpactFeedbackGenerator(style: .soft).impactOccurred()
+        // PLACEHOLDER: add phase_change.wav to Copy Bundle Resources
+        run(SKAction.playSoundFileNamed("phase_change.wav", waitForCompletion: false))
         showCentreFlash("YOUR TURN\nTO PITCH!")
     }
 
@@ -550,6 +560,9 @@ final class CornholeBaseballScene: SKScene {
         }
         if !pitchNearZone {
             removePitchBag()
+            UINotificationFeedbackGenerator().notificationOccurred(.warning)
+            // PLACEHOLDER: add strike_call.wav to Copy Bundle Resources
+            run(SKAction.playSoundFileNamed("strike_call.wav", waitForCompletion: false))
             strikeZone.strokeColor = SKColor(red: 0.9, green: 0.2, blue: 0.2, alpha: 0.8)
             run(.wait(forDuration: 0.25)) { [weak self] in
                 self?.strikeZone.strokeColor = SKColor(red: 1, green: 0.85, blue: 0.2, alpha: 0.7)
@@ -566,6 +579,9 @@ final class CornholeBaseballScene: SKScene {
         // Risk/reward: higher charge → up to 60 % whiff chance, but 80 % power bonus on contact
         let whiffProb = chargeLevel * 0.6
         if CGFloat.random(in: 0...1) < whiffProb {
+            UINotificationFeedbackGenerator().notificationOccurred(.error)
+            // PLACEHOLDER: add bat_whiff.wav to Copy Bundle Resources
+            run(SKAction.playSoundFileNamed("bat_whiff.wav", waitForCompletion: false))
             strikeZone.strokeColor = SKColor(red: 0.9, green: 0.2, blue: 0.2, alpha: 0.8)
             run(.wait(forDuration: 0.25)) { [weak self] in
                 self?.strikeZone.strokeColor = SKColor(red: 1, green: 0.85, blue: 0.2, alpha: 0.7)
@@ -609,11 +625,16 @@ final class CornholeBaseballScene: SKScene {
             if chargeLevel > 0.5 && quality > 0.8 { label = "CRACK!" }
             else if quality > 0.85                 { label = "CRACK!" }
             else                                   { label = "GOOD HIT!" }
+            // PLACEHOLDER: add bat_crack.wav to Copy Bundle Resources
+            run(SKAction.playSoundFileNamed("bat_crack.wav", waitForCompletion: false))
             spawnFloatingText(label, at: CGPoint(x: pitch.bx, y: batY + 22),
                               color: SKColor(red: 1, green: 0.88, blue: 0.2, alpha: 1))
             launchHitBag(from: CGPoint(x: pitch.bx, y: batY + 4),
                          quality: quality, chargeLevel: chargeLevel, isUser: true)
         } else {
+            UINotificationFeedbackGenerator().notificationOccurred(.error)
+            // PLACEHOLDER: add bat_whiff.wav to Copy Bundle Resources
+            run(SKAction.playSoundFileNamed("bat_whiff.wav", waitForCompletion: false))
             strikeZone.strokeColor = SKColor(red: 0.9, green: 0.2, blue: 0.2, alpha: 0.8)
             run(.wait(forDuration: 0.25)) { [weak self] in
                 self?.strikeZone.strokeColor = SKColor(red: 1, green: 0.85, blue: 0.2, alpha: 0.7)
@@ -845,6 +866,9 @@ final class CornholeBaseballScene: SKScene {
                 strikeZone.isHidden = true
                 removePitchBag()
                 if !userHasSwung {
+                    UINotificationFeedbackGenerator().notificationOccurred(.warning)
+                    // PLACEHOLDER: add strike_call.wav to Copy Bundle Resources
+                    run(SKAction.playSoundFileNamed("strike_call.wav", waitForCompletion: false))
                     spawnFloatingText("STRIKE!", at: CGPoint(x: 0, y: batY + 22),
                                       color: SKColor(red: 1, green: 0.18, blue: 0.18, alpha: 1))
                     run(.wait(forDuration: 0.85)) { [weak self] in
@@ -947,11 +971,15 @@ final class CornholeBaseballScene: SKScene {
             let ftVal = Int(dist * distScale)
 
             UINotificationFeedbackGenerator().notificationOccurred(.success)
+            // PLACEHOLDER: add bag_land.wav to Copy Bundle Resources
+            run(SKAction.playSoundFileNamed("bag_land.wav", waitForCompletion: false))
             showLandingEffect(at: CGPoint(x: hit.bx, y: hit.by))
 
             if hit.isUserHit {
                 let caught = hypot(hit.bx - aiFielderPos.x, hit.by - aiFielderPos.y) < fielderCatchRadius
                 if caught {
+                    // PLACEHOLDER: add out_caught.wav to Copy Bundle Resources
+                    run(SKAction.playSoundFileNamed("out_caught.wav", waitForCompletion: false))
                     userDistances.append(0)
                     pushHUD()
                     spawnFloatingText("OUT!", at: CGPoint(x: hit.bx, y: hit.by + 22),
@@ -971,6 +999,8 @@ final class CornholeBaseballScene: SKScene {
             } else {
                 let caught = hypot(hit.bx - userFielderPos.x, hit.by - userFielderPos.y) < fielderCatchRadius
                 if caught {
+                    // PLACEHOLDER: add out_caught.wav to Copy Bundle Resources
+                    run(SKAction.playSoundFileNamed("out_caught.wav", waitForCompletion: false))
                     aiDistances.append(0)
                     pushHUD()
                     spawnFloatingText("OUT!", at: CGPoint(x: hit.bx, y: hit.by + 22),
@@ -1049,6 +1079,10 @@ final class CornholeBaseballScene: SKScene {
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         guard let touch = touches.first else { return }
         let loc = touch.location(in: self)
+
+        // Tutorial overlay consumes all input until dismissed
+        if tutorialActive { handleButtonTap(at: loc); return }
+
         if handleButtonTap(at: loc) { return }
 
         switch phase {
@@ -1119,10 +1153,11 @@ final class CornholeBaseballScene: SKScene {
             var n: SKNode? = node
             while let cur = n {
                 switch cur.name {
-                case "closeButton":   dismissScene(playerWon: false); return true
-                case "playAgainBtn":  resetGame();                     return true
-                case "exitBtn":       dismissScene(playerWon: userAvg >= aiAvg); return true
-                default:              n = cur.parent
+                case "tutorialDismissBtn": hideTutorial();                            return true
+                case "closeButton":        dismissScene(playerWon: false);            return true
+                case "playAgainBtn":       resetGame();                               return true
+                case "exitBtn":            dismissScene(playerWon: userAvg >= aiAvg); return true
+                default:                   n = cur.parent
                 }
             }
         }
@@ -1238,6 +1273,9 @@ final class CornholeBaseballScene: SKScene {
     private func showGameOver() {
         phase = .gameOver
         let uAvg = userAvg, aAvg = aiAvg
+        // PLACEHOLDER: add game_win.wav / game_lose.wav to Copy Bundle Resources
+        let resultSound = uAvg >= aAvg ? "game_win.wav" : "game_lose.wav"
+        run(SKAction.playSoundFileNamed(resultSound, waitForCompletion: false))
         let playerWon = uAvg > aAvg
         let tied      = uAvg == aAvg
         let userFt    = Int(uAvg * distScale)
@@ -1348,6 +1386,74 @@ final class CornholeBaseballScene: SKScene {
         let lbl  = makeLabel(label, size: 10, color: fg)
         lbl.zPosition = 1; n.addChild(lbl)
         return n
+    }
+
+    // MARK: - First-time Tutorial
+
+    private func showFirstTimeTutorial() {
+        tutorialActive = true
+        print("🎓 Baseball tutorial overlay added (zPosition 2000)")
+
+        let panelW = size.width  * 0.84
+        let panelH = size.height * 0.62
+        let fs     = max(6, size.width * 0.048)
+
+        let overlay = SKNode()
+        overlay.zPosition = 2000
+        overlay.name      = "tutorialOverlay"
+
+        let dim = SKSpriteNode(color: SKColor(white: 0, alpha: 0.80),
+                               size: CGSize(width: size.width * 2, height: size.height * 2))
+        overlay.addChild(dim)
+
+        let panel = SKSpriteNode(color: SKColor(red: 0.07, green: 0.05, blue: 0.03, alpha: 0.97),
+                                 size: CGSize(width: panelW, height: panelH))
+        overlay.addChild(panel)
+
+        let border = SKShapeNode(rectOf: CGSize(width: panelW + 3, height: panelH + 3))
+        border.strokeColor = SKColor(red: 0.60, green: 0.42, blue: 0.15, alpha: 1)
+        border.fillColor   = .clear
+        border.lineWidth   = 3
+        overlay.addChild(border)
+
+        let title = makeLabel("BEANBAG BASEBALL", size: fs * 0.95,
+                              color: SKColor(red: 0.90, green: 0.42, blue: 0.42, alpha: 1))
+        title.position = CGPoint(x: 0, y: panelH * 0.34)
+        overlay.addChild(title)
+
+        let instructions: [(String, CGFloat)] = [
+            ("BATTING: Hold then release",    panelH * 0.18),
+            ("PITCHING: Swipe up to throw",   panelH * 0.06),
+            ("FIELDING: Tap to sprint!",       -panelH * 0.06),
+            ("Higher avg distance wins",       -panelH * 0.18),
+        ]
+        for (text, y) in instructions {
+            let lbl = makeLabel(text, size: fs * 0.68,
+                                color: SKColor(white: 0.82, alpha: 1))
+            lbl.position = CGPoint(x: 0, y: y)
+            overlay.addChild(lbl)
+        }
+
+        let gotIt = makeButton("GOT IT!",
+                               fg: .white,
+                               bg: SKColor(red: 0.18, green: 0.44, blue: 0.18, alpha: 1),
+                               size: CGSize(width: panelW * 0.55, height: fs * 1.9))
+        gotIt.position = CGPoint(x: 0, y: -panelH * 0.37)
+        gotIt.name     = "tutorialDismissBtn"
+        overlay.addChild(gotIt)
+
+        overlay.alpha = 0
+        addChild(overlay)
+        overlay.run(.fadeIn(withDuration: 0.25))
+    }
+
+    private func hideTutorial() {
+        tutorialActive = false
+        childNode(withName: "tutorialOverlay")?.run(.sequence([
+            .fadeOut(withDuration: 0.20),
+            .removeFromParent(),
+        ]))
+        startUserBatting()
     }
 
     // MARK: - Dismiss
