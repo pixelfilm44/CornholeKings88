@@ -15,6 +15,8 @@ final class CornholeMiniGameScene: SKScene {
     var availableHoneyBags: Int = 0
     /// How many honey bags the player actually used this match (consumed from inventory).
     private(set) var honeyBagsUsed: Int = 0
+    /// Whether the player has opted in to throwing a honey bag on the next throw.
+    private var honeyBagSelected = false
 
     // MARK: - Types
 
@@ -148,6 +150,7 @@ final class CornholeMiniGameScene: SKScene {
     private var aiScoreLabel:     SKLabelNode?
     private var windLabel:        SKLabelNode?
     private var messageNode: SKNode?
+    private var honeyBagButton: SKNode?
 
     // MARK: - Lifecycle
 
@@ -410,6 +413,8 @@ final class CornholeMiniGameScene: SKScene {
             SKAction.scale(to: 1.00, duration: 0.55),
         ])
         indicator.run(SKAction.repeatForever(pulse))
+
+        setupHoneyBagButton()
     }
 
     private func addChrome(y: CGFloat, h: CGFloat) {
@@ -451,6 +456,72 @@ final class CornholeMiniGameScene: SKScene {
         return n
     }
 
+    // MARK: - Honey Bag Button
+
+    /// Creates the honey bag selector button in the lower-right corner above the bottom chrome.
+    private func setupHoneyBagButton() {
+        let bottomH: CGFloat = size.height * 0.09
+        let btnW: CGFloat = 62, btnH: CGFloat = 24
+
+        let btn = SKNode()
+        btn.name     = "honeyBagButton"
+        btn.position = CGPoint(x: size.width / 2 - btnW / 2 - 6,
+                               y: -size.height / 2 + bottomH + btnH / 2 + 10)
+        btn.zPosition = 600
+
+        let bg = SKSpriteNode(color: SKColor(red: 0.22, green: 0.14, blue: 0.04, alpha: 0.92),
+                              size: CGSize(width: btnW, height: btnH))
+        bg.name = "honeyBagBg"
+        bg.zPosition = 0
+        btn.addChild(bg)
+
+        let lbl = SKLabelNode(fontNamed: "PressStart2P-Regular")
+        lbl.fontSize = 7
+        lbl.fontColor = SKColor(red: 0.95, green: 0.72, blue: 0.10, alpha: 1)
+        lbl.text = "H×\(availableHoneyBags)"
+        lbl.verticalAlignmentMode  = .center
+        lbl.horizontalAlignmentMode = .center
+        lbl.name = "honeyBagLabel"
+        lbl.zPosition = 1
+        btn.addChild(lbl)
+
+        btn.isHidden = availableHoneyBags <= 0
+        addChild(btn)
+        honeyBagButton = btn
+    }
+
+    /// Refreshes the honey bag button's text and colour to reflect current selection state.
+    private func updateHoneyBagButton() {
+        guard let btn = honeyBagButton else { return }
+
+        if availableHoneyBags <= 0 {
+            honeyBagSelected = false
+            btn.isHidden = true
+            return
+        }
+        btn.isHidden = false
+
+        let bg  = btn.childNode(withName: "honeyBagBg")  as? SKSpriteNode
+        let lbl = btn.childNode(withName: "honeyBagLabel") as? SKLabelNode
+
+        if honeyBagSelected {
+            bg?.color = SKColor(red: 0.85, green: 0.58, blue: 0.06, alpha: 1.0)
+            lbl?.text = "STICKY!"
+            lbl?.fontColor = SKColor(white: 1.0, alpha: 1)
+        } else {
+            bg?.color = SKColor(red: 0.22, green: 0.14, blue: 0.04, alpha: 0.92)
+            lbl?.text = "H×\(availableHoneyBags)"
+            lbl?.fontColor = SKColor(red: 0.95, green: 0.72, blue: 0.10, alpha: 1)
+        }
+    }
+
+    private func toggleHoneyBagSelection() {
+        honeyBagSelected.toggle()
+        updateHoneyBagButton()
+        updateTurnIndicator()
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+    }
+
     // MARK: - Game Flow
 
     private func startRound() {
@@ -478,6 +549,8 @@ final class CornholeMiniGameScene: SKScene {
         playerBagsThrown    = 0
         aiBagsThrown        = 0
         hasCalculatedScore  = false
+        honeyBagSelected    = false
+        updateHoneyBagButton()
 
         for bag in activeBags {
             bag.node.removeFromParent()
@@ -709,17 +782,23 @@ final class CornholeMiniGameScene: SKScene {
                     run(SKAction.playSoundFileNamed("bag_land.wav", waitForCompletion: false))
                 }
 
-                // Small bounce then slide — rain makes the surface very slippery
-                let boardFriction: CGFloat = rainActive ? 0.968 : 0.92
-                if abs(bag.vz) > 0.5 {
-                    bag.vz = abs(bag.vz) * 0.18
-                } else {
-                    bag.vz = 0
+                if bag.isHoney {
+                    // Honey bags stick on contact — no bounce, no slide, rain-immune
+                    bag.vx = 0; bag.vy = 0; bag.vz = 0; bag.rotV = 0
                     bag.isGrounded = true
+                } else {
+                    // Small bounce then slide — rain makes the surface very slippery
+                    let boardFriction: CGFloat = rainActive ? 0.968 : 0.92
+                    if abs(bag.vz) > 0.5 {
+                        bag.vz = abs(bag.vz) * 0.18
+                    } else {
+                        bag.vz = 0
+                        bag.isGrounded = true
+                    }
+                    bag.vx *= boardFriction
+                    bag.vy *= boardFriction
+                    bag.rotV *= rainActive ? 0.88 : 0.65
                 }
-                bag.vx *= boardFriction
-                bag.vy *= boardFriction
-                bag.rotV *= rainActive ? 0.88 : 0.65
 
                 // Hole detection
                 let dist = hypot(bag.bx - holeCenter.x, bag.by - holeCenter.y)
@@ -785,10 +864,12 @@ final class CornholeMiniGameScene: SKScene {
     // MARK: - Throwing
 
     private func throwBag(owner: BagOwner, startX: CGFloat, vx: CGFloat, vy: CGFloat) {
-        let useHoney = owner == .player && availableHoneyBags > 0
+        let useHoney = owner == .player && honeyBagSelected && availableHoneyBags > 0
         if useHoney {
             availableHoneyBags -= 1
             honeyBagsUsed += 1
+            honeyBagSelected = false
+            updateHoneyBagButton()
         }
         let bag = MiniGameBag(owner: owner, startX: startX, startY: throwLineY, isHoney: useHoney)
         bag.vx = vx
@@ -923,6 +1004,11 @@ final class CornholeMiniGameScene: SKScene {
             var n: SKNode? = node
             while let current = n {
                 switch current.name {
+                case "honeyBagButton":
+                    if gameState == .playerTurn && availableHoneyBags > 0 {
+                        toggleHoneyBagSelection()
+                    }
+                    return true
                 case "closeButton":
                     showConfirmQuit()
                     return true
@@ -1090,7 +1176,9 @@ final class CornholeMiniGameScene: SKScene {
     private func updateTurnIndicator() {
         switch gameState {
         case .playerTurn:
-            turnIndicator?.color = SKColor(red: 0.90, green: 0.30, blue: 0.30, alpha: 1)
+            turnIndicator?.color = honeyBagSelected
+                ? SKColor(red: 0.95, green: 0.72, blue: 0.10, alpha: 1)  // golden — honey bag armed
+                : SKColor(red: 0.90, green: 0.30, blue: 0.30, alpha: 1)
             turnIndicator?.isHidden = false
         case .aiTurn:
             turnIndicator?.color = SKColor(red: 0.30, green: 0.50, blue: 0.90, alpha: 1)
