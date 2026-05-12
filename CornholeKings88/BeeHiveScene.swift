@@ -20,29 +20,33 @@ final class BeeHiveScene: SKScene {
     // MARK: - Private types
 
     private final class BeeBag {
-        var x, y: CGFloat
-        var vx, vy: CGFloat
+        // 3D position (matches CornholeMiniGameScene.MiniGameBag)
+        var bx, by, bz: CGFloat
+        var vx, vy, vz: CGFloat
+        var rot: CGFloat = 0
+        var rotV: CGFloat = 0
         var isAlive = true
+        var isGrounded = false
         let node: SKSpriteNode
         let shadow: SKSpriteNode
         var isHoney: Bool = false
 
-        init(x: CGFloat, y: CGFloat, vx: CGFloat, vy: CGFloat, isHoney: Bool = false) {
-            self.x = x; self.y = y
-            self.vx = vx; self.vy = vy
+        init(x: CGFloat, y: CGFloat, vx: CGFloat, vy: CGFloat, vz: CGFloat, isHoney: Bool = false) {
+            self.bx = x; self.by = y; self.bz = 3
+            self.vx = vx; self.vy = vy; self.vz = vz
             self.isHoney = isHoney
 
             let tex = SKTexture(imageNamed: "bag_16bit")
             tex.filteringMode = .nearest
-            node = SKSpriteNode(texture: tex, size: CGSize(width: 36, height: 36))
+            node = SKSpriteNode(texture: tex, size: CGSize(width: 44, height: 44))
             node.color = isHoney
                 ? SKColor(red: 0.95, green: 0.72, blue: 0.10, alpha: 1)
                 : SKColor(red: 0.90, green: 0.25, blue: 0.25, alpha: 1)
             node.colorBlendFactor = 0.65
             node.zPosition = 20
 
-            shadow = SKSpriteNode(color: .black, size: CGSize(width: 36, height: 24))
-            shadow.alpha = 0.25
+            shadow = SKSpriteNode(color: .black, size: CGSize(width: 44, height: 30))
+            shadow.alpha = 0.35
             shadow.zPosition = 6
         }
     }
@@ -77,6 +81,10 @@ final class BeeHiveScene: SKScene {
     private var powerScale: CGFloat = 0   // px-per-frame per px-of-swipe
     private let bagHitRadius: CGFloat = 35
     private let stingY:     CGFloat = 0   // unused; compare against playerY directly
+
+    // MARK: - Physics constants (mirror CornholeMiniGameScene)
+    private let gravityPerFrame: CGFloat = 0.50
+    private let vzInitial:       CGFloat = 15.0
 
     // MARK: - Game state
     private var playerHearts: Int = 3
@@ -123,9 +131,12 @@ final class BeeHiveScene: SKScene {
     private func computeLayout() {
         hiveY   =  size.height * 0.28
         playerY = -size.height * 0.30
-        let dist = abs(hiveY - playerY)
-        // A swipe of 38% screen height sends the bag from playerY to hiveY in ~1 s (60 frames).
-        powerScale = dist / (size.height * 0.38) / 60.0
+        // Match cornhole's powerScale derivation: a swipe of ~38% screen height
+        // should send the bag from playerY up to hiveY within one gravity arc.
+        let distToHive   = abs(hiveY - playerY)
+        let flightFrames = 2.0 * vzInitial / gravityPerFrame  // ≈ 60 frames
+        let idealSwipe   = size.height * 0.38
+        powerScale = distToHive / (flightFrames * idealSwipe)
     }
 
     // MARK: - Scene setup
@@ -349,7 +360,7 @@ final class BeeHiveScene: SKScene {
         }
 
         // Bees remaining on the right
-        let bLabel = makeLabel(text: "BEES: \(totalBees)",
+        let bLabel = makeLabel(text: "HIT: 0",
                                size: 9,
                                color: SKColor(red: 0.95, green: 0.75, blue: 0.15, alpha: 1))
         bLabel.horizontalAlignmentMode = .right
@@ -420,14 +431,12 @@ final class BeeHiveScene: SKScene {
     }
 
     private func spawnNextBee() {
-        guard !isGameOver,
-              beesSpawned < totalBees,
-              activeBees.count < maxConcurrent else { return }
+        guard !isGameOver, activeBees.count < maxConcurrent else { return }
 
         beesSpawned += 1
 
-        // Difficulty ramps linearly from bee 1 → 10
-        let t = CGFloat(beesSpawned - 1) / CGFloat(totalBees - 1)
+        // Difficulty ramps linearly to bee 10 then plateaus at max difficulty.
+        let t = min(1.0, CGFloat(beesSpawned - 1) / CGFloat(totalBees - 1))
         let speed     = CGFloat.random(in: (50 + t * 40)...(80 + t * 60))
         let amplitude = CGFloat.random(in: (20 + t * 20)...(40 + t * 25))
         let frequency = CGFloat.random(in: (1.0 + t * 1.0)...(1.8 + t * 1.4))
@@ -445,15 +454,14 @@ final class BeeHiveScene: SKScene {
     }
 
     private func scheduleNextSpawn() {
-        guard !spawnPending, !isGameOver, beesSpawned < totalBees else { return }
+        guard !spawnPending, !isGameOver else { return }
         spawnPending = true
         run(SKAction.sequence([
             SKAction.wait(forDuration: TimeInterval.random(in: 0.7...1.8)),
             SKAction.run { [weak self] in
                 guard let self, !self.isGameOver else { return }
                 self.spawnPending = false
-                while self.activeBees.count < self.maxConcurrent &&
-                      self.beesSpawned < self.totalBees {
+                while self.activeBees.count < self.maxConcurrent {
                     self.spawnNextBee()
                 }
             },
@@ -471,23 +479,75 @@ final class BeeHiveScene: SKScene {
         checkBagBeeCollisions()
         checkBeesReachedPlayer()
 
-        if !spawnPending && activeBees.count < maxConcurrent && beesSpawned < totalBees {
+        if !spawnPending && activeBees.count < maxConcurrent {
             scheduleNextSpawn()
         }
     }
 
     private func updateBags(_ dt: CGFloat) {
+        // Prune bags whose landing animation finished (node detached from scene).
+        activeBags.removeAll { $0.isGrounded && $0.node.parent == nil }
+
         var dead: [BeeBag] = []
-        for bag in activeBags where bag.isAlive {
-            bag.x += bag.vx
-            bag.y += bag.vy
-            bag.node.position   = CGPoint(x: bag.x, y: bag.y)
-            bag.shadow.position = CGPoint(x: bag.x + 2, y: bag.y - 3)
-            let hw = size.width  / 2 + 30
-            let hh = size.height / 2 + 30
-            if bag.x < -hw || bag.x > hw || bag.y < -hh || bag.y > hh { dead.append(bag) }
+        for bag in activeBags where bag.isAlive && !bag.isGrounded {
+            // Integrate physics — identical to CornholeMiniGameScene.updateBagPhysics
+            bag.vz -= gravityPerFrame
+            bag.bx += bag.vx
+            bag.by += bag.vy
+            bag.bz += bag.vz
+
+            bag.rot += bag.rotV
+            bag.node.zRotation = bag.rot
+
+            if bag.bz <= 0 {
+                bag.bz = 0
+                landBag(bag)
+                continue
+            }
+
+            // Render: visual Y elevated by z for arc perspective
+            let visualY = bag.by + bag.bz * 0.50
+            bag.node.position   = CGPoint(x: bag.bx, y: visualY)
+            bag.shadow.position = CGPoint(x: bag.bx + bag.bz * 0.08, y: bag.by)
+
+            let heightScale = 1.0 + bag.bz * 0.012
+            bag.node.setScale(heightScale)
+            bag.shadow.alpha   = max(0.08, 0.35 - bag.bz * 0.005)
+            bag.shadow.setScale(max(0.5, 1.0 - bag.bz * 0.005))
+
+            // Depth sort: bags closer to camera appear in front
+            bag.node.zPosition = 20 + bag.bz * 0.1 - bag.by * 0.02
+
+            let hw = size.width  / 2 + 40
+            let hh = size.height / 2 + 40
+            if bag.bx < -hw || bag.bx > hw || bag.by < -hh || bag.by > hh {
+                dead.append(bag)
+            }
         }
         dead.forEach { removeBag($0) }
+    }
+
+    /// Bag has landed at bz=0. Stop motion, settle visually, fade out.
+    private func landBag(_ bag: BeeBag) {
+        bag.isGrounded = true
+        bag.vx = 0; bag.vy = 0; bag.vz = 0; bag.rotV = 0
+        bag.node.position   = CGPoint(x: bag.bx, y: bag.by)
+        bag.shadow.position = CGPoint(x: bag.bx, y: bag.by)
+
+        // Land at base scale, then shrink to 0.75 (mirrors off-board cornhole behaviour)
+        // before fading out so the player sees the bag come to rest.
+        let settle = SKAction.scale(to: 0.75, duration: 0.12)
+        let pause  = SKAction.wait(forDuration: 0.30)
+        let fade   = SKAction.fadeOut(withDuration: 0.35)
+        bag.node.setScale(1.0)
+        bag.node.run(SKAction.sequence([settle, pause, fade, SKAction.removeFromParent()]))
+        bag.shadow.setScale(1.0)
+        bag.shadow.run(SKAction.sequence([
+            SKAction.scale(to: 0.75, duration: 0.12),
+            SKAction.wait(forDuration: 0.30),
+            SKAction.fadeOut(withDuration: 0.35),
+            SKAction.removeFromParent(),
+        ]))
     }
 
     private func updateBees(_ dt: CGFloat) {
@@ -500,10 +560,13 @@ final class BeeHiveScene: SKScene {
     }
 
     private func checkBagBeeCollisions() {
+        // Compare bee position against the bag's *visual* position (by + bz*0.50)
+        // so a hit registers when the bag visually overlaps the bee mid-arc.
         var hits: [(bag: BeeBag, bee: BeeEnemy)] = []
-        for bag in activeBags where bag.isAlive {
+        for bag in activeBags where bag.isAlive && !bag.isGrounded {
+            let visualY = bag.by + bag.bz * 0.50
             for bee in activeBees where bee.isAlive {
-                let dx = bag.x - bee.x, dy = bag.y - bee.y
+                let dx = bag.bx - bee.x, dy = visualY - bee.y
                 if dx * dx + dy * dy < bagHitRadius * bagHitRadius {
                     hits.append((bag, bee))
                     break
@@ -541,7 +604,15 @@ final class BeeHiveScene: SKScene {
         removeBag(bag)
         activeBees.removeAll { $0 === bee }
 
-        if beesHit >= totalBees { triggerGameOver(playerWon: true) }
+        // Reaching 10 hits unlocks the honey-bag reward but does NOT end the game —
+        // the player keeps fighting until they run out of hearts. Show a one-time
+        // celebration so they know the bonus is locked in.
+        if beesHit == totalBees {
+            showFloatingLabel("+3 HONEY UNLOCKED!",
+                              at: CGPoint(x: 0, y: 0),
+                              color: SKColor(red: 0.95, green: 0.82, blue: 0.10, alpha: 1))
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+        }
     }
 
     private func stingPlayer(bee: BeeEnemy) {
@@ -570,7 +641,11 @@ final class BeeHiveScene: SKScene {
             SKAction.colorize(withColorBlendFactor: 0.65, duration: 0.20),
         ]))
 
-        if playerHearts <= 0 { triggerGameOver(playerWon: false) }
+        if playerHearts <= 0 {
+            // Only end condition is running out of hearts. The win/lose flag is
+            // determined by whether the player hit at least 10 bees during the run.
+            triggerGameOver(playerWon: beesHit >= totalBees)
+        }
     }
 
     private func removeBag(_ bag: BeeBag) {
@@ -585,7 +660,12 @@ final class BeeHiveScene: SKScene {
     private func throwBag(dx: CGFloat, dy: CGFloat) {
         let vx = dx * powerScale
         let vy = dy * powerScale
-        let bag = BeeBag(x: 0, y: playerY, vx: vx, vy: vy)
+        let bag = BeeBag(x: 0, y: playerY, vx: vx, vy: vy, vz: vzInitial)
+
+        // Rotation spin proportional to throw speed (matches cornhole)
+        let speed = sqrt(vx * vx + vy * vy)
+        bag.rotV = (Bool.random() ? 1.0 : -1.0) * (0.04 + speed * 0.015)
+
         gameWorldNode.addChild(bag.node)
         gameWorldNode.addChild(bag.shadow)
         activeBags.append(bag)
@@ -713,7 +793,8 @@ final class BeeHiveScene: SKScene {
     }
 
     private func updateBeesLabel() {
-        beesRemainingLabel?.text = "BEES: \(totalBees - beesHit)"
+        let star = beesHit >= totalBees ? " ★" : ""
+        beesRemainingLabel?.text = "HIT: \(beesHit)\(star)"
     }
 
     private func rebuildHearts() {
@@ -794,15 +875,15 @@ final class BeeHiveScene: SKScene {
             detail.position = CGPoint(x: 0, y: -panelH * 0.04)
             panel.addChild(detail)
         } else {
-            let sub = makeLabel(text: "HIT ALL 10 BEES",
-                                size: fs * 0.50,
-                                color: SKColor(white: 0.65, alpha: 1))
+            let sub = makeLabel(text: "BEES HIT: \(beesHit) / \(totalBees)",
+                                size: fs * 0.55,
+                                color: SKColor(white: 0.78, alpha: 1))
             sub.position = CGPoint(x: 0, y: panelH * 0.08)
             panel.addChild(sub)
 
-            let sub2 = makeLabel(text: "TO WIN HONEY BAGS",
-                                 size: fs * 0.50,
-                                 color: SKColor(white: 0.65, alpha: 1))
+            let sub2 = makeLabel(text: "REACH \(totalBees) FOR HONEY",
+                                 size: fs * 0.45,
+                                 color: SKColor(white: 0.55, alpha: 1))
             sub2.position = CGPoint(x: 0, y: -panelH * 0.05)
             panel.addChild(sub2)
         }
@@ -888,7 +969,7 @@ final class BeeHiveScene: SKScene {
         let lines: [(String, CGFloat)] = [
             ("Bees fly down from the hive",  panelH * 0.18),
             ("Swipe up to throw a bag",       panelH * 0.05),
-            ("Hit all 10 bees to win!",      -panelH * 0.08),
+            ("Hit 10 bees to earn honey!",   -panelH * 0.08),
             ("Don't get stung!",             -panelH * 0.21),
         ]
         for (text, y) in lines {
