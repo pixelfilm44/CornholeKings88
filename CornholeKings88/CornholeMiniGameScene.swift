@@ -138,6 +138,7 @@ final class CornholeMiniGameScene: SKScene {
     private enum AIOpponent { case tom, jenny }
     private var selectedOpponent: AIOpponent = .tom
     private var opponentPortrait: SKSpriteNode?
+    private var opponentName: String { selectedOpponent == .tom ? "TOM" : "JENNY" }
 
     // Input
     private var touchStart: CGPoint?
@@ -360,7 +361,7 @@ final class CornholeMiniGameScene: SKScene {
         playerScoreLabel = pLabel
 
         // AI score — top center-right (leave room for close button)
-        let aLabel = makeLabel(text: "BOT: 0", size: 10, color: SKColor(red: 0.40, green: 0.60, blue: 0.90, alpha: 1))
+        let aLabel = makeLabel(text: "", size: 10, color: SKColor(red: 0.40, green: 0.60, blue: 0.90, alpha: 1))
         aLabel.horizontalAlignmentMode = .right
         aLabel.position = CGPoint(x: size.width / 2 - 30, y: size.height / 2 - topH / 2)
         aLabel.zPosition = 600
@@ -1112,7 +1113,7 @@ final class CornholeMiniGameScene: SKScene {
 
         // Result title
         let title = makeLabel(
-            text: playerWon ? "YOU WIN!" : "BOT WINS!",
+            text: playerWon ? "YOU WIN!" : "\(opponentName) WINS!",
             size: fs * 0.7,
             color: playerWon
                 ? SKColor(red: 0.90, green: 0.42, blue: 0.42, alpha: 1)
@@ -1122,7 +1123,7 @@ final class CornholeMiniGameScene: SKScene {
 
         // Final score
         let scoreLbl = makeLabel(
-            text: "YOU \(playerScore)  —  \(aiScore) BOT",
+            text: "YOU \(playerScore)  —  \(aiScore) \(opponentName)",
             size: fs * 0.60,
             color: SKColor(white: 0.80, alpha: 1))
         scoreLbl.position = CGPoint(x: 0, y: panelH * 0.06)
@@ -1166,7 +1167,7 @@ final class CornholeMiniGameScene: SKScene {
         let net = roundPlayer - roundAI
         let text: String
         if net > 0      { text = "+\(net) YOU" }
-        else if net < 0 { text = "+\(abs(net)) BOT" }
+        else if net < 0 { text = "+\(abs(net)) \(opponentName)" }
         else            { text = "WASH" }
 
         let lbl = makeLabel(text: text, size: max(6, size.width * 0.055),
@@ -1190,7 +1191,7 @@ final class CornholeMiniGameScene: SKScene {
 
     private func updateScoreLabels() {
         playerScoreLabel?.text = "YOU: \(playerScore)"
-        aiScoreLabel?.text     = "BOT: \(aiScore)"
+        aiScoreLabel?.text     = "\(opponentName): \(aiScore)"
     }
 
     private func updateRoundLabels() {
