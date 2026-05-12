@@ -80,14 +80,15 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     private let crimsonColor = SKColor(red: 0.54, green: 0.13, blue: 0.13, alpha: 1.0)
     private let bronzeColor = SKColor(red: 0.48, green: 0.35, blue: 0.10, alpha: 1.0)
 
-    // D-pad cross.
-    private let dpad = SKNode()
-    private let dpadCrossArm: CGFloat = 110
-    private let dpadCrossThick: CGFloat = 36
-    private var dpadHitRadius: CGFloat { dpadCrossArm / 2 + 6 }
+    // Beanbag slide control.
+    private let beanbagContainer = SKNode()   // anchored at rest position
+    private let beanbagNode = SKNode()        // slides within container
+    private let beanbagSize: CGFloat = 70
+    private let beanbagMaxOffset: CGFloat = 28
+    private var beanbagHitRadius: CGFloat { beanbagSize / 2 + 20 }
+    private var beanbagTouch: UITouch?
 
-    // D-pad haptics — fire a light "click" each time the pressed direction changes,
-    // mimicking the tactile detents of a physical controller.
+    // Haptics — fire a light "click" each time the pressed direction changes.
     private let dpadHaptics = UIImpactFeedbackGenerator(style: .light)
     private var lastDpadDirection: CGVector = .zero
 
@@ -231,67 +232,101 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         return -size.height / 2 + bottomSafeAreaInset + usableBottom / 2
     }
 
-    // MARK: - D-pad (forged iron cross)
+    // MARK: - Beanbag slide control
 
     private func setupDPad() {
-        dpad.zPosition = 10_000
-        let dpadX = -size.width / 2 + dpadCrossArm / 2 + 16
-        let dpadY = controlsY
-        dpad.position = CGPoint(x: dpadX, y: dpadY)
-        cameraNode.addChild(dpad)
+        let cx = -size.width / 2 + beanbagSize / 2 + 22
+        let cy = controlsY
+        beanbagContainer.position = CGPoint(x: cx, y: cy)
+        beanbagContainer.zPosition = 10_000
+        cameraNode.addChild(beanbagContainer)
+        beanbagContainer.addChild(beanbagNode)
 
-        let hBar = SKSpriteNode(color: ironLight,
-                                 size: CGSize(width: dpadCrossArm, height: dpadCrossThick))
-        hBar.zPosition = 0
-        dpad.addChild(hBar)
+        // Shadow ring behind the beanbag.
+        let shadow = SKShapeNode(circleOfRadius: beanbagSize / 2 + 4)
+        shadow.fillColor = SKColor(white: 0, alpha: 0.35)
+        shadow.strokeColor = .clear
+        shadow.position = CGPoint(x: 2, y: -3)
+        shadow.zPosition = 0
+        beanbagNode.addChild(shadow)
 
-        let vBar = SKSpriteNode(color: ironLight,
-                                 size: CGSize(width: dpadCrossThick, height: dpadCrossArm))
-        vBar.zPosition = 0
-        dpad.addChild(vBar)
+        // Beanbag body — fabric tan circle.
+        let body = SKShapeNode(circleOfRadius: beanbagSize / 2)
+        body.fillColor = SKColor(red: 0.76, green: 0.55, blue: 0.28, alpha: 1.0)
+        body.strokeColor = SKColor(red: 0.40, green: 0.24, blue: 0.08, alpha: 1.0)
+        body.lineWidth = 2.5
+        body.zPosition = 1
+        body.name = "beanbagBody"
+        beanbagNode.addChild(body)
 
-        // Black outline around the cross (two thin sprites per axis).
-        for side in [-1, 1] {
-            let topEdge = SKSpriteNode(color: ironColor,
-                                        size: CGSize(width: dpadCrossArm, height: 0.5))
-            topEdge.position = CGPoint(x: 0, y: CGFloat(side) * dpadCrossThick / 2)
-            topEdge.zPosition = 0.5
-            dpad.addChild(topEdge)
-
-            let sideEdge = SKSpriteNode(color: ironColor,
-                                         size: CGSize(width: 0.5, height: dpadCrossArm))
-            sideEdge.position = CGPoint(x: CGFloat(side) * dpadCrossThick / 2, y: 0)
-            sideEdge.zPosition = 0.5
-            dpad.addChild(sideEdge)
+        // Stitching dots around the center seam.
+        let stitchColor = SKColor(red: 0.35, green: 0.20, blue: 0.06, alpha: 0.7)
+        for i in 0..<8 {
+            let angle = CGFloat(i) * .pi / 4
+            let r: CGFloat = beanbagSize / 2 - 8
+            let dot = SKShapeNode(circleOfRadius: 2)
+            dot.fillColor = stitchColor
+            dot.strokeColor = .clear
+            dot.position = CGPoint(x: cos(angle) * r, y: sin(angle) * r)
+            dot.zPosition = 2
+            beanbagNode.addChild(dot)
+        }
+        // Cross-seam lines.
+        for angle in [CGFloat(0), CGFloat.pi / 2] {
+            let seam = SKShapeNode()
+            let path = CGMutablePath()
+            let dx = cos(angle) * (beanbagSize / 2 - 6)
+            let dy = sin(angle) * (beanbagSize / 2 - 6)
+            path.move(to: CGPoint(x: -dx, y: -dy))
+            path.addLine(to: CGPoint(x: dx, y: dy))
+            seam.path = path
+            seam.strokeColor = stitchColor
+            seam.lineWidth = 1.5
+            seam.zPosition = 2
+            beanbagNode.addChild(seam)
         }
 
-        // Center boss (rusty iron).
-        let boss = SKShapeNode(circleOfRadius: 12)
-        boss.fillColor = SKColor(red: 0.40, green: 0.22, blue: 0.08, alpha: 1.0)
-        boss.strokeColor = ironColor
-        boss.lineWidth = 1.0
-        boss.zPosition = 1
-        dpad.addChild(boss)
-
-        // Direction arrows.
-        let arrowColor = SKColor(red: 0.70, green: 0.50, blue: 0.22, alpha: 0.95)
+        // Direction arrows outside the beanbag body.
+        let arrowColor = SKColor(red: 0.92, green: 0.82, blue: 0.55, alpha: 0.95)
+        let arrowOffset = beanbagSize / 2 + 14
         let arrows: [(String, CGPoint)] = [
-            ("▲", CGPoint(x: 0, y: dpadCrossArm / 2 - 11)),
-            ("▼", CGPoint(x: 0, y: -dpadCrossArm / 2 + 11)),
-            ("◀", CGPoint(x: -dpadCrossArm / 2 + 11, y: 0)),
-            ("▶", CGPoint(x: dpadCrossArm / 2 - 11, y: 0))
+            ("▲", CGPoint(x: 0, y:  arrowOffset)),
+            ("▼", CGPoint(x: 0, y: -arrowOffset)),
+            ("◀", CGPoint(x: -arrowOffset, y: 0)),
+            ("▶", CGPoint(x:  arrowOffset, y: 0))
         ]
         for (sym, pos) in arrows {
             let l = SKLabelNode(text: sym)
             l.fontName = "Menlo-Bold"
-            l.fontSize = 18
+            l.fontSize = 14
             l.fontColor = arrowColor
             l.verticalAlignmentMode = .center
             l.horizontalAlignmentMode = .center
             l.position = pos
-            l.zPosition = 2
-            dpad.addChild(l)
+            l.zPosition = 3
+            beanbagContainer.addChild(l)   // arrows stay fixed; only beanbagNode slides
         }
+    }
+
+    /// Slide the beanbag sprite toward `offset` (clamped to `beanbagMaxOffset`).
+    private func slideBeanbag(to offset: CGPoint) {
+        let len = sqrt(offset.x * offset.x + offset.y * offset.y)
+        let clamped: CGPoint
+        if len > beanbagMaxOffset {
+            let scale = beanbagMaxOffset / len
+            clamped = CGPoint(x: offset.x * scale, y: offset.y * scale)
+        } else {
+            clamped = offset
+        }
+        beanbagNode.position = clamped
+    }
+
+    /// Animate the beanbag back to its rest position.
+    private func snapBeanbagHome() {
+        beanbagNode.removeAction(forKey: "snap")
+        let snap = SKAction.move(to: .zero, duration: 0.12)
+        snap.timingMode = .easeOut
+        beanbagNode.run(snap, withKey: "snap")
     }
 
     // MARK: - Action buttons (A red / B bronze)
@@ -337,8 +372,8 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
 
     private func setupInventoryHUD() {
         let hud = InventoryHUDNode()
-        // Centre horizontally; sit midway between the D-pad top and the stage bottom border.
-        let dpadTopY  = controlsY + dpadCrossArm / 2
+        // Centre horizontally; sit midway between the control area top and the stage bottom border.
+        let dpadTopY  = controlsY + beanbagSize / 2 + 14   // top of arrows
         let borderY   = -size.height / 2 + bottomChromeHeight
         hud.position  = CGPoint(x: 0, y: (dpadTopY + borderY) / 2)
         hud.zPosition = 10_000
@@ -633,11 +668,18 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
 
     // MARK: - Open Mini-Game
 
+    private func resetBeanbagControl() {
+        beanbagTouch = nil
+        lastDpadDirection = .zero
+        snapBeanbagHome()
+    }
+
     private func openCornholeMiniGame() {
         guard let view = self.view else { return }
         isTransitioning = true
         player.moveDirection = .zero
         player.physicsBody?.velocity = .zero
+        resetBeanbagControl()
 
         let mini = CornholeMiniGameScene(size: self.size)
         mini.scaleMode         = self.scaleMode
@@ -660,6 +702,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         isTransitioning = true
         player.moveDirection = .zero
         player.physicsBody?.velocity = .zero
+        resetBeanbagControl()
 
         let baseball = CornholeBaseballScene(size: self.size)
         baseball.scaleMode    = self.scaleMode
@@ -678,6 +721,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         isTransitioning = true
         player.moveDirection = .zero
         player.physicsBody?.velocity = .zero
+        resetBeanbagControl()
 
         let bee = BeeHiveScene(size: self.size)
         bee.scaleMode      = self.scaleMode
@@ -811,35 +855,28 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     // MARK: - Input
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
-        handleTouch(touches.first)
+        for touch in touches { handleTouchBegan(touch) }
     }
 
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
-        handleTouch(touches.first)
+        for touch in touches { handleTouchMoved(touch) }
     }
 
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
-        player?.moveDirection = .zero
-        lastDpadDirection = .zero
+        for touch in touches { handleTouchEnded(touch) }
     }
 
     override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
-        player?.moveDirection = .zero
-        lastDpadDirection = .zero
+        for touch in touches { handleTouchEnded(touch) }
     }
 
-    private func handleTouch(_ touch: UITouch?) {
-        guard !isTransitioning, let touch else {
-            player?.moveDirection = .zero
-            return
-        }
+    private func handleTouchBegan(_ touch: UITouch) {
+        guard !isTransitioning else { return }
         let pInCam = touch.location(in: cameraNode)
 
-        // Action buttons first (don't move while pressing A/B).
+        // Action buttons.
         let btnHit = (actionBtnRadius + 6) * (actionBtnRadius + 6)
         if let a = btnA, distanceSquared(pInCam, a.position) < btnHit {
-            player?.moveDirection = .zero
-            lastDpadDirection = .zero
             if nearbyBoardPosition != nil {
                 openCornholeMiniGame()
             } else if nearbyBaseballPosition != nil {
@@ -852,32 +889,55 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
             return
         }
         if let b = btnB, distanceSquared(pInCam, b.position) < btnHit {
-            player?.moveDirection = .zero
-            lastDpadDirection = .zero
             // Hook for B action goes here.
             return
         }
 
-        // D-pad direction.
-        let pInDpad = CGPoint(x: pInCam.x - dpad.position.x,
-                              y: pInCam.y - dpad.position.y)
-        let r2 = pInDpad.x * pInDpad.x + pInDpad.y * pInDpad.y
-        if r2 > dpadHitRadius * dpadHitRadius {
+        // Claim this touch as the beanbag touch if it lands near the control.
+        let pInBag = CGPoint(x: pInCam.x - beanbagContainer.position.x,
+                             y: pInCam.y - beanbagContainer.position.y)
+        let r2 = pInBag.x * pInBag.x + pInBag.y * pInBag.y
+        if beanbagTouch == nil, r2 <= beanbagHitRadius * beanbagHitRadius {
+            beanbagTouch = touch
+            applyBeanbagOffset(pInBag)
+        }
+    }
+
+    private func handleTouchMoved(_ touch: UITouch) {
+        guard touch === beanbagTouch else { return }
+        let pInCam = touch.location(in: cameraNode)
+        let pInBag = CGPoint(x: pInCam.x - beanbagContainer.position.x,
+                             y: pInCam.y - beanbagContainer.position.y)
+        applyBeanbagOffset(pInBag)
+    }
+
+    private func handleTouchEnded(_ touch: UITouch) {
+        guard touch === beanbagTouch else { return }
+        beanbagTouch = nil
+        player?.moveDirection = .zero
+        lastDpadDirection = .zero
+        snapBeanbagHome()
+    }
+
+    private func applyBeanbagOffset(_ offset: CGPoint) {
+        let deadzone: CGFloat = 6
+        let len = sqrt(offset.x * offset.x + offset.y * offset.y)
+        guard len > deadzone else {
             player?.moveDirection = .zero
             lastDpadDirection = .zero
+            slideBeanbag(to: .zero)
             return
         }
+        slideBeanbag(to: offset)
+
         let newDirection: CGVector
-        if abs(pInDpad.x) > abs(pInDpad.y) {
-            newDirection = CGVector(dx: pInDpad.x >= 0 ? 1 : -1, dy: 0)
-        } else if abs(pInDpad.y) > 0 {
-            newDirection = CGVector(dx: 0, dy: pInDpad.y >= 0 ? 1 : -1)
+        if abs(offset.x) > abs(offset.y) {
+            newDirection = CGVector(dx: offset.x >= 0 ? 1 : -1, dy: 0)
         } else {
-            newDirection = .zero
+            newDirection = CGVector(dx: 0, dy: offset.y >= 0 ? 1 : -1)
         }
         player?.moveDirection = newDirection
-        if newDirection != .zero,
-           (newDirection.dx != lastDpadDirection.dx || newDirection.dy != lastDpadDirection.dy) {
+        if newDirection.dx != lastDpadDirection.dx || newDirection.dy != lastDpadDirection.dy {
             dpadHaptics.impactOccurred()
             dpadHaptics.prepare()
         }
