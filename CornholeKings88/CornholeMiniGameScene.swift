@@ -918,7 +918,6 @@ final class CornholeMiniGameScene: SKScene {
         let noise = holeRadius * noiseFactor
         var aimX = holeCenter.x + CGFloat.random(in: -noise...noise)
         var aimY = holeCenter.y + CGFloat.random(in: -noise * 0.5...noise * 0.5)
-        var speedMult: CGFloat = 1.0
 
         // Tom — mirrors player hole shots: when player has a bag in the hole,
         // strong chance to aim with tight precision and cancel those points.
@@ -931,21 +930,20 @@ final class CornholeMiniGameScene: SKScene {
             }
         }
 
-        // Jenny — targets player bags resting on the board at high speed to knock them off.
+        // Jenny — high chance to aim directly at a player bag resting on the board.
         if selectedOpponent == .jenny {
             let targets = activeBags.filter {
                 $0.owner == .player && $0.isGrounded && !$0.hasScored &&
                 !$0.hasAppliedGroundScale && checkIsOnBoard($0)
             }
-            if let target = targets.randomElement(), Double.random(in: 0..<1) < 0.65 {
+            if let target = targets.randomElement(), Double.random(in: 0..<1) < 0.85 {
                 aimX = target.bx + CGFloat.random(in: -10...10)
                 aimY = target.by + CGFloat.random(in: -10...10)
-                speedMult = 1.45   // extra velocity = more force on impact
             }
         }
 
-        let vx = (aimX - startX) / flightFrames * speedMult
-        let vy = (aimY - throwLineY) / flightFrames * speedMult
+        let vx = (aimX - startX) / flightFrames
+        let vy = (aimY - throwLineY) / flightFrames
 
         throwBag(owner: .ai, startX: startX, vx: vx, vy: vy)
     }
