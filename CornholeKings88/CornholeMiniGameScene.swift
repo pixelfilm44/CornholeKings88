@@ -134,6 +134,11 @@ final class CornholeMiniGameScene: SKScene {
     private var crowNode: SKNode?
     private var crowFlyingRight = true
 
+    // Opponent selection
+    private enum AIOpponent { case tom, jenny }
+    private var selectedOpponent: AIOpponent = .tom
+    private var opponentPortrait: SKSpriteNode?
+
     // Input
     private var touchStart: CGPoint?
     private var aimingLine: SKShapeNode?
@@ -163,11 +168,8 @@ final class CornholeMiniGameScene: SKScene {
         rollRainScenario()
         rollThunderstormScenario()
 
-        // Always show on mini-game open. Player can dismiss instantly with "GOT IT!".
-        // hideTutorial() calls startRound() once dismissed.
-        // TODO: re-introduce one-time gating once rendering is confirmed.
-        showFirstTimeTutorial()
-        print("🎓 Cornhole tutorial requested in didMove")
+        // Picker → tutorial → startRound
+        showOpponentPicker()
     }
 
     // MARK: - Layout
@@ -259,7 +261,7 @@ final class CornholeMiniGameScene: SKScene {
         let boardContainer = SKNode()
         boardContainer.position = CGPoint(x: 0, y: boardY)
         boardContainer.zPosition = 5
-        boardContainer.setScale(0.95)   // visual-only shrink; hit zone uses unscaled values
+        boardContainer.setScale(0.90)   // visual-only shrink; hit zone uses unscaled values
         gameWorldNode.addChild(boardContainer)
 
         let bw = boardHalfW * 2
@@ -376,7 +378,8 @@ final class CornholeMiniGameScene: SKScene {
         // Round score labels (bottom left/right, shown during play)
         let rndPLabel = makeLabel(text: "", size: 10, color: SKColor(red: 0.90, green: 0.42, blue: 0.42, alpha: 1))
         rndPLabel.horizontalAlignmentMode = .left
-        rndPLabel.position = CGPoint(x: -size.width / 2 + 8, y: -size.height / 2 + bottomH / 2)
+        // Left margin leaves room for the 48pt opponent portrait
+        rndPLabel.position = CGPoint(x: -size.width / 2 + 58, y: -size.height / 2 + bottomH / 2)
         rndPLabel.zPosition = 600
         rndPLabel.name = "rndPlayerLabel"
         addChild(rndPLabel)
@@ -906,17 +909,42 @@ final class CornholeMiniGameScene: SKScene {
     private func aiThrow() {
         guard gameState == .aiTurn, aiBagsThrown < bagsPerPlayer else { return }
 
-        // Aim at the hole — rain makes both players less accurate
+        let startX       = pendingAIStartX
+        let flightFrames = 2.0 * vzInitial / gravityPerFrame  // ≈ 60 frames
+
+        // Base aim: hole with noise scaled by weather
         let noiseFactor: CGFloat = rainActive ? 2.6 : 1.8
-        let noise: CGFloat = holeRadius * noiseFactor
-        let aimX = holeCenter.x + CGFloat.random(in: -noise...noise)
-        let aimY = holeCenter.y + CGFloat.random(in: -noise * 0.5...noise * 0.5)
+        let noise = holeRadius * noiseFactor
+        var aimX = holeCenter.x + CGFloat.random(in: -noise...noise)
+        var aimY = holeCenter.y + CGFloat.random(in: -noise * 0.5...noise * 0.5)
+        var speedMult: CGFloat = 1.0
 
-        let startX = CGFloat.random(in: -targetRange * 0.55...targetRange * 0.55)
-        let flightFrames = 2.0 * vzInitial / gravityPerFrame  // ≈ 93 frames
+        // Tom — mirrors player hole shots: when player has a bag in the hole,
+        // strong chance to aim with tight precision and cancel those points.
+        if selectedOpponent == .tom {
+            let playerHoles = activeBags.filter { $0.owner == .player && $0.hasScored }.count
+            if playerHoles > 0, Double.random(in: 0..<1) < 0.72 {
+                let preciseNoise = holeRadius * 0.22
+                aimX = holeCenter.x + CGFloat.random(in: -preciseNoise...preciseNoise)
+                aimY = holeCenter.y + CGFloat.random(in: -preciseNoise * 0.5...preciseNoise * 0.5)
+            }
+        }
 
-        let vx = (aimX - startX) / flightFrames
-        let vy = (aimY - throwLineY) / flightFrames
+        // Jenny — targets player bags resting on the board at high speed to knock them off.
+        if selectedOpponent == .jenny {
+            let targets = activeBags.filter {
+                $0.owner == .player && $0.isGrounded && !$0.hasScored &&
+                !$0.hasAppliedGroundScale && checkIsOnBoard($0)
+            }
+            if let target = targets.randomElement(), Double.random(in: 0..<1) < 0.65 {
+                aimX = target.bx + CGFloat.random(in: -10...10)
+                aimY = target.by + CGFloat.random(in: -10...10)
+                speedMult = 1.45   // extra velocity = more force on impact
+            }
+        }
+
+        let vx = (aimX - startX) / flightFrames * speedMult
+        let vy = (aimY - throwLineY) / flightFrames * speedMult
 
         throwBag(owner: .ai, startX: startX, vx: vx, vy: vy)
     }
@@ -1319,6 +1347,7 @@ final class CornholeMiniGameScene: SKScene {
             size: CGSize(width: boardHalfW * 2, height: boardHalfH * 2))
         overlay.position  = CGPoint(x: 0, y: boardY)
         overlay.zPosition = 8
+        overlay.setScale(0.90)   // match board visual scale
         gameWorldNode.addChild(overlay)
         boardRainOverlay = overlay
 
@@ -1885,7 +1914,7 @@ final class CornholeMiniGameScene: SKScene {
     }
 
     private func makeCrowSprite(facingRight: Bool) -> SKSpriteNode {
-        let ps = 4
+        let ps = 5   // 25% bigger than original ps=4
         // 11 × 6 pixel grid — beak faces right; flip xScale for left-facing
         let grid: [[Int]] = [
             [0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0],
@@ -1978,6 +2007,40 @@ final class CornholeMiniGameScene: SKScene {
             SKAction.fadeOut(withDuration: 0.25),
             SKAction.removeFromParent(),
         ]))
+    }
+
+    // MARK: - Opponent Selection
+
+    private func showOpponentPicker() {
+        let configs: [OpponentConfig] = [
+            OpponentConfig(name: "TOM",   imageName: "tom",
+                           traitText: "TOPS YOUR HOLE SHOTS"),
+            OpponentConfig(name: "JENNY", imageName: "jenny",
+                           traitText: "KNOCKS BAGS OFF BOARD"),
+        ]
+        let picker = OpponentPickerNode(opponents: configs, sceneSize: size)
+        picker.zPosition = 3000
+        picker.onSelected = { [weak self] index in
+            guard let self else { return }
+            self.selectedOpponent = index == 0 ? .tom : .jenny
+            self.addOpponentPortrait()
+            self.showFirstTimeTutorial()
+        }
+        addChild(picker)
+    }
+
+    private func addOpponentPortrait() {
+        opponentPortrait?.removeFromParent()
+        let name = selectedOpponent == .tom ? "tom" : "jenny"
+        let tex  = SKTexture(imageNamed: name)
+        tex.filteringMode = .nearest
+        let bottomH = size.height * 0.09
+        let portrait = SKSpriteNode(texture: tex, size: CGSize(width: 48, height: 48))
+        portrait.position  = CGPoint(x: -size.width / 2 + 28,
+                                     y: -size.height / 2 + bottomH / 2)
+        portrait.zPosition = 650
+        addChild(portrait)
+        opponentPortrait = portrait
     }
 
     // MARK: - Dismiss
