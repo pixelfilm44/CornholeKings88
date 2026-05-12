@@ -41,6 +41,7 @@ final class CornholeBaseballScene: SKScene {
     // MARK: - HUD (SwiftUI overlay, owned by this scene)
     private let hudViewModel = BaseballHUDViewModel()
     private var hudHostingController: UIHostingController<BaseballHUDView>?
+    private var closeUIButton: UIButton?
 
     // MARK: - Field layout
     private var batY:     CGFloat = 0   // top  (positive)
@@ -85,6 +86,19 @@ final class CornholeBaseballScene: SKScene {
 
     // Tutorial state
     private var tutorialActive = false
+    private var phaseTransitionActive = false
+
+    // Tracks which half is active for HUD display — stays stable through .tracking/.gameOver
+    private var isUserBattingHalf = true
+
+    // Bat barrel contact zone (computed from batNode geometry, valid after setupBatter)
+    private var batBarrelMinX: CGFloat {
+        batNode.position.x - batNode.size.width * batNode.anchorPoint.x + 16
+    }
+    private var batBarrelMaxX: CGFloat {
+        batNode.position.x + batNode.size.width * (1 - batNode.anchorPoint.x)
+    }
+    private var batBarrelCenterY: CGFloat { batNode.position.y }
 
     // User pitching gesture
     private var pitchTouchStart: CGPoint?
@@ -149,6 +163,8 @@ final class CornholeBaseballScene: SKScene {
     override func willMove(from view: SKView) {
         hudHostingController?.view.removeFromSuperview()
         hudHostingController = nil
+        closeUIButton?.removeFromSuperview()
+        closeUIButton = nil
     }
 
     // MARK: - SwiftUI HUD injection
@@ -162,7 +178,29 @@ final class CornholeBaseballScene: SKScene {
         hc.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         view.addSubview(hc.view)
         hudHostingController = hc
+
+        // Close button as a native UIButton above the SwiftUI layer so it's always visible
+        let barH   = view.bounds.height * 0.105
+        let btnW: CGFloat = 36
+        let btnH: CGFloat = 28
+        let btn = UIButton(type: .custom)
+        btn.setTitle("✕", for: .normal)
+        btn.titleLabel?.font = UIFont(name: "PressStart2P-Regular", size: 13)
+        btn.setTitleColor(UIColor(red: 1.0, green: 0.88, blue: 0.82, alpha: 1), for: .normal)
+        btn.backgroundColor = UIColor(red: 0.63, green: 0.16, blue: 0.10, alpha: 1)
+        btn.layer.cornerRadius = 4
+        btn.frame = CGRect(x: view.bounds.width - btnW - 8,
+                           y: (barH - btnH) / 2,
+                           width: btnW, height: btnH)
+        btn.addTarget(self, action: #selector(closeButtonTapped), for: .touchUpInside)
+        view.addSubview(btn)
+        closeUIButton = btn
+
         pushHUD()
+    }
+
+    @objc private func closeButtonTapped() {
+        dismissScene(playerWon: false)
     }
 
     // MARK: - Layout
@@ -406,7 +444,8 @@ final class CornholeBaseballScene: SKScene {
 
     // MARK: - Game flow
 
-    private func startUserBatting() {
+    private func startUserBatting(showModal: Bool = true) {
+        isUserBattingHalf = true
         phase         = .userBatting
         aiPitchCount  = 0
         userHasSwung  = false
@@ -422,10 +461,16 @@ final class CornholeBaseballScene: SKScene {
         animateCamera(to: .zero, duration: 0.30)
         pushHUD()
 
-        run(.wait(forDuration: 1.0)) { [weak self] in self?.throwAIPitch() }
+        if showModal {
+            showReadyToBatModal()
+            run(.wait(forDuration: 2.6)) { [weak self] in self?.throwAIPitch() }
+        } else {
+            run(.wait(forDuration: 1.0)) { [weak self] in self?.throwAIPitch() }
+        }
     }
 
     private func startUserPitching() {
+        isUserBattingHalf = false
         phase          = .userPitching
         userPitchCount = 0
         pitchInFlight  = false
@@ -443,7 +488,7 @@ final class CornholeBaseballScene: SKScene {
         UIImpactFeedbackGenerator(style: .soft).impactOccurred()
         // PLACEHOLDER: add phase_change.wav to Copy Bundle Resources
         run(SKAction.playSoundFileNamed("phase_change.wav", waitForCompletion: false))
-        showCentreFlash("YOUR TURN\nTO PITCH!")
+        showReadyToPitchModal()
     }
 
     private func afterBattingHalf() {
@@ -475,10 +520,11 @@ final class CornholeBaseballScene: SKScene {
         pushHUD()
 
         let pitch = PitchBag()
-        pitch.bx = CGFloat.random(in: -size.width * 0.08 ... size.width * 0.08)
+        // Restrict to bat barrel x range (-12…24) so every pitch is hittable
+        pitch.bx = CGFloat.random(in: -10 ... 18)
         pitch.by = pitcherY                               // start at BOTTOM
         pitch.vy = +CGFloat.random(in: 5.0 ... 8.5)      // travel UPWARD
-        pitch.vx = CGFloat.random(in: -0.15 ... 0.15)  // nearly straight
+        pitch.vx = CGFloat.random(in: -0.10 ... 0.10)  // nearly straight
 
         pitch.node = makeBagNode(color: SKColor(red: 0.25, green: 0.48, blue: 0.90, alpha: 1), size: 22)
         pitch.node.position  = CGPoint(x: pitch.bx, y: pitch.by)
@@ -520,12 +566,12 @@ final class CornholeBaseballScene: SKScene {
         pitchBag      = pitch
         pitchInFlight = true
 
-        // 35% chance AI tries a power swing
-        aiWillPowerSwing = CGFloat.random(in: 0...1) < 0.35
+        // 20% chance AI tries a power swing
+        aiWillPowerSwing = CGFloat.random(in: 0...1) < 0.20
         if aiWillPowerSwing { aiPowerChargeStartTime = CACurrentMediaTime() }
 
-        // AI hit probability: base 65 %, drops further if power-swinging
-        let preMissProb: Double = aiWillPowerSwing ? 0.55 : 0.35
+        // AI hit probability: base 85 %, drops slightly if power-swinging
+        let preMissProb: Double = aiWillPowerSwing ? 0.30 : 0.15
         aiWillHit    = Double.random(in: 0...1) > preMissProb
         aiFrameCount = 0
         let travelFrames = max(10, Int((batY - pitcherY) / pitchSpeed))
@@ -548,17 +594,36 @@ final class CornholeBaseballScene: SKScene {
         ]))
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
 
-        // Swinging at a pitch outside the strike zone is an automatic miss
-        let szCentre = strikeZone.position
-        var pitchNearZone = false
-        for frame in 0...12 {
+        // Bat barrel bounds in world space (based on batNode geometry from setupBatter)
+        let barrelMinX = batBarrelMinX          // ≈ -12
+        let barrelMaxX = batBarrelMaxX          // ≈  24
+        let barrelCenterX = (barrelMinX + barrelMaxX) * 0.5
+        let barrelHalfW   = (barrelMaxX - barrelMinX) * 0.5
+        let barrelY       = batBarrelCenterY    // batY + 4
+        let barrelHalfH: CGFloat = 9
+
+        // Project pitch over the next 14 frames to find the contact frame closest to the barrel Y.
+        // A hit only registers when the bag physically passes through the bat barrel.
+        var pitchPassesBarrel = false
+        var quality: CGFloat = 0.0
+        for frame in 0...14 {
             let projX = pitch.bx + pitch.vx * CGFloat(frame)
             let projY = pitch.by + pitch.vy * CGFloat(frame)
-            if abs(projX - szCentre.x) < 32 && abs(projY - szCentre.y) < 16 {
-                pitchNearZone = true; break
+            let dy = abs(projY - barrelY)
+            if dy < barrelHalfH {
+                if projX >= barrelMinX && projX <= barrelMaxX {
+                    pitchPassesBarrel = true
+                    let xQ = max(0, 1.0 - abs(projX - barrelCenterX) / barrelHalfW)
+                    let yQ = max(0, 1.0 - dy / barrelHalfH)
+                    quality = max(quality, xQ * 0.7 + yQ * 0.3)
+                } else if abs(projX - barrelCenterX) < barrelHalfW + 12 {
+                    // Just outside barrel edge — triggers swing window but won't produce quality
+                    pitchPassesBarrel = true
+                }
             }
         }
-        if !pitchNearZone {
+
+        if !pitchPassesBarrel {
             removePitchBag()
             UINotificationFeedbackGenerator().notificationOccurred(.warning)
             // PLACEHOLDER: add strike_call.wav to Copy Bundle Resources
@@ -593,21 +658,6 @@ final class CornholeBaseballScene: SKScene {
                 self?.checkBattingHalfDone()
             }
             return
-        }
-
-        // Contact quality — look-ahead over 12 frames so the player doesn't need
-        // split-second timing. The bag moves ~6-8 pts/frame, so checking the next
-        // 12 frames gives ~0.2 s of forgiveness for releasing early.
-        // Bounds are intentionally generous (wider than the visible zone) because
-        // pixel-perfect accuracy against a moving bag feels unfair.
-        var quality: CGFloat = 0.0
-        for frame in 0...12 {
-            let projX = pitch.bx + pitch.vx * CGFloat(frame)
-            let projY = pitch.by + pitch.vy * CGFloat(frame)
-            let dx = abs(projX - szCentre.x)
-            let dy = abs(projY - szCentre.y)
-            if dx < 32 && dy < 26      { quality = 1.00; break }
-            else if dx < 48 && dy < 38 { quality = max(quality, 0.60) }
         }
 
         removePitchBag()
@@ -656,8 +706,8 @@ final class CornholeBaseballScene: SKScene {
             : 0
         aiWillPowerSwing = false
 
-        // Recalculate hit chance using actual final charge (higher charge = riskier)
-        let missProb = 0.35 + Double(aiCharge) * 0.45
+        // Recalculate hit chance — AI is a strong hitter, power swing adds minor risk
+        let missProb = 0.15 + Double(aiCharge) * 0.20
         aiWillHit    = Double.random(in: 0...1) > missProb
 
         removePitchBag()
@@ -669,7 +719,7 @@ final class CornholeBaseballScene: SKScene {
             run(.wait(forDuration: 0.25)) { [weak self] in
                 self?.aiBatNode.run(.rotate(toAngle: 0, duration: 0.18))
             }
-            let quality = CGFloat.random(in: 0.35 ... 1.0)
+            let quality = CGFloat.random(in: 0.65 ... 1.0)
             launchHitBag(from: CGPoint(x: pitch.bx, y: batY),
                          quality: quality, chargeLevel: aiCharge, isUser: false)
         } else {
@@ -1080,8 +1130,8 @@ final class CornholeBaseballScene: SKScene {
         guard let touch = touches.first else { return }
         let loc = touch.location(in: self)
 
-        // Tutorial overlay consumes all input until dismissed
-        if tutorialActive { handleButtonTap(at: loc); return }
+        // Tutorial or phase-transition modal consumes all input
+        if tutorialActive || phaseTransitionActive { handleButtonTap(at: loc); return }
 
         if handleButtonTap(at: loc) { return }
 
@@ -1257,11 +1307,11 @@ final class CornholeBaseballScene: SKScene {
     }
 
     private func pushHUD() {
-        let pitchInPhase = phase == .userBatting ? aiPitchCount : userPitchCount
+        let pitchInPhase = isUserBattingHalf ? aiPitchCount : userPitchCount
         let vm = hudViewModel
         DispatchQueue.main.async {
             vm.cycle          = self.currentCycle
-            vm.phaseIsbatting = (self.phase == .userBatting)
+            vm.phaseIsbatting = self.isUserBattingHalf
             vm.pitchCount     = pitchInPhase
             vm.playerAvgFt    = Int(self.userAvg * self.distScale)
             vm.aiAvgFt        = Int(self.aiAvg   * self.distScale)
@@ -1356,7 +1406,7 @@ final class CornholeBaseballScene: SKScene {
         hitStopEndTime = 0
         gameWorldNode.speed = 1
         animateCamera(to: .zero, duration: 0.30)
-        startUserBatting()
+        startUserBatting(showModal: false)
     }
 
     // MARK: - Shared helpers
@@ -1386,6 +1436,92 @@ final class CornholeBaseballScene: SKScene {
         let lbl  = makeLabel(label, size: 10, color: fg)
         lbl.zPosition = 1; n.addChild(lbl)
         return n
+    }
+
+    // MARK: - Phase Transition Modals
+
+    private func showReadyToBatModal() {
+        phaseTransitionActive = true
+
+        let panelW = size.width  * 0.72
+        let panelH = size.height * 0.20
+        let fs     = max(9, size.width * 0.058)
+
+        let overlay = SKNode()
+        overlay.zPosition = 1500
+        overlay.name      = "readyToBatOverlay"
+        overlay.alpha     = 0
+
+        let back = SKSpriteNode(color: SKColor(red: 0.06, green: 0.04, blue: 0.02, alpha: 0.96),
+                                size: CGSize(width: panelW, height: panelH))
+        overlay.addChild(back)
+
+        let border = SKShapeNode(rectOf: CGSize(width: panelW + 3, height: panelH + 3))
+        border.strokeColor = SKColor(red: 0.60, green: 0.42, blue: 0.14, alpha: 1)
+        border.fillColor   = .clear
+        border.lineWidth   = 3
+        overlay.addChild(border)
+
+        let title = makeLabel("READY TO BAT!", size: fs,
+                              color: SKColor(red: 0.38, green: 0.90, blue: 0.38, alpha: 1))
+        title.position = CGPoint(x: 0, y: panelH * 0.14)
+        overlay.addChild(title)
+
+        let sub = makeLabel("HOLD & RELEASE TO SWING", size: max(5, fs * 0.48),
+                            color: SKColor(white: 0.68, alpha: 1))
+        sub.position = CGPoint(x: 0, y: -panelH * 0.24)
+        overlay.addChild(sub)
+
+        addChild(overlay)
+        overlay.run(.sequence([
+            .fadeIn(withDuration: 0.18),
+            .wait(forDuration: 2.0),
+            .fadeOut(withDuration: 0.22),
+            .removeFromParent(),
+            .run { [weak self] in self?.phaseTransitionActive = false },
+        ]))
+    }
+
+    private func showReadyToPitchModal() {
+        phaseTransitionActive = true
+
+        let panelW = size.width  * 0.72
+        let panelH = size.height * 0.20
+        let fs     = max(9, size.width * 0.058)
+
+        let overlay = SKNode()
+        overlay.zPosition = 1500
+        overlay.name      = "readyToPitchOverlay"
+        overlay.alpha     = 0
+
+        let back = SKSpriteNode(color: SKColor(red: 0.06, green: 0.04, blue: 0.02, alpha: 0.96),
+                                size: CGSize(width: panelW, height: panelH))
+        overlay.addChild(back)
+
+        let border = SKShapeNode(rectOf: CGSize(width: panelW + 3, height: panelH + 3))
+        border.strokeColor = SKColor(red: 0.60, green: 0.42, blue: 0.14, alpha: 1)
+        border.fillColor   = .clear
+        border.lineWidth   = 3
+        overlay.addChild(border)
+
+        let title = makeLabel("READY TO PITCH!", size: fs,
+                              color: SKColor(red: 0.38, green: 0.78, blue: 1.0, alpha: 1))
+        title.position = CGPoint(x: 0, y: panelH * 0.14)
+        overlay.addChild(title)
+
+        let sub = makeLabel("SWIPE UP FROM BOTTOM", size: max(5, fs * 0.48),
+                            color: SKColor(white: 0.68, alpha: 1))
+        sub.position = CGPoint(x: 0, y: -panelH * 0.24)
+        overlay.addChild(sub)
+
+        addChild(overlay)
+        overlay.run(.sequence([
+            .fadeIn(withDuration: 0.18),
+            .wait(forDuration: 2.0),
+            .fadeOut(withDuration: 0.22),
+            .removeFromParent(),
+            .run { [weak self] in self?.phaseTransitionActive = false },
+        ]))
     }
 
     // MARK: - First-time Tutorial
@@ -1453,7 +1589,7 @@ final class CornholeBaseballScene: SKScene {
             .fadeOut(withDuration: 0.20),
             .removeFromParent(),
         ]))
-        startUserBatting()
+        startUserBatting(showModal: false)
     }
 
     // MARK: - Dismiss

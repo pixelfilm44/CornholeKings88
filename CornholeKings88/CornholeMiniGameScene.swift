@@ -11,6 +11,10 @@ final class CornholeMiniGameScene: SKScene {
     // MARK: - Public
     var previousScene: SKScene?
     var onComplete: ((Bool) -> Void)?
+    /// Honey bags from inventory injected by GameScene before presenting.
+    var availableHoneyBags: Int = 0
+    /// How many honey bags the player actually used this match (consumed from inventory).
+    private(set) var honeyBagsUsed: Int = 0
 
     // MARK: - Types
 
@@ -31,23 +35,28 @@ final class CornholeMiniGameScene: SKScene {
         var hasAppliedGroundScale = false    // prevents double-shrink on re-collision
         var hasLanded = false               // first touchdown — for haptic trigger
         var baseScale: CGFloat = 1.0        // 0.75 for off-board bags; multiplied by height scale
+        /// Honey bags (won from BeeHive Battle) stick to the board — immune to wind and bag collisions.
+        var isHoney = false
 
         let node: SKSpriteNode
         let shadow: SKSpriteNode
 
-        init(owner: BagOwner, startX: CGFloat, startY: CGFloat) {
+        init(owner: BagOwner, startX: CGFloat, startY: CGFloat, isHoney: Bool = false) {
             self.owner = owner
             self.bx = startX; self.by = startY; self.bz = 3
             self.vx = 0; self.vy = 0; self.vz = 0
+            self.isHoney = isHoney
 
-            let playerColor = SKColor(red: 0.90, green: 0.25, blue: 0.25, alpha: 1)
+            let playerColor = isHoney
+                ? SKColor(red: 0.95, green: 0.72, blue: 0.10, alpha: 1)   // golden amber
+                : SKColor(red: 0.90, green: 0.25, blue: 0.25, alpha: 1)
             let aiColor     = SKColor(red: 0.25, green: 0.48, blue: 0.90, alpha: 1)
 
             let bagTex = SKTexture(imageNamed: "bag_16bit")
             bagTex.filteringMode = .nearest
             node = SKSpriteNode(texture: bagTex, size: CGSize(width: 50, height: 50))
             node.color            = owner == .player ? playerColor : aiColor
-            node.colorBlendFactor = 0.65   // tint sprite red (player) or blue (AI)
+            node.colorBlendFactor = 0.65
             node.zPosition        = 20
 
             shadow = SKSpriteNode(color: .black,
@@ -71,6 +80,7 @@ final class CornholeMiniGameScene: SKScene {
     private var targetRange: CGFloat = 0
     private var targetSpeed: CGFloat = 0
     private var powerScale: CGFloat = 0
+    private var crowY:      CGFloat = 0
 
     // MARK: - Physics constants
     private let gravityPerFrame: CGFloat = 0.50
@@ -110,6 +120,17 @@ final class CornholeMiniGameScene: SKScene {
     private var stormDarkOverlay: SKSpriteNode?
     private var stormParticleNode: SKNode?
     private var stormFlashOverlay: SKSpriteNode?
+
+    // Gopher — only one alive at a time; chases the throw-line bag and steals it
+    private var activeGopher: GopherNode?
+    private let gopherSpawnChance: Double = 0.15   // 15% per turn
+    // Pre-committed AI start position so the gopher can race toward it.
+    // Set when the AI's turn begins; consumed by aiThrow().
+    private var pendingAIStartX: CGFloat = 0
+
+    // Crow — occasionally flies through the bag-flight corridor below the board
+    private var crowNode: SKNode?
+    private var crowFlyingRight = true
 
     // Input
     private var touchStart: CGPoint?
@@ -163,6 +184,9 @@ final class CornholeMiniGameScene: SKScene {
         let flightFrames = 2.0 * vzInitial / gravityPerFrame  // ≈ 100 frames
         let idealSwipe   = size.height * 0.38
         powerScale = distToHole / (flightFrames * idealSwipe)
+
+        // Crow intercept corridor: 60% of the way from throw line to board's lower edge
+        crowY = throwLineY + (boardY - boardHalfH - throwLineY) * 0.60
     }
 
     // MARK: - Scene Setup
@@ -179,11 +203,18 @@ final class CornholeMiniGameScene: SKScene {
         gameWorldNode.shouldRasterize = false
         addChild(gameWorldNode)
 
-        // Dark-green grass background
-        let bg = SKSpriteNode(color: SKColor(red: 0.13, green: 0.30, blue: 0.10, alpha: 1),
+        // Grass background — slightly brightened for outdoor daylight feel
+        let bg = SKSpriteNode(color: SKColor(red: 0.18, green: 0.38, blue: 0.13, alpha: 1),
                               size: CGSize(width: size.width * 2, height: size.height * 2))
         bg.zPosition = -200
         gameWorldNode.addChild(bg)
+
+        // Warm sunlight wash — subtle yellow-gold tint. Added to scene (not gameWorldNode)
+        // to avoid SKEffectNode render-bounds expansion.
+        let sunGlow = SKSpriteNode(color: SKColor(red: 1.0, green: 0.92, blue: 0.42, alpha: 0.11),
+                                   size: CGSize(width: size.width * 2, height: size.height * 2))
+        sunGlow.zPosition = 60   // above gameplay, below chrome (500)
+        addChild(sunGlow)
 
         addGrassPattern()
 
@@ -225,6 +256,7 @@ final class CornholeMiniGameScene: SKScene {
         let boardContainer = SKNode()
         boardContainer.position = CGPoint(x: 0, y: boardY)
         boardContainer.zPosition = 5
+        boardContainer.setScale(0.95)   // visual-only shrink; hit zone uses unscaled values
         gameWorldNode.addChild(boardContainer)
 
         let bw = boardHalfW * 2
@@ -453,6 +485,12 @@ final class CornholeMiniGameScene: SKScene {
         }
         activeBags.removeAll()
 
+        clearGopher()
+
+        crowNode?.removeFromParent()
+        crowNode = nil
+        removeAction(forKey: "crowSchedule")
+
         messageNode?.removeFromParent()
         messageNode = nil
 
@@ -464,6 +502,10 @@ final class CornholeMiniGameScene: SKScene {
         updateScoreLabels()
         updateTurnIndicator()
         updateRoundLabels()
+
+        // First throw of the round is the player's — give the gopher a chance.
+        maybeStartGopher(for: .player)
+        scheduleCrow()
     }
 
     private var allBagsThrown: Bool {
@@ -477,14 +519,28 @@ final class CornholeMiniGameScene: SKScene {
             calculateRoundScore()
         } else if lastThrower == .player {
             gameState = .aiTurn
+            // Pre-commit AI start X so the gopher has a fixed target to chase.
+            pendingAIStartX = CGFloat.random(in: -targetRange * 0.55...targetRange * 0.55)
             updateTurnIndicator()
-            run(SKAction.wait(forDuration: 0.50)) { [weak self] in self?.aiThrow() }
+            turnIndicator?.position.x = pendingAIStartX
+
+            maybeStartGopher(for: .ai)
+            // Give the gopher a longer wind-up so it has a real chance to win the race.
+            let delay: TimeInterval = activeGopher == nil
+                ? 0.50
+                : TimeInterval.random(in: 1.0...1.8)
+            run(SKAction.sequence([
+                SKAction.wait(forDuration: delay),
+                SKAction.run { [weak self] in self?.aiThrow() },
+            ]), withKey: "pendingAIThrow")
         } else {
             gameState = .playerTurn
             targetX = 0
             turnIndicator?.position.x = 0
             turnIndicator?.isHidden = false
             updateTurnIndicator()
+
+            maybeStartGopher(for: .player)
         }
     }
 
@@ -511,6 +567,9 @@ final class CornholeMiniGameScene: SKScene {
 
         if playerScore >= winScore || aiScore >= winScore {
             gameState = .gameOver
+            removeAction(forKey: "crowSchedule")
+            crowNode?.removeFromParent()
+            crowNode = nil
             // PLACEHOLDER: add game_win.wav / game_lose.wav to Copy Bundle Resources
             let resultSound = playerScore > aiScore ? "game_win.wav" : "game_lose.wav"
             run(SKAction.playSoundFileNamed(resultSound, waitForCompletion: false))
@@ -547,6 +606,9 @@ final class CornholeMiniGameScene: SKScene {
         // Re-check movement after collisions may have woken grounded bags
         for bag in activeBags where bag.isMoving { anyMoving = true }
 
+        updateGopher(dt: dt)
+        checkCrowCollisions()
+
         updateRoundLabels()
 
         if gameState == .resolving && !anyMoving {
@@ -570,6 +632,9 @@ final class CornholeMiniGameScene: SKScene {
 
                 // Bags that fell off the board are locked in place — skip
                 guard !a.hasAppliedGroundScale && !b.hasAppliedGroundScale else { continue }
+
+                // Honey bags are sticky — they don't move when other bags hit them
+                guard !a.isHoney && !b.isHoney else { continue }
 
                 // Ignore if one bag is flying well above the other
                 guard abs(a.bz - b.bz) < bagRadius else { continue }
@@ -619,8 +684,8 @@ final class CornholeMiniGameScene: SKScene {
     }
 
     private func updateBagPhysics(_ bag: MiniGameBag, dt: CGFloat) {
-        // Airborne wind push
-        if bag.bz > 0 {
+        // Airborne wind push — honey bags are immune (they're sticky)
+        if bag.bz > 0, !bag.isHoney {
             bag.vx += wind.dx * dt * 0.07
         }
 
@@ -711,15 +776,21 @@ final class CornholeMiniGameScene: SKScene {
     }
 
     private func checkIsOnBoard(_ bag: MiniGameBag) -> Bool {
-        abs(bag.bx) <= boardHalfW &&
-        bag.by >= boardY - boardHalfH &&
-        bag.by <= boardY + boardHalfH
+        // Use 95% of board dimensions to match the visually scaled boardContainer
+        abs(bag.bx) <= boardHalfW * 0.95 &&
+        bag.by >= boardY - boardHalfH * 0.95 &&
+        bag.by <= boardY + boardHalfH * 0.95
     }
 
     // MARK: - Throwing
 
     private func throwBag(owner: BagOwner, startX: CGFloat, vx: CGFloat, vy: CGFloat) {
-        let bag = MiniGameBag(owner: owner, startX: startX, startY: throwLineY)
+        let useHoney = owner == .player && availableHoneyBags > 0
+        if useHoney {
+            availableHoneyBags -= 1
+            honeyBagsUsed += 1
+        }
+        let bag = MiniGameBag(owner: owner, startX: startX, startY: throwLineY, isHoney: useHoney)
         bag.vx = vx
         bag.vy = vy
         bag.vz = vzInitial
@@ -741,6 +812,12 @@ final class CornholeMiniGameScene: SKScene {
 
         gameState = .resolving
         turnIndicator?.isHidden = true
+
+        // Thrower beat the gopher to the punch — gopher dives away.
+        if let gopher = activeGopher {
+            gopher.diveAway()
+            activeGopher = nil
+        }
     }
 
     // MARK: - AI
@@ -1570,6 +1647,249 @@ final class CornholeMiniGameScene: SKScene {
             .removeFromParent(),
         ]))
         confirmPanel = nil
+    }
+
+    // MARK: - Gopher
+
+    private func maybeStartGopher(for owner: BagOwner) {
+        clearGopher()
+        guard Double.random(in: 0..<1) < gopherSpawnChance else { return }
+
+        // Spawn near the front edge of the board so the gopher has a runway —
+        // gives the thrower a visible warning + a brief reaction window.
+        let spawnY = boardY - boardHalfH - 22
+        guard spawnY > throwLineY + 20 else { return }   // not enough room
+
+        let referenceX: CGFloat = owner == .player ? targetX : pendingAIStartX
+        let jitter = targetRange * 0.5
+        let rawX = referenceX + CGFloat.random(in: -jitter...jitter)
+        let spawnX = min(max(rawX, -targetRange), targetRange)
+
+        let gopher = GopherNode()
+        gopher.position = CGPoint(x: spawnX, y: spawnY)
+        gopher.zPosition = 18
+        gameWorldNode.addChild(gopher)
+        activeGopher = gopher
+
+        run(SKAction.playSoundFileNamed("gopher_pop.wav", waitForCompletion: false))
+        gopher.emerge(completion: {})
+    }
+
+    private func updateGopher(dt: CGFloat) {
+        guard let gopher = activeGopher else { return }
+
+        let targetXNow: CGFloat
+        switch gameState {
+        case .playerTurn: targetXNow = targetX
+        case .aiTurn:     targetXNow = pendingAIStartX
+        default:
+            gopher.diveAway()
+            activeGopher = nil
+            return
+        }
+
+        let target = CGPoint(x: targetXNow, y: throwLineY)
+        gopher.chase(toward: target, dt: dt)
+
+        let dist = hypot(target.x - gopher.position.x, target.y - gopher.position.y)
+        if dist < gopher.catchRadius {
+            stealThrow(owner: gameState == .playerTurn ? .player : .ai, with: gopher)
+        }
+    }
+
+    private func stealThrow(owner: BagOwner, with gopher: GopherNode) {
+        run(SKAction.playSoundFileNamed("gopher_steal.wav", waitForCompletion: false))
+        UINotificationFeedbackGenerator().notificationOccurred(.warning)
+
+        if let indicator = turnIndicator {
+            indicator.removeAllActions()
+            indicator.run(SKAction.sequence([
+                SKAction.group([
+                    SKAction.scale(to: 0.2, duration: 0.14),
+                    SKAction.fadeOut(withDuration: 0.14),
+                ]),
+                SKAction.run { [weak indicator] in
+                    indicator?.isHidden = true
+                    indicator?.alpha = 1
+                    indicator?.setScale(1)
+                    let pulse = SKAction.sequence([
+                        SKAction.scale(to: 1.18, duration: 0.55),
+                        SKAction.scale(to: 1.00, duration: 0.55),
+                    ])
+                    indicator?.run(SKAction.repeatForever(pulse))
+                },
+            ]))
+        }
+
+        let stolen = makeLabel(text: "STOLEN!",
+                               size: max(7, size.width * 0.055),
+                               color: SKColor(red: 1.0, green: 0.85, blue: 0.25, alpha: 1))
+        stolen.position  = CGPoint(x: gopher.position.x, y: gopher.position.y + 18)
+        stolen.zPosition = 300
+        stolen.alpha     = 0
+        gameWorldNode.addChild(stolen)
+        stolen.run(SKAction.sequence([
+            SKAction.fadeIn(withDuration: 0.10),
+            SKAction.moveBy(x: 0, y: 28, duration: 0.70),
+            SKAction.fadeOut(withDuration: 0.25),
+            SKAction.removeFromParent(),
+        ]))
+
+        if owner == .player {
+            playerBagsThrown += 1
+            lastThrower = .player
+        } else {
+            aiBagsThrown += 1
+            lastThrower = .ai
+        }
+        gameState = .resolving
+
+        gopher.catchAndRetreat(completion: { [weak self] in
+            self?.activeGopher = nil
+        })
+        activeGopher = nil
+
+        removeAction(forKey: "pendingAIThrow")
+
+        run(SKAction.wait(forDuration: 0.55)) { [weak self] in
+            self?.handleTurnEnd()
+        }
+    }
+
+    private func clearGopher() {
+        activeGopher?.removeFromParent()
+        activeGopher = nil
+    }
+
+    // MARK: - Crow
+
+    private func scheduleCrow() {
+        removeAction(forKey: "crowSchedule")
+        guard gameState != .gameOver else { return }
+        let delay = TimeInterval.random(in: 8.0...22.0)
+        run(SKAction.sequence([
+            SKAction.wait(forDuration: delay),
+            SKAction.run { [weak self] in self?.spawnCrow() },
+        ]), withKey: "crowSchedule")
+    }
+
+    private func spawnCrow() {
+        guard crowNode == nil, gameState != .gameOver else { scheduleCrow(); return }
+        crowFlyingRight = Bool.random()
+        let startX: CGFloat = crowFlyingRight ? -(size.width * 0.65) : (size.width * 0.65)
+        let endX:   CGFloat = crowFlyingRight ?  (size.width * 0.65) : -(size.width * 0.65)
+
+        let crow = makeCrowSprite(facingRight: crowFlyingRight)
+        crow.position  = CGPoint(x: startX, y: crowY)
+        crow.zPosition = 16
+        gameWorldNode.addChild(crow)
+        crowNode = crow
+
+        let flyDuration = TimeInterval(abs(endX - startX) / 175.0)
+        crow.run(SKAction.sequence([
+            SKAction.moveTo(x: endX, duration: flyDuration),
+            SKAction.removeFromParent(),
+            SKAction.run { [weak self, weak crow] in
+                if self?.crowNode === crow { self?.crowNode = nil }
+                self?.scheduleCrow()
+            },
+        ]), withKey: "crowFly")
+    }
+
+    private func makeCrowSprite(facingRight: Bool) -> SKSpriteNode {
+        let ps = 4
+        // 11 × 6 pixel grid — beak faces right; flip xScale for left-facing
+        let grid: [[Int]] = [
+            [0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0],
+            [0, 1, 1, 1, 0, 0, 0, 1, 1, 1, 0],
+            [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0],
+            [0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0],
+            [0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0],
+            [0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0],
+        ]
+        let cols = grid[0].count, rows = grid.count
+        let imgW = CGFloat(cols * ps), imgH = CGFloat(rows * ps)
+
+        UIGraphicsBeginImageContextWithOptions(CGSize(width: imgW, height: imgH), false, 1.0)
+        if let ctx = UIGraphicsGetCurrentContext() {
+            ctx.setFillColor(UIColor(red: 0.10, green: 0.08, blue: 0.10, alpha: 1).cgColor)
+            for row in 0..<rows {
+                for col in 0..<cols where grid[row][col] == 1 {
+                    ctx.fill(CGRect(x: CGFloat(col * ps), y: CGFloat(row * ps),
+                                    width: CGFloat(ps), height: CGFloat(ps)))
+                }
+            }
+        }
+        let img = UIGraphicsGetImageFromCurrentImageContext() ?? UIImage()
+        UIGraphicsEndImageContext()
+        let tex = SKTexture(image: img)
+        tex.filteringMode = .nearest
+
+        let sprite = SKSpriteNode(texture: tex, size: CGSize(width: imgW, height: imgH))
+        if !facingRight { sprite.xScale = -1 }
+        sprite.run(SKAction.repeatForever(SKAction.sequence([
+            SKAction.scaleY(to: 0.55, duration: 0.13),
+            SKAction.scaleY(to: 1.00, duration: 0.17),
+        ])))
+        return sprite
+    }
+
+    private func checkCrowCollisions() {
+        guard let crow = crowNode else { return }
+        let crowPos = crow.position
+        for bag in activeBags {
+            guard !bag.isGrounded, bag.bz > 2 else { continue }
+            let visualY = bag.by + bag.bz * 0.5
+            let dx = bag.bx - crowPos.x
+            let dy = visualY - crowPos.y
+            if dx * dx + dy * dy < 26 * 26 {
+                crowHitByBag(bag)
+                return
+            }
+        }
+    }
+
+    private func crowHitByBag(_ bag: MiniGameBag) {
+        guard let crow = crowNode else { return }
+        crowNode = nil
+        removeAction(forKey: "crowSchedule")
+        crow.removeAction(forKey: "crowFly")
+
+        // Bag stops horizontally; gravity pulls it straight down next frame
+        bag.vx = 0; bag.vy = 0; bag.vz = 0
+
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+
+        // Rapid panic flap
+        (crow as? SKSpriteNode)?.removeAllActions()
+        (crow as? SKSpriteNode)?.run(SKAction.repeatForever(SKAction.sequence([
+            SKAction.scaleY(to: 0.25, duration: 0.06),
+            SKAction.scaleY(to: 1.00, duration: 0.06),
+        ])))
+
+        // Crow bolts upward and off-screen in the direction it was flying
+        let escapeX: CGFloat = crowFlyingRight ? 190 : -190
+        crow.run(SKAction.sequence([
+            SKAction.moveBy(x: escapeX * 0.25, y: 55, duration: 0.20),
+            SKAction.moveBy(x: escapeX * 0.75, y: 130, duration: 0.52),
+            SKAction.removeFromParent(),
+            SKAction.run { [weak self] in self?.scheduleCrow() },
+        ]))
+
+        // "SQUAWK!" callout
+        let squawk = makeLabel(text: "SQUAWK!",
+                               size: max(7, size.width * 0.048),
+                               color: SKColor(red: 1.0, green: 0.85, blue: 0.20, alpha: 1))
+        squawk.position  = CGPoint(x: crow.position.x, y: crow.position.y + 20)
+        squawk.zPosition = 300
+        squawk.alpha     = 0
+        gameWorldNode.addChild(squawk)
+        squawk.run(SKAction.sequence([
+            SKAction.fadeIn(withDuration: 0.09),
+            SKAction.moveBy(x: 0, y: 32, duration: 0.65),
+            SKAction.fadeOut(withDuration: 0.25),
+            SKAction.removeFromParent(),
+        ]))
     }
 
     // MARK: - Dismiss

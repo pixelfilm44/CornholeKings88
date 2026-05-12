@@ -29,6 +29,12 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     // GID range for tree tiles (firstgid=923, tilecount=8)
     private let treeGIDRange = 923...930
 
+    // Beehive interaction
+    private var beehivePositions: [CGPoint] = []
+    private var nearbyBeehivePosition: CGPoint?
+    // GID range for beehive tileset (firstgid=931, tilecount=4)
+    private let beehiveGIDRange = 931...934
+
     // Tutorial state
     private var hasShownDogTutorial = false
 
@@ -363,6 +369,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         extractBoardPositions(from: m)
         extractBaseballPositions(from: m)
         extractTreePositions(from: m)
+        extractBeehivePositions(from: m)
         ySortStaticLayers(in: m)
     }
 
@@ -483,18 +490,66 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         print("🌳 Found \(treePositions.count) tree(s) on the map")
     }
 
+    /// Scans every map layer for beehive tiles and stores one world-space centroid per cluster.
+    private func extractBeehivePositions(from m: TMXMap) {
+        beehivePositions.removeAll()
+        var cells: [(r: Int, c: Int)] = []
+        var seen = Set<String>()
+        for (_, grid) in m.layerGIDs {
+            for r in 0..<m.rows {
+                for c in 0..<m.cols {
+                    let gid = grid[r][c] & 0x0FFF_FFFF
+                    guard beehiveGIDRange.contains(gid) else { continue }
+                    let key = "\(r),\(c)"
+                    guard !seen.contains(key) else { continue }
+                    seen.insert(key)
+                    cells.append((r, c))
+                }
+            }
+        }
+        // Cluster adjacent tiles and record one centroid per hive
+        var assigned = Set<String>()
+        for seed in cells {
+            let key = "\(seed.r),\(seed.c)"
+            guard !assigned.contains(key) else { continue }
+            var cluster: [(r: Int, c: Int)] = []
+            var queue = [seed]
+            while !queue.isEmpty {
+                let cell = queue.removeFirst()
+                let k = "\(cell.r),\(cell.c)"
+                guard !assigned.contains(k) else { continue }
+                assigned.insert(k)
+                cluster.append(cell)
+                for other in cells {
+                    let ok = "\(other.r),\(other.c)"
+                    guard !assigned.contains(ok) else { continue }
+                    if abs(other.r - cell.r) <= 2 && abs(other.c - cell.c) <= 2 {
+                        queue.append(other)
+                    }
+                }
+            }
+            let sumX = cluster.reduce(0.0) { $0 + m.tileCenter(col: $1.c, row: $1.r).x }
+            let sumY = cluster.reduce(0.0) { $0 + m.tileCenter(col: $1.c, row: $1.r).y }
+            beehivePositions.append(CGPoint(x: sumX / CGFloat(cluster.count),
+                                            y: sumY / CGFloat(cluster.count)))
+        }
+        print("🐝 Found \(cells.count) beehive tile(s) → \(beehivePositions.count) hive(s)")
+    }
+
     /// Called every frame. Shows a single "▲A" prompt for the nearest interactable
-    /// object — cornhole board, baseball zone, or tree — and hides it otherwise.
+    /// object — cornhole board, baseball zone, tree, or beehive — and hides it otherwise.
     private func checkBoardProximity() {
         let cornholeRadius: CGFloat = 26
         let baseballRadius: CGFloat = 56
         let treeRadius:     CGFloat = 20
+        let beehiveRadius:  CGFloat = 36
 
-        // Find the single closest object across all three categories.
-        var bestDist = CGFloat.infinity
+        // Find the single closest object across all four categories.
+        var bestDist     = CGFloat.infinity
         var bestBoard:    CGPoint? = nil
         var bestBaseball: CGPoint? = nil
         var bestTree:     CGPoint? = nil
+        var bestBeehive:  CGPoint? = nil
 
         for pos in cornholeBoardPositions {
             let d = hypot(player.position.x - pos.x, player.position.y - pos.y)
@@ -512,10 +567,18 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
                 bestDist = d; bestBoard = nil; bestBaseball = nil; bestTree = pos
             }
         }
+        for pos in beehivePositions {
+            let d = hypot(player.position.x - pos.x, player.position.y - pos.y)
+            if d < beehiveRadius && d < bestDist {
+                bestDist = d; bestBoard = nil; bestBaseball = nil; bestTree = nil
+                bestBeehive = pos
+            }
+        }
 
         nearbyBoardPosition    = bestBoard
         nearbyBaseballPosition = bestBaseball
         nearbyTreePosition     = bestTree
+        nearbyBeehivePosition  = bestBeehive
 
         // Auto-descend when the player walks away from the tree they climbed.
         if bestTree == nil && player.isInTree { player.descendTree() }
@@ -525,6 +588,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         if let p = bestBoard          { anchor = CGPoint(x: p.x, y: p.y + 22) }
         else if let p = bestBaseball  { anchor = CGPoint(x: p.x, y: p.y + 22) }
         else if let p = bestTree      { anchor = CGPoint(x: p.x, y: p.y + 22) }
+        else if let p = bestBeehive   { anchor = CGPoint(x: p.x, y: p.y + 22) }
         else                          { anchor = nil }
 
         if let pos = anchor {
@@ -571,15 +635,18 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
 
     private func openCornholeMiniGame() {
         guard let view = self.view else { return }
-        isTransitioning = true   // freeze main-game input while mini-game is open
+        isTransitioning = true
         player.moveDirection = .zero
         player.physicsBody?.velocity = .zero
 
         let mini = CornholeMiniGameScene(size: self.size)
-        mini.scaleMode    = self.scaleMode
-        mini.previousScene = self
-        mini.onComplete = { [weak self] _ in
-            // Re-enable input when the main scene is restored
+        mini.scaleMode         = self.scaleMode
+        mini.previousScene     = self
+        mini.availableHoneyBags = inventory.counts[.honeyBag, default: 0]
+        mini.onComplete = { [weak self, weak mini] _ in
+            if let used = mini?.honeyBagsUsed, used > 0 {
+                self?.inventory.consume(.honeyBag, count: used)
+            }
             self?.isTransitioning = false
         }
 
@@ -604,6 +671,41 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         let transition = SKTransition.push(with: .up, duration: 0.38)
         transition.pausesOutgoingScene = false
         view.presentScene(baseball, transition: transition)
+    }
+
+    private func openBeeHiveMiniGame() {
+        guard let view = self.view else { return }
+        isTransitioning = true
+        player.moveDirection = .zero
+        player.physicsBody?.velocity = .zero
+
+        let bee = BeeHiveScene(size: self.size)
+        bee.scaleMode      = self.scaleMode
+        bee.previousScene  = self
+        bee.startingHearts = playerHearts
+        bee.onComplete = { [weak self, weak bee] playerWon in
+            guard let self, let bee else { return }
+            // Sync hearts — bee stings can reduce health even on a loss
+            self.syncHeartsFromBeeHive(to: bee.remainingHearts)
+            if playerWon {
+                self.inventory.collect(.honeyBag, count: 3)
+            }
+            self.isTransitioning = false
+        }
+
+        let transition = SKTransition.push(with: .up, duration: 0.38)
+        transition.pausesOutgoingScene = false
+        view.presentScene(bee, transition: transition)
+    }
+
+    /// Walks playerHearts down to `remaining`, removing heart labels from the HUD one by one.
+    private func syncHeartsFromBeeHive(to remaining: Int) {
+        let target = max(0, remaining)
+        while playerHearts > target {
+            playerHearts -= 1
+            updateHeartsDisplay()
+        }
+        if playerHearts <= 0 { triggerGameOver() }
     }
 
     private func buildPhysics(from m: TMXMap) {
@@ -742,6 +844,8 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
                 openCornholeMiniGame()
             } else if nearbyBaseballPosition != nil {
                 openCornholeBaseball()
+            } else if nearbyBeehivePosition != nil {
+                openBeeHiveMiniGame()
             } else if nearbyTreePosition != nil {
                 if player.isInTree { player.descendTree() } else { player.climbTree() }
             }
