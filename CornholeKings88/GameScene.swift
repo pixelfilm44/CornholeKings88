@@ -9,6 +9,8 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     private var map: TMXMap?
     private var lastUpdateTime: TimeInterval = 0
     private var hasSetup = false  // prevents double-init when scene is re-presented after mini-game
+    /// When set, the player spawns here instead of the map's Spawn layer (used by story mode).
+    var storySpawnOverride: CGPoint?
 
     // Cornhole board interaction
     private var cornholeBoardPositions: [CGPoint] = []
@@ -45,6 +47,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     private let maxDogs = 3
 
     private var isTransitioning = false
+    private var menuButtonPosition: CGPoint = .zero
     /// Half the player sprite's size in world units. Used to clamp the player at world boundaries.
     private let playerHalfExtent: CGFloat = 24
     /// Magnification of the world. Larger = sprites/tiles appear bigger and
@@ -212,17 +215,30 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         cameraNode.addChild(score)
         scoreLabel = score
 
-        // Level on the right.
+        // Level on the right (shifted left to make room for menu button).
         let lvl = SKLabelNode(text: "LVL 1")
         lvl.fontName = "Menlo"
         lvl.fontSize = 14
         lvl.fontColor = SKColor(white: 0.6, alpha: 1.0)
         lvl.verticalAlignmentMode = .center
         lvl.horizontalAlignmentMode = .right
-        lvl.position = CGPoint(x: size.width / 2 - hudPadding, y: hudY)
+        lvl.position = CGPoint(x: size.width / 2 - hudPadding - 32, y: hudY)
         lvl.zPosition = 10_001
         cameraNode.addChild(lvl)
         levelLabel = lvl
+
+        // Menu / home button — top-right corner of the HUD bar.
+        let menuBtn = SKLabelNode(fontNamed: "AvenirNext-Heavy")
+        menuBtn.text = "⌂"
+        menuBtn.fontSize = 20
+        menuBtn.fontColor = SKColor(white: 0.55, alpha: 1.0)
+        menuBtn.verticalAlignmentMode   = .center
+        menuBtn.horizontalAlignmentMode = .right
+        menuBtn.position  = CGPoint(x: size.width / 2 - hudPadding, y: hudY)
+        menuBtn.zPosition = 10_001
+        menuBtn.name      = "menuButton"
+        cameraNode.addChild(menuBtn)
+        menuButtonPosition = menuBtn.position
     }
 
     /// Vertical center for the controls — within the bottom chrome but above
@@ -790,8 +806,9 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         player.physicsBody?.contactTestBitMask |= CollectibleNode.collectibleBit
 
         if let m = map {
-            player.position = firstSpawn(in: m) ?? CGPoint(x: m.sizeInPoints.width / 2,
-                                                            y: m.sizeInPoints.height / 2)
+            let defaultSpawn = firstSpawn(in: m) ?? CGPoint(x: m.sizeInPoints.width / 2,
+                                                             y: m.sizeInPoints.height / 2)
+            player.position = storySpawnOverride ?? defaultSpawn
             m.mapNode.addChild(player)
             updateCamera()
             spawnCollectibles(in: m)
@@ -873,6 +890,13 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     private func handleTouchBegan(_ touch: UITouch) {
         guard !isTransitioning else { return }
         let pInCam = touch.location(in: cameraNode)
+
+        // Menu button (top chrome).
+        let menuHit: CGFloat = 24
+        if distanceSquared(pInCam, menuButtonPosition) < menuHit * menuHit {
+            returnToMainMenu()
+            return
+        }
 
         // Action buttons.
         let btnHit = (actionBtnRadius + 6) * (actionBtnRadius + 6)
@@ -1276,5 +1300,17 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
                 view.presentScene(fresh, transition: .fade(withDuration: 0.50))
             },
         ]))
+    }
+
+    private func returnToMainMenu() {
+        guard !isTransitioning else { return }
+        isTransitioning = true
+        guard let view = self.view else { return }
+        let menu = MainMenuScene(size: view.bounds.size)
+        menu.scaleMode   = .resizeFill
+        menu.anchorPoint = CGPoint(x: 0.5, y: 0.5)
+        let t = SKTransition.fade(withDuration: 0.45)
+        t.pausesOutgoingScene = false
+        view.presentScene(menu, transition: t)
     }
 }

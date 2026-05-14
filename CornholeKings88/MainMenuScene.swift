@@ -25,6 +25,7 @@ final class MainMenuScene: SKScene {
         let color: SKColor, name: String
     }
     private let items: [MenuItem] = [
+        MenuItem(label: "STORY MODE",     subLabel: "adventure", color: SKColor(red:0.72,green:0.28,blue:0.92,alpha:1), name: "story"),
         MenuItem(label: "BEANBAG BIKE",   subLabel: "racing",    color: SKColor(red:0.10,green:0.85,blue:0.90,alpha:1), name: "bike"),
         MenuItem(label: "CORNHOLE",       subLabel: "bag toss",  color: SKColor(red:0.95,green:0.85,blue:0.10,alpha:1), name: "cornhole"),
         MenuItem(label: "BASEBALL",       subLabel: "batting",   color: SKColor(red:0.95,green:0.45,blue:0.10,alpha:1), name: "baseball"),
@@ -178,7 +179,9 @@ final class MainMenuScene: SKScene {
     }
 
     private func setupFooter() {
-        let lbl = SKLabelNode(fontNamed: "PressStart2P-Regular")
+        let font = "PressStart2P-Regular"
+
+        let lbl = SKLabelNode(fontNamed: font)
         lbl.text      = "CORNHOLE KINGS  v1.0"
         lbl.fontSize  = min(7, W / 52)
         lbl.fontColor = SKColor(white: 0.28, alpha: 1)
@@ -186,6 +189,17 @@ final class MainMenuScene: SKScene {
         lbl.position  = CGPoint(x: 0, y: -H/2 + 22)
         lbl.zPosition = 10
         addChild(lbl)
+
+        // Temporary reset utility — wipes story progress back to chapter 1
+        let reset = SKLabelNode(fontNamed: font)
+        reset.text      = "RESET STORY"
+        reset.fontSize  = min(6, W / 56)
+        reset.fontColor = SKColor(white: 0.24, alpha: 1)
+        reset.horizontalAlignmentMode = .right
+        reset.position  = CGPoint(x: W/2 - 14, y: -H/2 + 10)
+        reset.zPosition = 10
+        reset.name      = "resetStory"
+        addChild(reset)
     }
 
     // MARK: - Update (scroll road strip)
@@ -218,6 +232,24 @@ final class MainMenuScene: SKScene {
         let ppSize = pixelPerfectSize() ?? size
 
         switch name {
+        case "story":
+            let s = StoryModuleScene(size: size)
+            s.scaleMode = .resizeFill
+            s.anchorPoint = CGPoint(x: 0.5, y: 0.5)
+            s.startAtCurrentProgress()
+            push(to: s)
+
+        case "resetStory":
+            StoryManager.shared.reset()
+            // Brief visual confirmation
+            if let node = childNode(withName: "resetStory") as? SKLabelNode {
+                node.run(.sequence([
+                    .run { node.fontColor = SKColor(red: 0.72, green: 0.28, blue: 0.92, alpha: 1) },
+                    .wait(forDuration: 0.6),
+                    .run { node.fontColor = SKColor(white: 0.24, alpha: 1) }
+                ]))
+            }
+
         case "bike":
             menuDelegate?.mainMenuSceneDidSelectBikeRace(self)
 

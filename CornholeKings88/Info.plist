@@ -21,6 +21,15 @@
 			</array>
 		</dict>
 	</dict>
+	<key>UISupportedInterfaceOrientations</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+	</array>
+	<key>UISupportedInterfaceOrientations~ipad</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationPortraitUpsideDown</string>
+	</array>
 	<key>UIAppFonts</key>
 	<array>
 		<string>PressStart2P-Regular.ttf</string>
