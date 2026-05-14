@@ -19,6 +19,7 @@ final class StatsScene: SKScene {
         setupStats()
         setupFooter()
         setupEmbers()
+        addCrtOverlay()
     }
 
     // MARK: - Top strip (back button)
@@ -210,6 +211,32 @@ final class StatsScene: SKScene {
             ])))
             addChild(ember)
         }
+    }
+
+    // MARK: - CRT Overlay
+    private func addCrtOverlay() {
+        let fmt = UIGraphicsImageRendererFormat(); fmt.scale = 1
+        let img = UIGraphicsImageRenderer(size: CGSize(width: W, height: H), format: fmt).image { ctx in
+            let c = ctx.cgContext
+            c.clear(CGRect(x: 0, y: 0, width: W, height: H))
+            c.setFillColor(UIColor(white: 0, alpha: 0.28).cgColor)
+            var y: CGFloat = 0
+            while y < H { c.fill(CGRect(x: 0, y: y, width: W, height: 1)); y += 3 }
+            let space = CGColorSpaceCreateDeviceRGB()
+            let vColors = [UIColor(white: 0, alpha: 0).cgColor,
+                           UIColor(white: 0, alpha: 0.18).cgColor,
+                           UIColor(white: 0, alpha: 0.70).cgColor] as CFArray
+            let vGrad = CGGradient(colorsSpace: space, colors: vColors, locations: [0, 0.55, 1.0])!
+            c.drawRadialGradient(vGrad,
+                                 startCenter: CGPoint(x: W/2, y: H/2), startRadius: 0,
+                                 endCenter:   CGPoint(x: W/2, y: H/2), endRadius: max(W, H) * 0.72,
+                                 options: [])
+        }
+        let overlay = SKSpriteNode(texture: SKTexture(image: img), size: CGSize(width: W, height: H))
+        overlay.position  = .zero
+        overlay.zPosition = 100
+        overlay.isUserInteractionEnabled = false
+        addChild(overlay)
     }
 
     // MARK: - Touch

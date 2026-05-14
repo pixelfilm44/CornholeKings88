@@ -62,17 +62,20 @@ final class StoryModuleScene: SKScene {
         }
         hasSetup = true
         buildPanel()
-        buildBackButton()
+        buildTopBar()
+        addCrtOverlay()
         if let m = currentModule { showModule(m) }
     }
 
     // MARK: - Panel construction (one-time)
     private func buildPanel() {
         panelW = W * 0.88
-        panelH = H * 0.82
+        // Slightly shorter panel; offset downward so the top bar has clear breathing room
+        panelH = H * 0.79
         imageAreaH = panelH * 0.40
 
         panelNode = SKNode()
+        panelNode.position = CGPoint(x: 0, y: -H * 0.025)
         panelNode.zPosition = 10
         addChild(panelNode)
 
@@ -99,6 +102,17 @@ final class StoryModuleScene: SKScene {
         imageNode.position = CGPoint(x: 0, y: panelH/2 - imageAreaH/2 - 2)
         imageNode.zPosition = 1
         panelNode.addChild(imageNode)
+
+        // Corner rivets on image frame (matches design Scene plate style)
+        let rivetRadius: CGFloat = 3.5
+        let imgTop  = panelH/2 - 2
+        let imgLeft = -panelW/2 + 2
+        for (dx, dy) in [(imgLeft + 6, imgTop - 6),
+                         (-imgLeft - 6, imgTop - 6),
+                         (imgLeft + 6, imgTop - imageAreaH + 6),
+                         (-imgLeft - 6, imgTop - imageAreaH + 6)] {
+            addPanelRivet(at: CGPoint(x: dx, y: dy), radius: rivetRadius)
+        }
 
         // Divider below image
         let divLine = SKShapeNode()
@@ -159,18 +173,75 @@ final class StoryModuleScene: SKScene {
         panelNode.addChild(choiceContainer)
     }
 
-    private func buildBackButton() {
+    /// Top bar with 44pt Close (✕, left) and Skip (right) buttons.
+    private func buildTopBar() {
+        let barH: CGFloat = max(54, H * 0.075)
+        let barY = H / 2 - barH / 2
+        let btnH: CGFloat = 44
         let font = "PressStart2P-Regular"
-        let btn = SKLabelNode(fontNamed: font)
-        btn.text     = "< MENU"
-        btn.fontSize = min(18, W / 17)
-        btn.fontColor = SKColor(white: 0.38, alpha: 1)
-        btn.horizontalAlignmentMode = .left
-        btn.verticalAlignmentMode   = .bottom
-        btn.position  = CGPoint(x: -W/2 + 12, y: -H/2 + 10)
-        btn.zPosition = 20
-        btn.name      = "backToMenu"
-        addChild(btn)
+
+        // Iron bar background
+        let bar = SKSpriteNode(color: SKColor(red: 0.07, green: 0.05, blue: 0.03, alpha: 0.88),
+                               size: CGSize(width: W, height: barH))
+        bar.position  = CGPoint(x: 0, y: barY)
+        bar.zPosition = 18
+        addChild(bar)
+
+        // 1px warm border at bottom of bar
+        let border = SKSpriteNode(color: SKColor(red: 0.50, green: 0.35, blue: 0.15, alpha: 0.6),
+                                  size: CGSize(width: W, height: 1))
+        border.position  = CGPoint(x: 0, y: barY - barH / 2)
+        border.zPosition = 19
+        addChild(border)
+
+        // Close button — LEFT, 44×44, dark iron with red ✕
+        let closeNode = SKNode()
+        let closeBg = SKSpriteNode(color: SKColor(red: 0.16, green: 0.07, blue: 0.05, alpha: 0.95),
+                                   size: CGSize(width: btnH, height: btnH))
+        closeBg.zPosition = 0
+        closeNode.addChild(closeBg)
+        let closeX = SKLabelNode(fontNamed: font)
+        closeX.text                    = "✕"
+        closeX.fontSize                = 14
+        closeX.fontColor               = SKColor(red: 0.83, green: 0.27, blue: 0.12, alpha: 1)
+        closeX.verticalAlignmentMode   = .center
+        closeX.horizontalAlignmentMode = .center
+        closeX.zPosition               = 1
+        closeNode.addChild(closeX)
+        closeNode.position  = CGPoint(x: -W / 2 + btnH / 2 + 6, y: barY)
+        closeNode.name      = "backToMenu"
+        closeNode.zPosition = 22
+        addChild(closeNode)
+
+        // Skip button — RIGHT, warm wood tone
+        let skipW: CGFloat = max(72, W * 0.22)
+        let skipNode = SKNode()
+        let skipBg = SKSpriteNode(color: SKColor(red: 0.27, green: 0.13, blue: 0.05, alpha: 0.95),
+                                  size: CGSize(width: skipW, height: btnH))
+        skipBg.zPosition = 0
+        skipNode.addChild(skipBg)
+        let skipLbl = SKLabelNode(fontNamed: font)
+        skipLbl.text                    = "SKIP"
+        skipLbl.fontSize                = min(10, W / 30)
+        skipLbl.fontColor               = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 1)
+        skipLbl.verticalAlignmentMode   = .center
+        skipLbl.horizontalAlignmentMode = .center
+        skipLbl.zPosition               = 1
+        skipNode.addChild(skipLbl)
+        skipNode.position  = CGPoint(x: W / 2 - skipW / 2 - 6, y: barY)
+        skipNode.name      = "backToMenu"
+        skipNode.zPosition = 22
+        addChild(skipNode)
+    }
+
+    private func addPanelRivet(at pos: CGPoint, radius: CGFloat) {
+        let r = SKShapeNode(circleOfRadius: radius)
+        r.fillColor   = SKColor(white: 0.55, alpha: 1)
+        r.strokeColor = SKColor(white: 0.20, alpha: 1)
+        r.lineWidth   = 0.5
+        r.position    = pos
+        r.zPosition   = 6
+        panelNode.addChild(r)
     }
 
     // MARK: - Show module
@@ -327,12 +398,42 @@ final class StoryModuleScene: SKScene {
         }
     }
 
+    // MARK: - CRT Overlay
+    private func addCrtOverlay() {
+        let fmt = UIGraphicsImageRendererFormat(); fmt.scale = 1
+        let img = UIGraphicsImageRenderer(size: CGSize(width: W, height: H), format: fmt).image { ctx in
+            let c = ctx.cgContext
+            c.clear(CGRect(x: 0, y: 0, width: W, height: H))
+            c.setFillColor(UIColor(white: 0, alpha: 0.28).cgColor)
+            var y: CGFloat = 0
+            while y < H { c.fill(CGRect(x: 0, y: y, width: W, height: 1)); y += 3 }
+            let space = CGColorSpaceCreateDeviceRGB()
+            let vColors = [UIColor(white: 0, alpha: 0).cgColor,
+                           UIColor(white: 0, alpha: 0.18).cgColor,
+                           UIColor(white: 0, alpha: 0.70).cgColor] as CFArray
+            let vGrad = CGGradient(colorsSpace: space, colors: vColors, locations: [0, 0.55, 1.0])!
+            c.drawRadialGradient(vGrad,
+                                 startCenter: CGPoint(x: W/2, y: H/2), startRadius: 0,
+                                 endCenter:   CGPoint(x: W/2, y: H/2), endRadius: max(W, H) * 0.72,
+                                 options: [])
+        }
+        let overlay = SKSpriteNode(texture: SKTexture(image: img), size: CGSize(width: W, height: H))
+        overlay.position  = .zero
+        overlay.zPosition = 90
+        overlay.isUserInteractionEnabled = false
+        addChild(overlay)
+    }
+
     // MARK: - Touch
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         guard let touch = touches.first else { return }
-        let loc     = touch.location(in: self)
-        let tapped  = atPoint(loc)
-        let name    = tapped.name ?? tapped.parent?.name ?? tapped.parent?.parent?.name ?? ""
+        let loc = touch.location(in: self)
+        var name = ""
+        for node in nodes(at: loc).sorted(by: { $0.zPosition > $1.zPosition }) {
+            if let n = node.name, !n.isEmpty { name = n; break }
+            if let n = node.parent?.name, !n.isEmpty { name = n; break }
+            if let n = node.parent?.parent?.name, !n.isEmpty { name = n; break }
+        }
 
         if name == "backToMenu" {
             returnToMenu()

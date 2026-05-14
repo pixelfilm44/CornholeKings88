@@ -133,6 +133,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         setupScene()
         loadMap()
         setupPlayer()
+        addCrtOverlay()
     }
 
     private func setupScene() {
@@ -867,6 +868,34 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
             }
         }
         return nil
+    }
+
+    // MARK: - CRT Overlay
+    private func addCrtOverlay() {
+        let w = size.width, h = size.height
+        let fmt = UIGraphicsImageRendererFormat(); fmt.scale = 1
+        let img = UIGraphicsImageRenderer(size: CGSize(width: w, height: h), format: fmt).image { ctx in
+            let c = ctx.cgContext
+            c.clear(CGRect(x: 0, y: 0, width: w, height: h))
+            c.setFillColor(UIColor(white: 0, alpha: 0.28).cgColor)
+            var y: CGFloat = 0
+            while y < h { c.fill(CGRect(x: 0, y: y, width: w, height: 1)); y += 3 }
+            let space = CGColorSpaceCreateDeviceRGB()
+            let vColors = [UIColor(white: 0, alpha: 0).cgColor,
+                           UIColor(white: 0, alpha: 0.18).cgColor,
+                           UIColor(white: 0, alpha: 0.70).cgColor] as CFArray
+            let vGrad = CGGradient(colorsSpace: space, colors: vColors, locations: [0, 0.55, 1.0])!
+            c.drawRadialGradient(vGrad,
+                                 startCenter: CGPoint(x: w/2, y: h/2), startRadius: 0,
+                                 endCenter:   CGPoint(x: w/2, y: h/2), endRadius: max(w, h) * 0.72,
+                                 options: [])
+        }
+        let overlay = SKSpriteNode(texture: SKTexture(image: img), size: CGSize(width: w, height: h))
+        overlay.position  = .zero
+        overlay.zPosition = 20000
+        overlay.isUserInteractionEnabled = false
+        // Add to cameraNode so it stays screen-space and isn't affected by world scroll/zoom
+        cameraNode.addChild(overlay)
     }
 
     // MARK: - Input

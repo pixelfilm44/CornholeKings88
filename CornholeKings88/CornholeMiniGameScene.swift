@@ -343,65 +343,82 @@ final class CornholeMiniGameScene: SKScene {
     // MARK: - UI
 
     private func setupUI() {
-        let topH    = size.height * 0.10
-        let bottomH = size.height * 0.09
-        let fs      = max(5, size.width * 0.040)
+        let topH: CGFloat    = max(48, size.height * 0.09)
+        let bottomH: CGFloat = max(40, size.height * 0.08)
+        let topBarY  = size.height / 2 - topH / 2
+        let botBarY  = -size.height / 2 + bottomH / 2
 
-        // Top chrome bar
-        addChrome(y: size.height / 2 - topH / 2, h: topH)
-        // Bottom chrome bar
-        addChrome(y: -size.height / 2 + bottomH / 2, h: bottomH)
+        // ── Top bar ────────────────────────────────────────────────────────
+        addChrome(y: topBarY, h: topH)
 
-        // Player score — top left
-        let pLabel = makeLabel(text: "YOU: 0", size: 10, color: SKColor(red: 0.90, green: 0.42, blue: 0.42, alpha: 1))
+        // Close button — 44×44 minimum, LEFT side, red ✕
+        let closeSide: CGFloat = min(44, topH - 4)
+        let closeNode = makeCloseButton(size: CGSize(width: closeSide, height: closeSide))
+        closeNode.position  = CGPoint(x: -size.width / 2 + closeSide / 2 + 4, y: topBarY)
+        closeNode.name      = "closeButton"
+        closeNode.zPosition = 700
+        addChild(closeNode)
+
+        // Score chip — centered, just below the top bar (clear of the camera area)
+        let chipW: CGFloat = min(size.width * 0.62, 230)
+        let chipH: CGFloat = 36
+        let chipY = size.height / 2 - topH - chipH / 2 - 8
+
+        let chipBg = SKSpriteNode(color: SKColor(red: 0.06, green: 0.02, blue: 0.01, alpha: 0.90),
+                                  size: CGSize(width: chipW, height: chipH))
+        chipBg.position  = CGPoint(x: 0, y: chipY)
+        chipBg.zPosition = 600
+        addChild(chipBg)
+
+        let pLabel = makeLabel(text: "YOU: 0", size: 9,
+                               color: SKColor(red: 0.83, green: 0.27, blue: 0.12, alpha: 1))
         pLabel.horizontalAlignmentMode = .left
-        pLabel.position = CGPoint(x: -size.width / 2 + 8, y: size.height / 2 - topH / 2)
-        pLabel.zPosition = 600
+        pLabel.position  = CGPoint(x: -chipW / 2 + 12, y: chipY)
+        pLabel.zPosition = 602
         addChild(pLabel)
         playerScoreLabel = pLabel
 
-        // AI score — top center-right (leave room for close button)
-        let aLabel = makeLabel(text: "", size: 10, color: SKColor(red: 0.40, green: 0.60, blue: 0.90, alpha: 1))
+        let chipDiv = SKSpriteNode(color: SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 0.35),
+                                   size: CGSize(width: 1, height: 20))
+        chipDiv.position  = CGPoint(x: 0, y: chipY)
+        chipDiv.zPosition = 602
+        addChild(chipDiv)
+
+        let aLabel = makeLabel(text: "BOT: 0", size: 9,
+                               color: SKColor(red: 0.35, green: 0.61, blue: 0.83, alpha: 1))
         aLabel.horizontalAlignmentMode = .right
-        aLabel.position = CGPoint(x: size.width / 2 - 30, y: size.height / 2 - topH / 2)
-        aLabel.zPosition = 600
+        aLabel.position  = CGPoint(x: chipW / 2 - 12, y: chipY)
+        aLabel.zPosition = 602
         addChild(aLabel)
         aiScoreLabel = aLabel
 
-        // Wind label — bottom center
-        let wLabel = makeLabel(text: "CALM", size: 10, color: SKColor(white: 0.75, alpha: 1))
+        // ── Bottom bar ─────────────────────────────────────────────────────
+        addChrome(y: botBarY, h: bottomH)
+
+        let wLabel = makeLabel(text: "CALM", size: 9, color: SKColor(white: 0.75, alpha: 1))
         wLabel.horizontalAlignmentMode = .center
-        wLabel.position = CGPoint(x: 0, y: -size.height / 2 + bottomH / 2)
+        wLabel.position  = CGPoint(x: 0, y: botBarY)
         wLabel.zPosition = 600
         addChild(wLabel)
         windLabel = wLabel
 
-        // Round score labels (bottom left/right, shown during play)
-        let rndPLabel = makeLabel(text: "", size: 10, color: SKColor(red: 0.90, green: 0.42, blue: 0.42, alpha: 1))
+        let rndPLabel = makeLabel(text: "", size: 9,
+                                  color: SKColor(red: 0.90, green: 0.42, blue: 0.42, alpha: 1))
         rndPLabel.horizontalAlignmentMode = .left
-        // Left margin leaves room for the 48pt opponent portrait
-        rndPLabel.position = CGPoint(x: -size.width / 2 + 58, y: -size.height / 2 + bottomH / 2)
+        rndPLabel.position  = CGPoint(x: -size.width / 2 + 58, y: botBarY)
         rndPLabel.zPosition = 600
         rndPLabel.name = "rndPlayerLabel"
         addChild(rndPLabel)
 
-        let rndALabel = makeLabel(text: "", size: 10, color: SKColor(red: 0.40, green: 0.60, blue: 0.90, alpha: 1))
+        let rndALabel = makeLabel(text: "", size: 9,
+                                  color: SKColor(red: 0.40, green: 0.60, blue: 0.90, alpha: 1))
         rndALabel.horizontalAlignmentMode = .right
-        rndALabel.position = CGPoint(x: size.width / 2 - 8, y: -size.height / 2 + bottomH / 2)
+        rndALabel.position  = CGPoint(x: size.width / 2 - 8, y: botBarY)
         rndALabel.zPosition = 600
         rndALabel.name = "rndAILabel"
         addChild(rndALabel)
 
-        // Close button — top right corner
-        let closeBtn = makeButton(label: "X", fg: .white,
-                                  bg: SKColor(red: 0.55, green: 0.12, blue: 0.12, alpha: 0.9),
-                                  size: CGSize(width: 20, height: 14))
-        closeBtn.position = CGPoint(x: size.width / 2 - 14, y: size.height / 2 - topH / 2)
-        closeBtn.name = "closeButton"
-        closeBtn.zPosition = 700
-        addChild(closeBtn)
-
-        // Turn-indicator bag (oscillates at the throw line, in gameWorld so it pixellates)
+        // ── Turn indicator ─────────────────────────────────────────────────
         let indTex = SKTexture(imageNamed: "bag_16bit")
         indTex.filteringMode = .nearest
         let indicator = SKSpriteNode(texture: indTex, size: CGSize(width: 50, height: 50))
@@ -412,13 +429,57 @@ final class CornholeMiniGameScene: SKScene {
         gameWorldNode.addChild(indicator)
         turnIndicator = indicator
 
-        let pulse = SKAction.sequence([
-            SKAction.scale(to: 1.18, duration: 0.55),
-            SKAction.scale(to: 1.00, duration: 0.55),
-        ])
-        indicator.run(SKAction.repeatForever(pulse))
+        indicator.run(SKAction.repeatForever(.sequence([
+            .scale(to: 1.18, duration: 0.55),
+            .scale(to: 1.00, duration: 0.55),
+        ])))
 
         setupHoneyBagButton()
+        addCrtOverlay()
+    }
+
+    private func addCrtOverlay() {
+        let w = size.width, h = size.height
+        let fmt = UIGraphicsImageRendererFormat(); fmt.scale = 1
+        let img = UIGraphicsImageRenderer(size: CGSize(width: w, height: h), format: fmt).image { ctx in
+            let c = ctx.cgContext
+            c.clear(CGRect(x: 0, y: 0, width: w, height: h))
+            c.setFillColor(UIColor(white: 0, alpha: 0.28).cgColor)
+            var y: CGFloat = 0
+            while y < h { c.fill(CGRect(x: 0, y: y, width: w, height: 1)); y += 3 }
+            let space = CGColorSpaceCreateDeviceRGB()
+            let vColors = [UIColor(white: 0, alpha: 0).cgColor,
+                           UIColor(white: 0, alpha: 0.18).cgColor,
+                           UIColor(white: 0, alpha: 0.70).cgColor] as CFArray
+            let vGrad = CGGradient(colorsSpace: space, colors: vColors, locations: [0, 0.55, 1.0])!
+            c.drawRadialGradient(vGrad,
+                                 startCenter: CGPoint(x: w/2, y: h/2), startRadius: 0,
+                                 endCenter:   CGPoint(x: w/2, y: h/2), endRadius: max(w, h) * 0.72,
+                                 options: [])
+        }
+        let overlay = SKSpriteNode(texture: SKTexture(image: img), size: CGSize(width: w, height: h))
+        overlay.position  = .zero
+        overlay.zPosition = 800
+        overlay.isUserInteractionEnabled = false
+        addChild(overlay)
+    }
+
+    /// 44×44-minimum close button: dark iron backing with red ✕ label.
+    private func makeCloseButton(size: CGSize) -> SKNode {
+        let n = SKNode()
+        let backing = SKSpriteNode(color: SKColor(red: 0.18, green: 0.07, blue: 0.05, alpha: 0.95),
+                                   size: size)
+        backing.zPosition = 0
+        n.addChild(backing)
+        let lbl = SKLabelNode(fontNamed: "PressStart2P-Regular")
+        lbl.text                    = "✕"
+        lbl.fontSize                = 14
+        lbl.fontColor               = SKColor(red: 0.83, green: 0.27, blue: 0.12, alpha: 1)
+        lbl.verticalAlignmentMode   = .center
+        lbl.horizontalAlignmentMode = .center
+        lbl.zPosition               = 1
+        n.addChild(lbl)
+        return n
     }
 
     private func addChrome(y: CGFloat, h: CGFloat) {
@@ -464,7 +525,7 @@ final class CornholeMiniGameScene: SKScene {
 
     /// Creates the honey bag selector button in the lower-right corner above the bottom chrome.
     private func setupHoneyBagButton() {
-        let bottomH: CGFloat = size.height * 0.09
+        let bottomH: CGFloat = max(40, size.height * 0.08)
         let btnW: CGFloat = 62, btnH: CGFloat = 24
 
         let btn = SKNode()
