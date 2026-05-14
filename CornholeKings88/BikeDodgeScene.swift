@@ -71,7 +71,7 @@ final class BikeDodgeScene: SKScene {
     // MARK: - Speed constants
     private let baseSpeed:    CGFloat = 160
     private let maxSpeed:     CGFloat = 360
-    private let boostMult:    CGFloat = 1.85
+    private let boostMult:    CGFloat = 3.2
     private let accel:        CGFloat = 28
     private let steerAccel:   CGFloat = 310
     private let maxSteerVel:  CGFloat = 210
@@ -86,6 +86,8 @@ final class BikeDodgeScene: SKScene {
     private var cdTimer:    CGFloat = 0
     private var finishCount: Int    = 0
     private var timeSinceLastCrash: CGFloat = 0
+    private var finishLineNode: SKNode?
+    private var finishLineSpawned = false
 
     // MARK: - Racers
     private var pr = RacerData(kind: .player)
@@ -435,6 +437,8 @@ final class BikeDodgeScene: SKScene {
         spawnStep(dt: dt)
         checkCollisions()
         syncBikePositions()
+        if pr.distanceRemaining <= 0.5 && !finishLineSpawned { spawnFinishLine() }
+        updateFinishLine(dt: dt)
         refreshHUD()
         updateMinimap()
         checkRaceEnd()
@@ -445,24 +449,27 @@ final class BikeDodgeScene: SKScene {
         if !pr.isCrashing {
             timeSinceLastCrash += dt
         }
-        // Acceleration scales up the longer the player avoids a crash:
-        // +50% at 5s, +100% at 10s, capped at 2× base accel.
-        let accelMult = min(2.0, 1.0 + timeSinceLastCrash / 10.0)
-        let effectiveAccel = accel * accelMult
+        // Acceleration scales with no-crash streak: 3× accel by ~15s, capped at 3.5×.
+        let accelMult = min(3.5, 1.0 + timeSinceLastCrash / 6.0)
+        // Speed cap also grows with streak: up to +160 bonus pts after ~20s.
+        let streakBonus: CGFloat = min(160, timeSinceLastCrash * 8)
+        let playerAccel = accel * accelMult
 
         if !pr.isCrashing {
-            let cap = pr.isBoosting ? maxSpeed * boostMult : maxSpeed
-            pr.speed = min(cap, pr.speed + effectiveAccel * dt)
+            let cap = pr.isBoosting ? (maxSpeed + streakBonus) * boostMult : maxSpeed + streakBonus
+            pr.speed = min(cap, pr.speed + playerAccel * dt)
             pr.distanceRemaining = max(0, pr.distanceRemaining - pr.speed * distPerPx * dt)
         }
+        // AI uses a fixed accel independent of player's no-crash streak.
+        let aiAccel = accel * 1.4
         if !pk.isCrashing {
-            let cap = pk.isBoosting ? maxSpeed * boostMult * 0.96 : maxSpeed * 0.96
-            pk.speed = min(cap, pk.speed + effectiveAccel * dt)
+            let cap = pk.isBoosting ? maxSpeed * boostMult * 0.88 : maxSpeed * 0.96
+            pk.speed = min(cap, pk.speed + aiAccel * dt)
             pk.distanceRemaining = max(0, pk.distanceRemaining - pk.speed * distPerPx * dt)
         }
         if !gr.isCrashing {
-            let cap = gr.isBoosting ? maxSpeed * boostMult * 1.01 : maxSpeed * 1.01
-            gr.speed = min(cap, gr.speed + effectiveAccel * dt)
+            let cap = gr.isBoosting ? maxSpeed * boostMult * 0.90 : maxSpeed * 1.01
+            gr.speed = min(cap, gr.speed + aiAccel * dt)
             gr.distanceRemaining = max(0, gr.distanceRemaining - gr.speed * distPerPx * dt)
         }
     }
@@ -564,11 +571,22 @@ final class BikeDodgeScene: SKScene {
         if let n = greenBoostNode  { n.position = CGPoint(x: gr.x, y: screenYFor(gr) - greenSprite.size.height/2 - 8) }
     }
 
+    // 0 at the start line, 1 at the finish line.
+    private var raceProgress: CGFloat { (1.0 - pr.distanceRemaining / 5.0).bikeClamp(0...1) }
+    private func lerp(_ a: CGFloat, _ b: CGFloat, _ t: CGFloat) -> CGFloat { a + (b - a) * t }
+
     // MARK: - Car spawn + update
     private func spawnStep(dt: CGFloat) {
+        let p = raceProgress
+
         carTimer += dt
         if carTimer >= carInterval {
-            carTimer = 0; carInterval = CGFloat.random(in: 1.8...3.5); spawnCar()
+            carTimer = 0
+            // Interval shrinks from [1.8, 3.5]s → [0.45, 0.90]s as the race progresses.
+            carInterval = CGFloat.random(in: lerp(1.8, 0.45, p)...lerp(3.5, 0.90, p))
+            spawnCar()
+            // Past 55% distance a second car can spawn in the same tick.
+            if p > 0.55 && Float.random(in: 0...1) < Float((p - 0.55) * 2.2) { spawnCar() }
         }
         pkTimer += dt
         if pkTimer >= pkInterval {
@@ -576,7 +594,12 @@ final class BikeDodgeScene: SKScene {
         }
         bagTimer += dt
         if bagTimer >= bagInterval {
-            bagTimer = 0; bagInterval = CGFloat.random(in: 2.0...3.5); spawnBeanBag()
+            bagTimer = 0
+            // Interval shrinks from [2.0, 3.5]s → [0.55, 1.10]s as the race progresses.
+            bagInterval = CGFloat.random(in: lerp(2.0, 0.55, p)...lerp(3.5, 1.10, p))
+            spawnBeanBag()
+            // Past 45% distance a second bag can fly in the same tick.
+            if p > 0.45 && Float.random(in: 0...1) < Float((p - 0.45) * 2.0) { spawnBeanBag() }
         }
     }
 
@@ -953,7 +976,9 @@ final class BikeDodgeScene: SKScene {
             case .heart: pr.hearts = min(pr.maxHearts, pr.hearts + 1)
             case .boost:
                 triggerBoostHaptics()
-                pr.isBoosting = true; pr.boostTimer = 2.5
+                pr.isBoosting = true; pr.boostTimer = 3.5
+                // Instant speed floor — player feels the kick immediately.
+                pr.speed = max(pr.speed, maxSpeed * 1.6)
                 attachBoost(to: playerSprite, store: &playerBoostNode)
                 flashBoostScreen()
                 playerSprite.run(.sequence([
@@ -966,10 +991,12 @@ final class BikeDodgeScene: SKScene {
         } else {
             if pu.kind == .boost {
                 if Bool.random() {
-                    gr.isBoosting = true; gr.boostTimer = 2.5
+                    gr.isBoosting = true; gr.boostTimer = 3.5
+                    gr.speed = max(gr.speed, maxSpeed * 1.4)
                     attachBoost(to: greenSprite, store: &greenBoostNode)
                 } else {
-                    pk.isBoosting = true; pk.boostTimer = 2.5
+                    pk.isBoosting = true; pk.boostTimer = 3.5
+                    pk.speed = max(pk.speed, maxSpeed * 1.4)
                     attachBoost(to: pinkSprite, store: &pinkBoostNode)
                 }
             }
@@ -1088,6 +1115,60 @@ final class BikeDodgeScene: SKScene {
         tick(racer: &gr, boostNode: &greenBoostNode)
     }
 
+    // MARK: - Finish line
+    private func spawnFinishLine() {
+        finishLineSpawned = true
+        let startY = playerScreenY + pr.distanceRemaining * distToPixScale
+
+        let container = SKNode()
+        container.position = CGPoint(x: 0, y: startY)
+        container.zPosition = 11
+        addChild(container)
+
+        // Checkered strip — two rows of alternating black / white squares.
+        let sq: CGFloat = 12
+        let cols = Int(roadWidth / sq) + 1
+        for row in 0..<2 {
+            for col in 0..<cols {
+                let isWhite = (col + row) % 2 == 0
+                let cell = SKSpriteNode(color: isWhite ? .white : .black,
+                                        size: CGSize(width: sq, height: sq))
+                cell.position = CGPoint(x: roadLeft + CGFloat(col) * sq + sq / 2,
+                                        y: CGFloat(row) * sq + sq / 2)
+                container.addChild(cell)
+            }
+        }
+
+        // Poles on each road edge.
+        for xPos in [roadLeft, roadRight] {
+            let pole = SKSpriteNode(color: SKColor(white: 0.88, alpha: 1),
+                                    size: CGSize(width: 5, height: 56))
+            pole.anchorPoint = CGPoint(x: 0.5, y: 0)
+            pole.position    = CGPoint(x: xPos, y: sq * 2)
+            container.addChild(pole)
+        }
+
+        // "FINISH" label above the banner.
+        let lbl = label("FINISH", font: "PressStart2P-Regular",
+                         size: min(16, W / 22), color: .yellow,
+                         at: CGPoint(x: 0, y: sq * 2 + 64))
+        lbl.run(.repeatForever(.sequence([
+            .scale(to: 1.10, duration: 0.35),
+            .scale(to: 0.92, duration: 0.35),
+        ])))
+        container.addChild(lbl)
+
+        finishLineNode = container
+    }
+
+    private func updateFinishLine(dt: CGFloat) {
+        guard let node = finishLineNode else { return }
+        node.position.y -= pr.speed * dt
+        if node.position.y < -H / 2 - 100 {
+            node.removeFromParent(); finishLineNode = nil
+        }
+    }
+
     // MARK: - Race end
     private func checkRaceEnd() {
         func markFinish(racer: inout RacerData) {
@@ -1155,6 +1236,8 @@ final class BikeDodgeScene: SKScene {
         pinkBoostNode?.removeFromParent();   pinkBoostNode   = nil
         greenBoostNode?.removeFromParent();  greenBoostNode  = nil
         overlayNode?.removeFromParent();     overlayNode     = nil
+        finishLineNode?.removeFromParent();  finishLineNode  = nil
+        finishLineSpawned = false
 
         pr = RacerData(kind: .player); pk = RacerData(kind: .pink); gr = RacerData(kind: .green)
         pr.x = laneCenter[1]; pr.speed = baseSpeed
@@ -1164,7 +1247,7 @@ final class BikeDodgeScene: SKScene {
         for sp in [playerSprite, pinkSprite, greenSprite] {
             sp?.setScale(1); sp?.zRotation = 0; sp?.alpha = 1; sp?.removeAction(forKey: "crash")
         }
-        elapsed = 0; finishCount = 0
+        elapsed = 0; finishCount = 0; timeSinceLastCrash = 0
         carTimer = 1.5; pkTimer = 4.0; bagTimer = 2.0
         steerLeft = false; steerRight = false
         leftTouches.removeAll(); rightTouches.removeAll()
