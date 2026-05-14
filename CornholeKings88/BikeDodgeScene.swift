@@ -120,6 +120,7 @@ final class BikeDodgeScene: SKScene {
     private var rightTouches: Set<UITouch> = []
 
     // MARK: - HUD
+    private var hudPanelNode: SKShapeNode!
     private var distLabel:   SKLabelNode!
     private var timeLabel:   SKLabelNode!
     private var heartsLabel: SKLabelNode!
@@ -239,29 +240,51 @@ final class BikeDodgeScene: SKScene {
     // MARK: - HUD
     private func setupHUD() {
         let font = "PressStart2P-Regular"
-        let fs: CGFloat = max(8, W * 0.028)
-
-        // Position labels below the camera notch / Dynamic Island safe area
         let topInset = self.view?.safeAreaInsets.top ?? 0
-        let hudY = H/2 - topInset - 22
+        let panelH: CGFloat = 44
+        let panelTopY: CGFloat = H / 2 - topInset
+        let hudY: CGFloat = panelTopY - panelH / 2
 
+        // Dark wood-iron panel (#1a0a04 → #0a0402) with faint gold inner glow
+        let panelRect = CGRect(x: -W / 2, y: panelTopY - panelH, width: W, height: panelH)
+        hudPanelNode = SKShapeNode(rect: panelRect)
+        hudPanelNode.fillColor   = SKColor(red: 0.10, green: 0.04, blue: 0.02, alpha: 0.96)
+        hudPanelNode.strokeColor = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 0.18)
+        hudPanelNode.lineWidth   = 2
+        hudPanelNode.zPosition   = 49
+        addChild(hudPanelNode)
+
+        let fs: CGFloat = max(7, W * 0.022)
+
+        // Distance — gold (#f0c060), left side cleared past the 44pt UIKit close button
         distLabel = SKLabelNode(fontNamed: font)
-        distLabel.fontSize = fs; distLabel.fontColor = .white
+        distLabel.fontSize = fs
+        distLabel.fontColor = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 1)  // #f0c060
         distLabel.horizontalAlignmentMode = .left
-        distLabel.position = CGPoint(x: -W/2 + 54, y: hudY)
-        distLabel.zPosition = 50; addChild(distLabel)
+        distLabel.verticalAlignmentMode   = .center
+        distLabel.position  = CGPoint(x: -W / 2 + 62, y: hudY)
+        distLabel.zPosition = 50
+        addChild(distLabel)
 
+        // Timer — blue (#5a9cd4), centered
         timeLabel = SKLabelNode(fontNamed: font)
-        timeLabel.fontSize = fs; timeLabel.fontColor = .white
+        timeLabel.fontSize = fs
+        timeLabel.fontColor = SKColor(red: 0.35, green: 0.61, blue: 0.83, alpha: 1)  // #5a9cd4
         timeLabel.horizontalAlignmentMode = .center
-        timeLabel.position = CGPoint(x: 0, y: hudY)
-        timeLabel.zPosition = 50; addChild(timeLabel)
+        timeLabel.verticalAlignmentMode   = .center
+        timeLabel.position  = CGPoint(x: 0, y: hudY)
+        timeLabel.zPosition = 50
+        addChild(timeLabel)
 
+        // Hearts — red (#d4441e), right side
         heartsLabel = SKLabelNode(fontNamed: "Helvetica-Bold")
-        heartsLabel.fontSize = fs + 4; heartsLabel.fontColor = .red
+        heartsLabel.fontSize = fs + 4
+        heartsLabel.fontColor = SKColor(red: 0.83, green: 0.27, blue: 0.12, alpha: 1)  // #d4441e
         heartsLabel.horizontalAlignmentMode = .right
-        heartsLabel.position = CGPoint(x: W/2 - 38, y: hudY - 2)
-        heartsLabel.zPosition = 50; addChild(heartsLabel)
+        heartsLabel.verticalAlignmentMode   = .center
+        heartsLabel.position  = CGPoint(x: W / 2 - 16, y: hudY - 1)
+        heartsLabel.zPosition = 50
+        addChild(heartsLabel)
 
         refreshHUD()
     }
@@ -470,6 +493,7 @@ final class BikeDodgeScene: SKScene {
         let pyY = playerScreenY
         let pkY = screenYFor(pk)
         let grY = screenYFor(gr)
+        var playerBumped = false
 
         func bump(_ r1: inout RacerData, y1: CGFloat, _ r2: inout RacerData, y2: CGFloat) {
             guard abs(y1 - y2) < 28 else { return }
@@ -481,10 +505,12 @@ final class BikeDodgeScene: SKScene {
             r1.x = r1.x.bikeClamp(roadLeft + 10...roadRight - 10)
             r2.x = r2.x.bikeClamp(roadLeft + 10...roadRight - 10)
             spawnSparks(at: CGPoint(x: (r1.x + r2.x) / 2, y: (y1 + y2) / 2))
+            if r1.kind == .player || r2.kind == .player { playerBumped = true }
         }
         bump(&pr, y1: pyY, &pk, y2: pkY)
         bump(&pr, y1: pyY, &gr, y2: grY)
         bump(&pk, y1: pkY, &gr, y2: grY)
+        if playerBumped { triggerBagHitHaptics() }
     }
 
     // MARK: - Sync sprite positions
@@ -742,7 +768,8 @@ final class BikeDodgeScene: SKScene {
     private func triggerCarCrash(player: Bool, isGreen: Bool = false) {
         if player {
             guard !pr.isCrashing && !pr.isInvincible else { return }
-            playCrashAnimation(on: playerSprite)
+            triggerCrashHaptics()
+            playCrashAnimation(on: playerSprite, isPlayer: true)
             pr.isCrashing = true; pr.crashTimer = 2.0; pr.speed = baseSpeed
             pr.hearts = max(0, pr.hearts - 1)
             pr.isInvincible = true; pr.invTimer = 1.5
@@ -760,12 +787,94 @@ final class BikeDodgeScene: SKScene {
         }
     }
 
-    private func playCrashAnimation(on sprite: SKSpriteNode) {
+    private func playCrashAnimation(on sprite: SKSpriteNode, isPlayer: Bool = false) {
         sprite.removeAction(forKey: "crash")
+
+        if isPlayer {
+            shakeScreen()
+            spawnCrashExplosion(at: sprite.position)
+        }
+
         sprite.run(.sequence([
-            .group([.scale(to:1.85,duration:0.22),.rotate(byAngle:.pi*2.5,duration:0.50)]),
-            .group([.scale(to:1.0,duration:0.18),.rotate(toAngle:0,duration:0.18)])
+            // Phase 1 — impact: white flash + scale spike
+            .group([
+                .colorize(with: .white, colorBlendFactor: 1.0, duration: 0.06),
+                .scale(to: 2.0, duration: 0.10),
+            ]),
+            // Phase 2 — tumble: wild spin, shrink, orange fire glow
+            .group([
+                .sequence([
+                    .colorize(withColorBlendFactor: 0.0, duration: 0.12),
+                    .colorize(with: SKColor(red:1, green:0.4, blue:0, alpha:1),
+                              colorBlendFactor: 0.75, duration: 0.08),
+                    .colorize(withColorBlendFactor: 0.0, duration: 0.20),
+                ]),
+                .sequence([
+                    .scale(to: 1.65, duration: 0.15),
+                    .scale(to: 0.85, duration: 0.20),
+                    .scale(to: 1.15, duration: 0.15),
+                ]),
+                .rotate(byAngle: .pi * 3.5, duration: 0.65),
+            ]),
+            // Phase 3 — settle: right the bike
+            .group([
+                .scale(to: 1.0, duration: 0.22),
+                .rotate(toAngle: 0, duration: 0.22),
+            ]),
         ]), withKey: "crash")
+    }
+
+    private func shakeScreen() {
+        guard let view = self.view else { return }
+        let animX = CAKeyframeAnimation(keyPath: "transform.translation.x")
+        animX.values = [-10, 10, -9, 9, -6, 6, -4, 4, -2, 2, 0]
+        animX.timingFunction = CAMediaTimingFunction(name: .easeOut)
+        let animY = CAKeyframeAnimation(keyPath: "transform.translation.y")
+        animY.values = [-5, 5, -4, 4, -3, 3, -2, 2, -1, 1, 0]
+        animY.timingFunction = CAMediaTimingFunction(name: .easeOut)
+        let group = CAAnimationGroup()
+        group.animations = [animX, animY]
+        group.duration = 0.45
+        view.layer.add(group, forKey: "crashShake")
+    }
+
+    private func spawnCrashExplosion(at pos: CGPoint) {
+        let sparkColors: [SKColor] = [
+            SKColor(red:1.0, green:0.90, blue:0.20, alpha:1),
+            SKColor(red:1.0, green:0.40, blue:0.10, alpha:1),
+            SKColor(red:1.0, green:1.00, blue:1.00, alpha:1),
+            SKColor(red:0.9, green:0.70, blue:0.10, alpha:1),
+        ]
+        // Radial spark burst
+        for i in 0..<16 {
+            let angle = CGFloat(i) * (.pi * 2 / 16) + CGFloat.random(in: -0.15...0.15)
+            let speed = CGFloat.random(in: 80...180)
+            let sz    = CGFloat.random(in: 3...8)
+            let sp    = SKSpriteNode(color: sparkColors.randomElement()!,
+                                     size: CGSize(width: sz, height: sz))
+            sp.position = pos; sp.zPosition = 30; addChild(sp)
+            sp.run(.sequence([
+                .group([
+                    .moveBy(x: cos(angle)*speed, y: sin(angle)*speed, duration: 0.50),
+                    .sequence([.wait(forDuration: 0.08), .fadeOut(withDuration: 0.42)]),
+                ]),
+                .removeFromParent()
+            ]))
+        }
+        // Smoke puffs
+        for _ in 0..<6 {
+            let r     = CGFloat.random(in: 8...18)
+            let smoke = SKShapeNode(circleOfRadius: r)
+            smoke.fillColor   = SKColor(white: CGFloat.random(in: 0.4...0.65), alpha: 0.55)
+            smoke.strokeColor = .clear
+            smoke.position    = CGPoint(x: pos.x + CGFloat.random(in: -14...14),
+                                        y: pos.y + CGFloat.random(in: -14...14))
+            smoke.zPosition   = 26; addChild(smoke)
+            smoke.run(.sequence([
+                .group([.scale(to: 3.0, duration: 0.55), .fadeOut(withDuration: 0.55)]),
+                .removeFromParent()
+            ]))
+        }
     }
 
     private func damageBag(player: Bool, isGreen: Bool = false) {
@@ -774,6 +883,7 @@ final class BikeDodgeScene: SKScene {
                           .colorize(withColorBlendFactor:0.0,duration:0.15)]))
         if player {
             guard !pr.isInvincible else { return }
+            triggerBagHitHaptics()
             pr.hearts = max(0, pr.hearts - 1)
             pr.isInvincible = true; pr.invTimer = 1.5
             if pr.hearts <= 0 { showGameOver() }
@@ -794,6 +904,7 @@ final class BikeDodgeScene: SKScene {
             switch pu.kind {
             case .heart: pr.hearts = min(pr.maxHearts, pr.hearts + 1)
             case .boost:
+                triggerBoostHaptics()
                 pr.isBoosting = true; pr.boostTimer = 2.0
                 attachBoost(to: playerSprite, store: &playerBoostNode)
             }
@@ -963,6 +1074,44 @@ final class BikeDodgeScene: SKScene {
         l.position = pos; return l
     }
 
+    // MARK: - Haptic Feedback
+
+    private func triggerCrashHaptics() {
+        let impact = UIImpactFeedbackGenerator(style: .heavy)
+        let notification = UINotificationFeedbackGenerator()
+        impact.prepare()
+        notification.prepare()
+        impact.impactOccurred(intensity: 1.0)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { impact.impactOccurred(intensity: 1.0) }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
+            impact.impactOccurred(intensity: 0.9)
+            notification.notificationOccurred(.error)
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.30) { impact.impactOccurred(intensity: 0.8) }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.42) { impact.impactOccurred(intensity: 0.6) }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) { impact.impactOccurred(intensity: 0.4) }
+        // Subtle "getting back up" pulse
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.85) {
+            let light = UIImpactFeedbackGenerator(style: .light)
+            light.impactOccurred(intensity: 0.8)
+        }
+    }
+
+    private func triggerBagHitHaptics() {
+        let impact = UIImpactFeedbackGenerator(style: .medium)
+        impact.prepare()
+        impact.impactOccurred()
+    }
+
+    private func triggerBoostHaptics() {
+        let notification = UINotificationFeedbackGenerator()
+        let impact = UIImpactFeedbackGenerator(style: .heavy)
+        notification.prepare()
+        impact.prepare()
+        notification.notificationOccurred(.success)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { impact.impactOccurred(intensity: 1.0) }
+    }
+
     // MARK: - CRT Overlay
     private func addCrtOverlay() {
         let fmt = UIGraphicsImageRendererFormat(); fmt.scale = 1
@@ -1000,10 +1149,12 @@ final class BikeDodgeScene: SKScene {
                 if loc.x < 0 { leftTouches.insert(t); steerLeft = true }
                 else          { rightTouches.insert(t); steerRight = true }
             case .gameOver, .victory:
-                let n = atPoint(loc)
-                let name = n.name ?? n.parent?.name ?? ""
-                if name == "replayBtn" { resetGame() }
-                else if name == "menuBtn" { dismissToMenu() }
+                // Use nodes(at:) — atPoint can return the full-screen bg shape over the labels
+                for n in nodes(at: loc) {
+                    let name = n.name ?? n.parent?.name ?? ""
+                    if name == "replayBtn" { resetGame(); return }
+                    if name == "menuBtn"   { dismissToMenu(); return }
+                }
             }
         }
     }
