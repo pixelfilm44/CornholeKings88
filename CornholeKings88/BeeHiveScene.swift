@@ -111,8 +111,13 @@ final class BeeHiveScene: SKScene {
     private var heartsNode:          SKNode?
     private var heartLabels:         [SKLabelNode] = []
     private var beesRemainingLabel:  SKLabelNode?
+    private var timerLabel:          SKLabelNode?
     private var playerIndicator:     SKSpriteNode?
     private var messageNode:         SKNode?
+
+    // MARK: - Elapsed timer
+    private var elapsedSeconds: Int = 0
+    private var elapsedFraction: CGFloat = 0
 
     // MARK: - Lifecycle
 
@@ -318,66 +323,202 @@ final class BeeHiveScene: SKScene {
         addChrome(y:  size.height / 2 - topH    / 2, h: topH)
         addChrome(y: -size.height / 2 + bottomH / 2, h: bottomH)
 
-        // Title row (upper portion of top bar)
-        let titleY = size.height / 2 - topH * 0.28
-        let title  = makeLabel(text: "BEEHIVE BATTLE", size: 8,
-                               color: SKColor(red: 0.95, green: 0.75, blue: 0.15, alpha: 1))
-        title.horizontalAlignmentMode = .center
-        title.position  = CGPoint(x: 0, y: titleY)
-        title.zPosition = 600
-        addChild(title)
+        let barCenterY = size.height / 2 - topH / 2
+        let btnSize: CGFloat = min(44, topH * 0.88)
 
-        let closeBtn = makeButton(label: "✕",
-                                  fg: SKColor(red: 1.0, green: 0.88, blue: 0.82, alpha: 1),
-                                  bg: SKColor(red: 0.63, green: 0.16, blue: 0.10, alpha: 1),
-                                  size: CGSize(width: 32, height: 26))
-        closeBtn.position  = CGPoint(x: size.width / 2 - 20, y: titleY)
+        // ── Close button — metal iron style, LEFT side ──
+        let closeBtn = makeMetalCloseButton(size: btnSize)
+        closeBtn.position  = CGPoint(x: -size.width / 2 + btnSize / 2 + 8, y: barCenterY)
         closeBtn.name      = "closeButton"
         closeBtn.zPosition = 700
         addChild(closeBtn)
 
-        // Score row (lower portion of top bar)
-        let scoreY = size.height / 2 - topH * 0.74
+        // ── HUD chip — dark panel to the right of the close button ──
+        let chipLeft:   CGFloat = -size.width / 2 + btnSize + 8 + 8
+        let chipRight:  CGFloat =  size.width / 2 - 8
+        let chipWidth              = chipRight - chipLeft
+        let chipCenterX            = chipLeft + chipWidth / 2
 
-        // Hearts on the left
+        let chip = makeHudChip(width: chipWidth, height: btnSize)
+        chip.position  = CGPoint(x: chipCenterX, y: barCenterY)
+        chip.zPosition = 600
+        addChild(chip)
+
+        // Content inside chip — three sections: HIT | timer | hearts
+        let halfW = chipWidth / 2
+        let pad: CGFloat = 10
+
+        // Section 1 — HIT count (gold, left-aligned)
+        let hitLbl = makeLabel(text: "HIT:0", size: 8,
+                               color: SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 1))
+        hitLbl.horizontalAlignmentMode = .left
+        hitLbl.position  = CGPoint(x: -halfW + pad, y: 0)
+        hitLbl.zPosition = 601
+        chip.addChild(hitLbl)
+        beesRemainingLabel = hitLbl
+
+        // Divider 1
+        let div1 = SKSpriteNode(
+            color: SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 0.28),
+            size: CGSize(width: 1, height: btnSize * 0.50))
+        div1.position  = CGPoint(x: -halfW + chipWidth * 0.36, y: 0)
+        div1.zPosition = 601
+        chip.addChild(div1)
+
+        // Section 2 — elapsed timer (blue, centered)
+        let tLbl = makeLabel(text: "0:00", size: 8,
+                             color: SKColor(red: 0.35, green: 0.61, blue: 0.83, alpha: 1))
+        tLbl.horizontalAlignmentMode = .center
+        tLbl.position  = CGPoint(x: -halfW + chipWidth * 0.52, y: 0)
+        tLbl.zPosition = 601
+        chip.addChild(tLbl)
+        timerLabel = tLbl
+
+        // Divider 2
+        let div2 = SKSpriteNode(
+            color: SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 0.28),
+            size: CGSize(width: 1, height: btnSize * 0.50))
+        div2.position  = CGPoint(x: -halfW + chipWidth * 0.68, y: 0)
+        div2.zPosition = 601
+        chip.addChild(div2)
+
+        // Section 3 — hearts (3 slots, right side; color changes on loss, no remove)
+        let totalSlots = playerHearts   // show exactly as many as the player started with
+        let heartSpacing: CGFloat = 16
+        let heartsWidth = CGFloat(totalSlots - 1) * heartSpacing
+        let heartsStartX = halfW - pad - heartsWidth
+
         let hContainer = SKNode()
-        hContainer.position  = CGPoint(x: -size.width / 2 + 10, y: scoreY)
-        hContainer.zPosition = 600
-        addChild(hContainer)
+        hContainer.position  = CGPoint(x: heartsStartX, y: 0)
+        hContainer.zPosition = 601
+        chip.addChild(hContainer)
         heartsNode = hContainer
         heartLabels.removeAll()
-        for i in 0..<3 {
+        for i in 0..<totalSlots {
             let lbl = SKLabelNode(text: "♥")
             lbl.fontName = "AvenirNext-Heavy"
-            lbl.fontSize = 14
-            lbl.fontColor = i < playerHearts
-                ? SKColor(red: 0.85, green: 0.18, blue: 0.18, alpha: 1.0)
-                : SKColor(white: 0.30, alpha: 1)
+            lbl.fontSize = 15
+            lbl.fontColor = SKColor(red: 0.831, green: 0.267, blue: 0.118, alpha: 1.0)
             lbl.verticalAlignmentMode   = .center
             lbl.horizontalAlignmentMode = .left
-            lbl.position = CGPoint(x: CGFloat(i) * 16, y: 0)
+            lbl.position = CGPoint(x: CGFloat(i) * heartSpacing, y: 0)
             hContainer.addChild(lbl)
             heartLabels.append(lbl)
         }
 
-        // Bees remaining on the right
-        let bLabel = makeLabel(text: "HIT: 0",
-                               size: 9,
-                               color: SKColor(red: 0.95, green: 0.75, blue: 0.15, alpha: 1))
-        bLabel.horizontalAlignmentMode = .right
-        bLabel.position                = CGPoint(x: size.width / 2 - 10, y: scoreY)
-        bLabel.zPosition               = 600
-        addChild(bLabel)
-        beesRemainingLabel = bLabel
-
         // Bottom chrome hint
-        let hint = makeLabel(text: "SWIPE TO THROW",
-                             size: 7,
+        let hint = makeLabel(text: "SWIPE TO THROW", size: 7,
                              color: SKColor(red: 0.78, green: 0.57, blue: 0.16, alpha: 1))
         hint.horizontalAlignmentMode = .center
         hint.position  = CGPoint(x: 0, y: -size.height / 2 + bottomH / 2)
         hint.zPosition = 600
         addChild(hint)
+    }
+
+    // Metal close button matching design spec (iron gradient + rivets + red X)
+    private func makeMetalCloseButton(size s: CGFloat) -> SKNode {
+        let container = SKNode()
+
+        // Iron gray background
+        let bg = SKSpriteNode(color: SKColor(red: 0.22, green: 0.22, blue: 0.22, alpha: 1),
+                              size: CGSize(width: s, height: s))
+        bg.zPosition = 0
+        container.addChild(bg)
+
+        // Top highlight bevel (iron sheen)
+        let bevel = SKSpriteNode(color: SKColor(white: 1.0, alpha: 0.12),
+                                 size: CGSize(width: s - 4, height: 3))
+        bevel.position  = CGPoint(x: 0, y: s / 2 - 4)
+        bevel.zPosition = 1
+        container.addChild(bevel)
+
+        // Border outline
+        let border = SKShapeNode(rect: CGRect(x: -s/2, y: -s/2, width: s, height: s),
+                                 cornerRadius: 5)
+        border.strokeColor = SKColor(white: 0.07, alpha: 1)
+        border.fillColor   = .clear
+        border.lineWidth   = 2
+        border.zPosition   = 2
+        container.addChild(border)
+
+        // Red X mark
+        let xPath = CGMutablePath()
+        let inset: CGFloat = s * 0.28
+        xPath.move(to: CGPoint(x: -s/2 + inset, y: -s/2 + inset))
+        xPath.addLine(to: CGPoint(x:  s/2 - inset, y:  s/2 - inset))
+        xPath.move(to: CGPoint(x:  s/2 - inset, y: -s/2 + inset))
+        xPath.addLine(to: CGPoint(x: -s/2 + inset, y:  s/2 - inset))
+        let xShape = SKShapeNode(path: xPath)
+        xShape.strokeColor = SKColor(red: 0.831, green: 0.267, blue: 0.118, alpha: 1)
+        xShape.lineWidth   = 3
+        xShape.lineCap     = .square
+        xShape.zPosition   = 3
+        container.addChild(xShape)
+
+        // Corner rivets
+        for (rx, ry): (CGFloat, CGFloat) in [
+            (-s/2 + 5,  s/2 - 5),
+            ( s/2 - 5,  s/2 - 5),
+            (-s/2 + 5, -s/2 + 5),
+            ( s/2 - 5, -s/2 + 5),
+        ] {
+            let rivet = SKShapeNode(circleOfRadius: 2)
+            rivet.fillColor   = SKColor(white: 0.55, alpha: 1)
+            rivet.strokeColor = SKColor(white: 0.25, alpha: 1)
+            rivet.lineWidth   = 0.5
+            rivet.position    = CGPoint(x: rx, y: ry)
+            rivet.zPosition   = 4
+            container.addChild(rivet)
+        }
+
+        return container
+    }
+
+    // Dark HUD chip panel (design: dark bg + inner gold border + corner rivets)
+    private func makeHudChip(width w: CGFloat, height h: CGFloat) -> SKNode {
+        let container = SKNode()
+
+        let bg = SKSpriteNode(
+            color: SKColor(red: 0.06, green: 0.04, blue: 0.02, alpha: 0.96),
+            size: CGSize(width: w, height: h))
+        bg.zPosition = 0
+        container.addChild(bg)
+
+        // Inner gold border inset
+        let border = SKShapeNode(rect: CGRect(x: -w/2 + 1, y: -h/2 + 1, width: w - 2, height: h - 2),
+                                 cornerRadius: 4)
+        border.strokeColor = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 0.22)
+        border.fillColor   = .clear
+        border.lineWidth   = 1
+        border.zPosition   = 1
+        container.addChild(border)
+
+        // Outer dark border
+        let outer = SKShapeNode(rect: CGRect(x: -w/2, y: -h/2, width: w, height: h),
+                                cornerRadius: 5)
+        outer.strokeColor = SKColor(red: 0.10, green: 0.06, blue: 0.02, alpha: 1)
+        outer.fillColor   = .clear
+        outer.lineWidth   = 2
+        outer.zPosition   = 2
+        container.addChild(outer)
+
+        // Corner rivets (4px diameter)
+        for (rx, ry): (CGFloat, CGFloat) in [
+            (-w/2 + 5,  h/2 - 5),
+            ( w/2 - 5,  h/2 - 5),
+            (-w/2 + 5, -h/2 + 5),
+            ( w/2 - 5, -h/2 + 5),
+        ] {
+            let rivet = SKShapeNode(circleOfRadius: 2)
+            rivet.fillColor   = SKColor(white: 0.50, alpha: 1)
+            rivet.strokeColor = SKColor(white: 0.22, alpha: 1)
+            rivet.lineWidth   = 0.5
+            rivet.position    = CGPoint(x: rx, y: ry)
+            rivet.zPosition   = 3
+            container.addChild(rivet)
+        }
+
+        return container
     }
 
     private func addChrome(y: CGFloat, h: CGFloat) {
@@ -474,6 +615,18 @@ final class BeeHiveScene: SKScene {
     override func update(_ currentTime: TimeInterval) {
         guard !isGameOver else { return }
         let dt: CGFloat = 1.0 / 60.0
+
+        // Elapsed timer (counts up, updates once per second)
+        if !tutorialActive {
+            elapsedFraction += dt
+            if elapsedFraction >= 1.0 {
+                elapsedFraction -= 1.0
+                elapsedSeconds += 1
+                let m = elapsedSeconds / 60
+                let s = elapsedSeconds % 60
+                timerLabel?.text = "\(m):\(String(format: "%02d", s))"
+            }
+        }
 
         updateBags(dt)
         updateBees(dt)
@@ -821,23 +974,22 @@ final class BeeHiveScene: SKScene {
     }
 
     private func updateBeesLabel() {
-        let star = beesHit >= totalBees ? " ★" : ""
-        beesRemainingLabel?.text = "HIT: \(beesHit)\(star)"
+        let star = beesHit >= totalBees ? "★" : ""
+        beesRemainingLabel?.text = "HIT:\(beesHit)\(star)"
     }
 
     private func rebuildHearts() {
         heartsNode?.removeAllChildren()
         heartLabels.removeAll()
-        for i in 0..<3 {
+        let heartSpacing: CGFloat = 16
+        for i in 0..<playerHearts {
             let lbl = SKLabelNode(text: "♥")
             lbl.fontName = "AvenirNext-Heavy"
-            lbl.fontSize = 14
-            lbl.fontColor = i < playerHearts
-                ? SKColor(red: 0.85, green: 0.18, blue: 0.18, alpha: 1.0)
-                : SKColor(white: 0.30, alpha: 1)
+            lbl.fontSize = 15
+            lbl.fontColor = SKColor(red: 0.831, green: 0.267, blue: 0.118, alpha: 1.0)
             lbl.verticalAlignmentMode   = .center
             lbl.horizontalAlignmentMode = .left
-            lbl.position = CGPoint(x: CGFloat(i) * 16, y: 0)
+            lbl.position = CGPoint(x: CGFloat(i) * heartSpacing, y: 0)
             heartsNode?.addChild(lbl)
             heartLabels.append(lbl)
         }
@@ -947,13 +1099,16 @@ final class BeeHiveScene: SKScene {
         activeBees.forEach { $0.node.removeFromParent() }
         activeBees.removeAll()
 
-        beesSpawned  = 0
-        beesHit      = 0
-        isGameOver   = false
-        gameResult   = false
-        spawnPending = false
-        playerHearts = 3
+        beesSpawned     = 0
+        beesHit         = 0
+        isGameOver      = false
+        gameResult      = false
+        spawnPending    = false
+        playerHearts    = 3
         remainingHearts = playerHearts
+        elapsedSeconds  = 0
+        elapsedFraction = 0
+        timerLabel?.text = "0:00"
 
         rebuildHearts()
         updateBeesLabel()
