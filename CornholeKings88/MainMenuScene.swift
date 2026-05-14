@@ -42,6 +42,7 @@ final class MainMenuScene: SKScene {
         setupTitle()
         setupMenuButtons()
         setupEmbers()
+        prewarmAssets()
     }
 
     // MARK: - Background
@@ -391,5 +392,49 @@ final class MainMenuScene: SKScene {
         let t = SKTransition.push(with: .up, duration: 0.35)
         t.pausesOutgoingScene = false
         view?.presentScene(scene, transition: t)
+    }
+
+    // MARK: - Asset pre-warming
+    // Eliminates the first-collision stutter in every mini-game by forcing Metal to
+    // compile the CIPixellate shader pipeline and uploading textures/audio to GPU/memory
+    // now, while the menu is idle, rather than on the first gameplay frame.
+    private func prewarmAssets() {
+        // 1. Force Metal to compile the CIPixellate shader pipeline.
+        //    All mini-games use SKEffectNode+CIPixellate; the first render of that
+        //    combo triggers main-thread shader compilation, which is the main freeze source.
+        let shaderWarmup = SKEffectNode()
+        shaderWarmup.alpha = 0.001   // nearly invisible but still rendered
+        shaderWarmup.zPosition = -100
+        if let filter = CIFilter(name: "CIPixellate") {
+            filter.setValue(2.0, forKey: "inputScale")
+            shaderWarmup.filter = filter
+        }
+        let dot = SKSpriteNode(color: .black, size: CGSize(width: 1, height: 1))
+        shaderWarmup.addChild(dot)
+        addChild(shaderWarmup)
+        shaderWarmup.run(.sequence([.wait(forDuration: 0.5), .removeFromParent()]))
+
+        // 2. Pre-upload mini-game textures to the GPU.
+        let textureNames = ["bag_16bit", "board_16bit"]
+        let textures = textureNames.map { SKTexture(imageNamed: $0) }
+        SKTexture.preload(textures) { }
+
+        // 3. Pre-decode audio files so the AVAudio engine doesn't stall on first play.
+        //    Run silent sound actions on a throw-away node that is never added to the scene.
+        let soundNames = [
+            "bag_land.wav", "hole_score.wav", "bat_crack.wav", "bat_whiff.wav",
+            "game_win.wav", "game_lose.wav", "round_end.wav", "strike_call.wav",
+            "out_caught.wav", "phase_change.wav", "rain_start.wav",
+            "dog_bite.wav", "gopher_pop.wav", "gopher_steal.wav",
+        ]
+        let audioWarmup = SKNode()
+        audioWarmup.alpha = 0
+        addChild(audioWarmup)
+        let soundActions = soundNames.map { SKAction.playSoundFileNamed($0, waitForCompletion: false) }
+        audioWarmup.run(.sequence([
+            .group(soundActions),
+            .wait(forDuration: 0.1),
+            .removeFromParent(),
+        ]))
     }
 }

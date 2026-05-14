@@ -664,7 +664,7 @@ final class BikeDodgeScene: SKScene {
         let sz: CGFloat = 18
         let col: SKColor = kind == .heart
             ? SKColor(red:0.92,green:0.15,blue:0.15,alpha:1)
-            : SKColor(red:0.20,green:0.45,blue:0.95,alpha:1)
+            : SKColor(red:1.00,green:0.52,blue:0.05,alpha:1)   // orange
         let fmt = UIGraphicsImageRendererFormat(); fmt.scale = 1
         let img = UIGraphicsImageRenderer(size: CGSize(width: sz, height: sz), format: fmt).image { ctx in
             let c = ctx.cgContext
@@ -680,14 +680,21 @@ final class BikeDodgeScene: SKScene {
                     c.fill(CGRect(x:CGFloat(px_)*px,y:CGFloat(py_)*px,width:px,height:px))
                 }
             } else {
-                // Up-pointing arrow: tip at top, shaft extending downward
-                c.move(to: CGPoint(x:sz/2,       y:2))           // tip (top)
-                c.addLine(to: CGPoint(x:sz-2,    y:sz*0.55))     // right wing
-                c.addLine(to: CGPoint(x:sz*0.62, y:sz*0.55))     // right inner shoulder
-                c.addLine(to: CGPoint(x:sz*0.62, y:sz-2))        // right shaft end (bottom)
-                c.addLine(to: CGPoint(x:sz*0.38, y:sz-2))        // left shaft end (bottom)
-                c.addLine(to: CGPoint(x:sz*0.38, y:sz*0.55))     // left inner shoulder
-                c.addLine(to: CGPoint(x:2,       y:sz*0.55))     // left wing
+                // Orange body
+                c.move(to: CGPoint(x:sz/2,       y:2))
+                c.addLine(to: CGPoint(x:sz-2,    y:sz*0.55))
+                c.addLine(to: CGPoint(x:sz*0.62, y:sz*0.55))
+                c.addLine(to: CGPoint(x:sz*0.62, y:sz-2))
+                c.addLine(to: CGPoint(x:sz*0.38, y:sz-2))
+                c.addLine(to: CGPoint(x:sz*0.38, y:sz*0.55))
+                c.addLine(to: CGPoint(x:2,       y:sz*0.55))
+                c.closePath(); c.fillPath()
+                // Yellow highlight: left half of arrowhead
+                c.setFillColor(UIColor(red:1.0,green:0.92,blue:0.10,alpha:1).cgColor)
+                c.move(to: CGPoint(x:sz/2,       y:2))
+                c.addLine(to: CGPoint(x:2,       y:sz*0.55))
+                c.addLine(to: CGPoint(x:sz*0.38, y:sz*0.55))
+                c.addLine(to: CGPoint(x:sz*0.38, y:sz*0.35))
                 c.closePath(); c.fillPath()
             }
         }
@@ -923,7 +930,7 @@ final class BikeDodgeScene: SKScene {
 
     private func attachBoost(to sprite: SKSpriteNode, store: inout SKNode?) {
         store?.removeFromParent()
-        let flame = SKSpriteNode(color: SKColor(red:0.25,green:0.55,blue:1.0,alpha:0.85),
+        let flame = SKSpriteNode(color: SKColor(red:1.00,green:0.45,blue:0.05,alpha:0.90),
                                  size: CGSize(width:10,height:18))
         flame.position  = CGPoint(x: sprite.position.x, y: sprite.position.y - sprite.size.height/2 - 8)
         flame.zPosition = 9
