@@ -110,11 +110,11 @@ final class PlayerNode: SKSpriteNode {
             let step = moveSpeed * CGFloat(dt)
             position.x += moveDirection.dx * step
             position.y += moveDirection.dy * step
-            facing = facingFor(moveDirection)
         }
 
+        let newFacing = moving ? facingFor(moveDirection) : facing
         let newState: AnimState = moving ? .move : .idle
-        setAnimation(state: newState, facing: facing)
+        setAnimation(state: newState, facing: newFacing)
     }
 
     func climbTree() {

@@ -12,6 +12,7 @@ final class BeeHiveScene: SKScene {
     // MARK: - Public contract (mirrors CornholeMiniGameScene pattern)
     var previousScene: SKScene?
     var onComplete: ((Bool) -> Void)?
+    private var closeUIButton: UIButton?
     /// Set by GameScene before presenting — reflects player's current hearts.
     var startingHearts: Int = 3
     /// Written before onComplete fires; GameScene reads this to sync the main HUD.
@@ -129,8 +130,14 @@ final class BeeHiveScene: SKScene {
         computeLayout()
         setupGameWorld()
         setupUI()
+        pushCloseButton(to: view)
         showFirstTimeTutorial()
         addCrtOverlay()
+    }
+
+    override func willMove(from view: SKView) {
+        closeUIButton?.removeFromSuperview()
+        closeUIButton = nil
     }
 
     private func preloadAssets() {
@@ -356,16 +363,9 @@ final class BeeHiveScene: SKScene {
         let barCenterY = size.height / 2 - topH / 2
         let btnSize: CGFloat = min(44, topH * 0.88)
 
-        // ── Close button — metal iron style, LEFT side ──
-        let closeBtn = makeMetalCloseButton(size: btnSize)
-        closeBtn.position  = CGPoint(x: -size.width / 2 + btnSize / 2 + 8, y: barCenterY)
-        closeBtn.name      = "closeButton"
-        closeBtn.zPosition = 700
-        addChild(closeBtn)
-
-        // ── HUD chip — dark panel to the right of the close button ──
-        let chipLeft:   CGFloat = -size.width / 2 + btnSize + 8 + 8
-        let chipRight:  CGFloat =  size.width / 2 - 8
+        // ── HUD chip — spans the top bar, leaving 60pt on right for UIKit close button ──
+        let chipLeft:   CGFloat = -size.width / 2 + 8
+        let chipRight:  CGFloat =  size.width / 2 - 60
         let chipWidth              = chipRight - chipLeft
         let chipCenterX            = chipLeft + chipWidth / 2
 
@@ -443,6 +443,62 @@ final class BeeHiveScene: SKScene {
         hint.position  = CGPoint(x: 0, y: -size.height / 2 + bottomH / 2)
         hint.zPosition = 600
         addChild(hint)
+    }
+
+    private func pushCloseButton(to view: SKView) {
+        let barH: CGFloat = view.bounds.height * 0.135
+        let btnSize: CGFloat = 44
+        let safeTop = view.safeAreaInsets.top
+        let btn = UIButton(type: .custom)
+        btn.frame = CGRect(
+            x: view.bounds.width - btnSize - 8,
+            y: max(safeTop + 4, (barH - btnSize) / 2),
+            width: btnSize, height: btnSize
+        )
+        btn.layer.cornerRadius = 6
+        btn.layer.masksToBounds = false
+        btn.layer.borderWidth = 2
+        btn.layer.borderColor = UIColor(white: 0.07, alpha: 1).cgColor
+
+        let grad = CAGradientLayer()
+        grad.frame = btn.bounds
+        grad.colors = [
+            UIColor(red: 0.35, green: 0.35, blue: 0.35, alpha: 1).cgColor,
+            UIColor(red: 0.22, green: 0.22, blue: 0.22, alpha: 1).cgColor,
+            UIColor(red: 0.12, green: 0.12, blue: 0.12, alpha: 1).cgColor,
+        ]
+        grad.locations = [0, 0.5, 1.0]
+        grad.startPoint = CGPoint(x: 0.5, y: 0)
+        grad.endPoint   = CGPoint(x: 0.5, y: 1)
+        grad.cornerRadius = 6
+        btn.layer.insertSublayer(grad, at: 0)
+
+        let xLayer = CAShapeLayer()
+        xLayer.frame = btn.bounds
+        let xPath = UIBezierPath()
+        xPath.move(to: CGPoint(x: 13, y: 13)); xPath.addLine(to: CGPoint(x: 31, y: 31))
+        xPath.move(to: CGPoint(x: 31, y: 13)); xPath.addLine(to: CGPoint(x: 13, y: 31))
+        xLayer.path = xPath.cgPath
+        xLayer.strokeColor = UIColor(red: 0.831, green: 0.267, blue: 0.118, alpha: 1).cgColor
+        xLayer.lineWidth = 3
+        xLayer.lineCap = .square
+        btn.layer.addSublayer(xLayer)
+
+        for (rx, ry): (CGFloat, CGFloat) in [(5,5),(39,5),(5,39),(39,39)] {
+            let rv = CALayer()
+            rv.frame = CGRect(x: rx - 2, y: ry - 2, width: 4, height: 4)
+            rv.cornerRadius = 2
+            rv.backgroundColor = UIColor(white: 0.55, alpha: 1).cgColor
+            btn.layer.addSublayer(rv)
+        }
+
+        btn.addTarget(self, action: #selector(closeButtonTapped), for: .touchUpInside)
+        view.addSubview(btn)
+        closeUIButton = btn
+    }
+
+    @objc private func closeButtonTapped() {
+        showConfirmQuit()
     }
 
     // Metal close button matching design spec (iron gradient + rivets + red X)

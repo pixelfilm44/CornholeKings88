@@ -31,7 +31,7 @@ final class BikeDodgeViewController: UIViewController {
         NSLayoutConstraint.activate([
             btn.widthAnchor.constraint(equalToConstant: 44),
             btn.heightAnchor.constraint(equalToConstant: 44),
-            btn.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 10),
+            btn.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -10),
             btn.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 6)
         ])
         view.bringSubviewToFront(btn)

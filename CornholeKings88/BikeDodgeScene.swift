@@ -71,7 +71,7 @@ final class BikeDodgeScene: SKScene {
     // MARK: - Speed constants
     private let baseSpeed:    CGFloat = 160
     private let maxSpeed:     CGFloat = 360
-    private let boostMult:    CGFloat = 1.4
+    private let boostMult:    CGFloat = 1.85
     private let accel:        CGFloat = 28
     private let steerAccel:   CGFloat = 310
     private let maxSteerVel:  CGFloat = 210
@@ -85,6 +85,7 @@ final class BikeDodgeScene: SKScene {
     private var cdValue:    Int     = 3
     private var cdTimer:    CGFloat = 0
     private var finishCount: Int    = 0
+    private var timeSinceLastCrash: CGFloat = 0
 
     // MARK: - Racers
     private var pr = RacerData(kind: .player)
@@ -220,18 +221,49 @@ final class BikeDodgeScene: SKScene {
         let fmt = UIGraphicsImageRendererFormat(); fmt.scale = 1
         let img = UIGraphicsImageRenderer(size: CGSize(width: bw, height: bh), format: fmt).image { ctx in
             let c = ctx.cgContext
-            c.setFillColor(UIColor(white: 0.15, alpha: 1).cgColor)
-            c.fill(CGRect(x: 3, y: 1, width: bw-6, height: 8))       // rear wheel
+            let tire = UIColor(white: 0.17, alpha: 1).cgColor
+            let rim  = UIColor(white: 0.46, alpha: 1).cgColor
+            let hub  = UIColor(white: 0.68, alpha: 1).cgColor
+            let bar  = UIColor(white: 0.82, alpha: 1).cgColor
+            let grip = UIColor(white: 0.50, alpha: 1).cgColor
+            let sad  = UIColor(white: 0.88, alpha: 1).cgColor
+
+            // ── Front wheel (top of sprite = front of bike) ──────────
+            c.setFillColor(tire); c.fillEllipse(in: CGRect(x: 4,  y: 0,  width: 14, height: 7))
+            c.setFillColor(rim);  c.fillEllipse(in: CGRect(x: 6,  y: 1,  width: 10, height: 5))
+            c.setFillColor(hub);  c.fillEllipse(in: CGRect(x: 9,  y: 1,  width: 4,  height: 4))
+
+            // ── Fork / stem ───────────────────────────────────────────
             c.setFillColor(color.cgColor)
-            c.fill(CGRect(x: 4, y: 6, width: bw-8, height: bh*0.55)) // body
-            c.setFillColor(UIColor(red: 0.30, green: 0.45, blue: 0.70, alpha: 0.85).cgColor)
-            c.fill(CGRect(x: 6, y: bh*0.40, width: bw-12, height: bh*0.20)) // windshield
-            c.setFillColor(UIColor(white: 0.90, alpha: 1).cgColor)
-            c.fill(CGRect(x: 2, y: bh*0.60, width: bw-4, height: 4)) // handlebars
-            c.setFillColor(UIColor(white: 0.15, alpha: 1).cgColor)
-            c.fill(CGRect(x: 3, y: bh-9, width: bw-6, height: 8))    // front wheel
-            c.setFillColor(UIColor(white: 1.0, alpha: 0.45).cgColor)
-            c.fill(CGRect(x: 7, y: bh*0.30, width: 4, height: bh*0.20)) // highlight
+            c.fill(CGRect(x: 9, y: 6, width: 4, height: 5))
+
+            // ── Handlebars ────────────────────────────────────────────
+            c.setFillColor(bar);  c.fill(CGRect(x: 2,  y: 10, width: 18, height: 2))
+            c.setFillColor(grip); c.fill(CGRect(x: 2,  y: 12, width: 3,  height: 2))
+            c.setFillColor(grip); c.fill(CGRect(x: 17, y: 12, width: 3,  height: 2))
+
+            // ── Top tube (frame above rider) ──────────────────────────
+            c.setFillColor(color.cgColor)
+            c.fill(CGRect(x: 9, y: 11, width: 4, height: 3))
+
+            // ── Rider (jersey matches bike color) ─────────────────────
+            c.setFillColor(color.cgColor)
+            c.fillEllipse(in: CGRect(x: 7, y: 13, width: 8, height: 9))
+            c.setFillColor(UIColor(white: 1.0, alpha: 0.22).cgColor)
+            c.fillEllipse(in: CGRect(x: 8, y: 14, width: 3, height: 4))
+
+            // ── Seat tube ─────────────────────────────────────────────
+            c.setFillColor(color.cgColor)
+            c.fill(CGRect(x: 9, y: 21, width: 4, height: 4))
+
+            // ── Saddle ────────────────────────────────────────────────
+            c.setFillColor(sad)
+            c.fillEllipse(in: CGRect(x: 5, y: 22, width: 12, height: 5))
+
+            // ── Rear wheel (bottom of sprite = rear of bike) ──────────
+            c.setFillColor(tire); c.fillEllipse(in: CGRect(x: 4, y: 27, width: 14, height: 7))
+            c.setFillColor(rim);  c.fillEllipse(in: CGRect(x: 6, y: 28, width: 10, height: 5))
+            c.setFillColor(hub);  c.fillEllipse(in: CGRect(x: 9, y: 29, width: 4,  height: 4))
         }
         let tex = SKTexture(image: img); tex.filteringMode = .nearest
         return SKSpriteNode(texture: tex, size: CGSize(width: bw, height: bh))
@@ -266,25 +298,25 @@ final class BikeDodgeScene: SKScene {
         distLabel.zPosition = 50
         addChild(distLabel)
 
-        // Timer — blue (#5a9cd4), centered
-        timeLabel = SKLabelNode(fontNamed: font)
-        timeLabel.fontSize = fs
-        timeLabel.fontColor = SKColor(red: 0.35, green: 0.61, blue: 0.83, alpha: 1)  // #5a9cd4
-        timeLabel.horizontalAlignmentMode = .center
-        timeLabel.verticalAlignmentMode   = .center
-        timeLabel.position  = CGPoint(x: 0, y: hudY)
-        timeLabel.zPosition = 50
-        addChild(timeLabel)
-
-        // Hearts — red (#d4441e), right side
+        // Hearts — red (#d4441e), centered
         heartsLabel = SKLabelNode(fontNamed: "Helvetica-Bold")
         heartsLabel.fontSize = fs + 4
         heartsLabel.fontColor = SKColor(red: 0.83, green: 0.27, blue: 0.12, alpha: 1)  // #d4441e
-        heartsLabel.horizontalAlignmentMode = .right
+        heartsLabel.horizontalAlignmentMode = .center
         heartsLabel.verticalAlignmentMode   = .center
-        heartsLabel.position  = CGPoint(x: W / 2 - 16, y: hudY - 1)
+        heartsLabel.position  = CGPoint(x: 0, y: hudY - 1)
         heartsLabel.zPosition = 50
         addChild(heartsLabel)
+
+        // Timer — blue (#5a9cd4), right side, cleared past the 44pt UIKit close button
+        timeLabel = SKLabelNode(fontNamed: font)
+        timeLabel.fontSize = fs
+        timeLabel.fontColor = SKColor(red: 0.35, green: 0.61, blue: 0.83, alpha: 1)  // #5a9cd4
+        timeLabel.horizontalAlignmentMode = .right
+        timeLabel.verticalAlignmentMode   = .center
+        timeLabel.position  = CGPoint(x: W / 2 - 62, y: hudY)
+        timeLabel.zPosition = 50
+        addChild(timeLabel)
 
         refreshHUD()
     }
@@ -411,18 +443,26 @@ final class BikeDodgeScene: SKScene {
     // MARK: - Speed update
     private func updateSpeeds(dt: CGFloat) {
         if !pr.isCrashing {
+            timeSinceLastCrash += dt
+        }
+        // Acceleration scales up the longer the player avoids a crash:
+        // +50% at 5s, +100% at 10s, capped at 2× base accel.
+        let accelMult = min(2.0, 1.0 + timeSinceLastCrash / 10.0)
+        let effectiveAccel = accel * accelMult
+
+        if !pr.isCrashing {
             let cap = pr.isBoosting ? maxSpeed * boostMult : maxSpeed
-            pr.speed = min(cap, pr.speed + accel * dt)
+            pr.speed = min(cap, pr.speed + effectiveAccel * dt)
             pr.distanceRemaining = max(0, pr.distanceRemaining - pr.speed * distPerPx * dt)
         }
         if !pk.isCrashing {
             let cap = pk.isBoosting ? maxSpeed * boostMult * 0.96 : maxSpeed * 0.96
-            pk.speed = min(cap, pk.speed + accel * dt)
+            pk.speed = min(cap, pk.speed + effectiveAccel * dt)
             pk.distanceRemaining = max(0, pk.distanceRemaining - pk.speed * distPerPx * dt)
         }
         if !gr.isCrashing {
             let cap = gr.isBoosting ? maxSpeed * boostMult * 1.01 : maxSpeed * 1.01
-            gr.speed = min(cap, gr.speed + accel * dt)
+            gr.speed = min(cap, gr.speed + effectiveAccel * dt)
             gr.distanceRemaining = max(0, gr.distanceRemaining - gr.speed * distPerPx * dt)
         }
     }
@@ -778,6 +818,7 @@ final class BikeDodgeScene: SKScene {
             triggerCrashHaptics()
             playCrashAnimation(on: playerSprite, isPlayer: true)
             pr.isCrashing = true; pr.crashTimer = 2.0; pr.speed = baseSpeed
+            timeSinceLastCrash = 0
             pr.hearts = max(0, pr.hearts - 1)
             pr.isInvincible = true; pr.invTimer = 1.5
             if pr.hearts <= 0 { showGameOver() }
@@ -912,16 +953,23 @@ final class BikeDodgeScene: SKScene {
             case .heart: pr.hearts = min(pr.maxHearts, pr.hearts + 1)
             case .boost:
                 triggerBoostHaptics()
-                pr.isBoosting = true; pr.boostTimer = 2.0
+                pr.isBoosting = true; pr.boostTimer = 2.5
                 attachBoost(to: playerSprite, store: &playerBoostNode)
+                flashBoostScreen()
+                playerSprite.run(.sequence([
+                    .group([.colorize(with: .yellow, colorBlendFactor: 0.85, duration: 0.07),
+                            .scale(to: 1.25, duration: 0.07)]),
+                    .group([.colorize(with: .yellow, colorBlendFactor: 0.0, duration: 0.18),
+                            .scale(to: 1.0,  duration: 0.18)]),
+                ]))
             }
         } else {
             if pu.kind == .boost {
                 if Bool.random() {
-                    gr.isBoosting = true; gr.boostTimer = 2.0
+                    gr.isBoosting = true; gr.boostTimer = 2.5
                     attachBoost(to: greenSprite, store: &greenBoostNode)
                 } else {
-                    pk.isBoosting = true; pk.boostTimer = 2.0
+                    pk.isBoosting = true; pk.boostTimer = 2.5
                     attachBoost(to: pinkSprite, store: &pinkBoostNode)
                 }
             }
@@ -930,12 +978,78 @@ final class BikeDodgeScene: SKScene {
 
     private func attachBoost(to sprite: SKSpriteNode, store: inout SKNode?) {
         store?.removeFromParent()
-        let flame = SKSpriteNode(color: SKColor(red:1.00,green:0.45,blue:0.05,alpha:0.90),
-                                 size: CGSize(width:10,height:18))
-        flame.position  = CGPoint(x: sprite.position.x, y: sprite.position.y - sprite.size.height/2 - 8)
-        flame.zPosition = 9
-        flame.run(.repeatForever(.sequence([.scale(to:1.4,duration:0.08),.scale(to:0.75,duration:0.08)])))
-        addChild(flame); store = flame
+
+        let container = SKNode()
+        container.position = CGPoint(x: sprite.position.x,
+                                     y: sprite.position.y - sprite.size.height / 2 - 4)
+        container.zPosition = 9
+        addChild(container); store = container
+
+        // Three flame tongues: left / center / right
+        let tongues: [(dx: CGFloat, w: CGFloat, h: CGFloat, color: SKColor, t1: Double, t2: Double)] = [
+            (-4, 6, 14, SKColor(red:1.0, green:0.35, blue:0.0, alpha:0.85), 0.09, 0.12),
+            ( 0, 8, 22, SKColor(red:1.0, green:0.80, blue:0.1, alpha:1.00), 0.06, 0.09),
+            ( 4, 6, 14, SKColor(red:1.0, green:0.35, blue:0.0, alpha:0.85), 0.08, 0.11),
+        ]
+        for t in tongues {
+            let f = SKSpriteNode(color: t.color, size: CGSize(width: t.w, height: t.h))
+            f.anchorPoint = CGPoint(x: 0.5, y: 1.0)
+            f.position = CGPoint(x: t.dx, y: 0)
+            f.run(.repeatForever(.sequence([
+                .group([.scale(to: 1.35, duration: t.t1),
+                        .fadeAlpha(to: 0.65, duration: t.t1)]),
+                .group([.scale(to: 0.70, duration: t.t2),
+                        .fadeAlpha(to: 1.00, duration: t.t2)]),
+            ])))
+            container.addChild(f)
+        }
+
+        // Ember sparks
+        for _ in 0..<5 {
+            let ember = SKSpriteNode(color: SKColor(red:1.0, green:0.85, blue:0.2, alpha:1),
+                                     size: CGSize(width: 2, height: 2))
+            let ox = CGFloat.random(in: -5...5)
+            ember.position = CGPoint(x: ox, y: 0)
+            let angle = CGFloat.random(in: -.pi * 0.85 ... -.pi * 0.15)
+            let dist  = CGFloat.random(in: 14...26)
+            let dur   = Double.random(in: 0.30...0.50)
+            ember.run(.repeatForever(.sequence([
+                .group([
+                    .moveBy(x: cos(angle) * dist, y: sin(angle) * dist, duration: dur),
+                    .sequence([.fadeAlpha(to: 0.9, duration: dur * 0.4),
+                               .fadeAlpha(to: 0.0, duration: dur * 0.6)]),
+                    .scale(to: 0.2, duration: dur),
+                ]),
+                .run { ember.position = CGPoint(x: ox, y: 0); ember.alpha = 1; ember.setScale(1) },
+            ])))
+            container.addChild(ember)
+        }
+    }
+
+    private func flashBoostScreen() {
+        let flash = SKSpriteNode(color: SKColor(red:1.0, green:0.65, blue:0.0, alpha:0.40),
+                                 size: CGSize(width: W, height: H))
+        flash.position  = .zero
+        flash.zPosition = 200
+        addChild(flash)
+        flash.run(.sequence([.fadeAlpha(to: 0, duration: 0.30), .removeFromParent()]))
+
+        // Speed-streak lines
+        for _ in 0..<10 {
+            let line = SKShapeNode()
+            let path = CGMutablePath()
+            let sx = CGFloat.random(in: -W/2...W/2)
+            let sy = CGFloat.random(in: -H/2...H/2)
+            let len = CGFloat.random(in: 35...90)
+            path.move(to: CGPoint(x: sx, y: sy))
+            path.addLine(to: CGPoint(x: sx, y: sy - len))
+            line.path = path
+            line.strokeColor = SKColor(white: 1, alpha: CGFloat.random(in: 0.4...0.7))
+            line.lineWidth  = 1
+            line.zPosition  = 199
+            addChild(line)
+            line.run(.sequence([.fadeAlpha(to: 0, duration: 0.25), .removeFromParent()]))
+        }
     }
 
     // MARK: - Timer helpers
@@ -1111,12 +1225,14 @@ final class BikeDodgeScene: SKScene {
     }
 
     private func triggerBoostHaptics() {
-        let notification = UINotificationFeedbackGenerator()
-        let impact = UIImpactFeedbackGenerator(style: .heavy)
-        notification.prepare()
-        impact.prepare()
-        notification.notificationOccurred(.success)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { impact.impactOccurred(intensity: 1.0) }
+        let heavy  = UIImpactFeedbackGenerator(style: .heavy)
+        let medium = UIImpactFeedbackGenerator(style: .medium)
+        let notif  = UINotificationFeedbackGenerator()
+        heavy.prepare(); medium.prepare(); notif.prepare()
+        notif.notificationOccurred(.success)
+        heavy.impactOccurred(intensity: 1.0)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.10) { medium.impactOccurred(intensity: 0.8) }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.20) { heavy.impactOccurred(intensity: 1.0) }
     }
 
     // MARK: - CRT Overlay

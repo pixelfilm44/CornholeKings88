@@ -295,7 +295,7 @@ final class MiniGamePickerScene: SKScene {
 
         case "cornhole":
             let s = CornholeMiniGameScene(size: ppSize)
-            s.previousScene = MainMenuScene(size: size)
+            s.previousScene = self
             s.scaleMode = .resizeFill
             s.availableHoneyBags = 0
             s.onComplete = { _ in }
@@ -303,14 +303,14 @@ final class MiniGamePickerScene: SKScene {
 
         case "baseball":
             let s = CornholeBaseballScene(size: ppSize)
-            s.previousScene = MainMenuScene(size: size)
+            s.previousScene = self
             s.scaleMode = .resizeFill
             s.onComplete = { _ in }
             push(to: s)
 
         case "beehive":
             let s = BeeHiveScene(size: ppSize)
-            s.previousScene = MainMenuScene(size: size)
+            s.previousScene = self
             s.scaleMode = .resizeFill
             s.startingHearts = 3
             s.onComplete = { _ in }

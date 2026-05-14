@@ -11,6 +11,7 @@ final class CornholeMiniGameScene: SKScene {
     // MARK: - Public
     var previousScene: SKScene?
     var onComplete: ((Bool) -> Void)?
+    private var closeUIButton: UIButton?
     /// Honey bags from inventory injected by GameScene before presenting.
     var availableHoneyBags: Int = 0
     /// How many honey bags the player actually used this match (consumed from inventory).
@@ -169,11 +170,17 @@ final class CornholeMiniGameScene: SKScene {
         setupGameWorld()
         setupBoard()
         setupUI()
+        pushCloseButton(to: view)
         rollRainScenario()
         rollThunderstormScenario()
 
         // Picker → tutorial → startRound
         showOpponentPicker()
+    }
+
+    override func willMove(from view: SKView) {
+        closeUIButton?.removeFromSuperview()
+        closeUIButton = nil
     }
 
     private func preloadAssets() {
@@ -388,14 +395,6 @@ final class CornholeMiniGameScene: SKScene {
         // ── Top bar ────────────────────────────────────────────────────────
         addChrome(y: topBarY, h: topH)
 
-        // Close button — 44×44 minimum, LEFT side, red ✕
-        let closeSide: CGFloat = min(44, topH - 4)
-        let closeNode = makeCloseButton(size: CGSize(width: closeSide, height: closeSide))
-        closeNode.position  = CGPoint(x: -size.width / 2 + closeSide / 2 + 4, y: topBarY)
-        closeNode.name      = "closeButton"
-        closeNode.zPosition = 700
-        addChild(closeNode)
-
         // Score chip — centered, just below the top bar (clear of the camera area)
         let chipW: CGFloat = min(size.width * 0.62, 230)
         let chipH: CGFloat = 36
@@ -517,6 +516,62 @@ final class CornholeMiniGameScene: SKScene {
         lbl.zPosition               = 1
         n.addChild(lbl)
         return n
+    }
+
+    private func pushCloseButton(to view: SKView) {
+        let barH: CGFloat = view.bounds.height * 0.09
+        let btnSize: CGFloat = 44
+        let safeTop = view.safeAreaInsets.top
+        let btn = UIButton(type: .custom)
+        btn.frame = CGRect(
+            x: view.bounds.width - btnSize - 8,
+            y: max(safeTop + 4, (barH - btnSize) / 2),
+            width: btnSize, height: btnSize
+        )
+        btn.layer.cornerRadius = 6
+        btn.layer.masksToBounds = false
+        btn.layer.borderWidth = 2
+        btn.layer.borderColor = UIColor(white: 0.07, alpha: 1).cgColor
+
+        let grad = CAGradientLayer()
+        grad.frame = btn.bounds
+        grad.colors = [
+            UIColor(red: 0.35, green: 0.35, blue: 0.35, alpha: 1).cgColor,
+            UIColor(red: 0.22, green: 0.22, blue: 0.22, alpha: 1).cgColor,
+            UIColor(red: 0.12, green: 0.12, blue: 0.12, alpha: 1).cgColor,
+        ]
+        grad.locations = [0, 0.5, 1.0]
+        grad.startPoint = CGPoint(x: 0.5, y: 0)
+        grad.endPoint   = CGPoint(x: 0.5, y: 1)
+        grad.cornerRadius = 6
+        btn.layer.insertSublayer(grad, at: 0)
+
+        let xLayer = CAShapeLayer()
+        xLayer.frame = btn.bounds
+        let xPath = UIBezierPath()
+        xPath.move(to: CGPoint(x: 13, y: 13)); xPath.addLine(to: CGPoint(x: 31, y: 31))
+        xPath.move(to: CGPoint(x: 31, y: 13)); xPath.addLine(to: CGPoint(x: 13, y: 31))
+        xLayer.path = xPath.cgPath
+        xLayer.strokeColor = UIColor(red: 0.831, green: 0.267, blue: 0.118, alpha: 1).cgColor
+        xLayer.lineWidth = 3
+        xLayer.lineCap = .square
+        btn.layer.addSublayer(xLayer)
+
+        for (rx, ry): (CGFloat, CGFloat) in [(5,5),(39,5),(5,39),(39,39)] {
+            let rv = CALayer()
+            rv.frame = CGRect(x: rx - 2, y: ry - 2, width: 4, height: 4)
+            rv.cornerRadius = 2
+            rv.backgroundColor = UIColor(white: 0.55, alpha: 1).cgColor
+            btn.layer.addSublayer(rv)
+        }
+
+        btn.addTarget(self, action: #selector(closeButtonTapped), for: .touchUpInside)
+        view.addSubview(btn)
+        closeUIButton = btn
+    }
+
+    @objc private func closeButtonTapped() {
+        showConfirmQuit()
     }
 
     private func addChrome(y: CGFloat, h: CGFloat) {
@@ -1260,7 +1315,7 @@ final class CornholeMiniGameScene: SKScene {
         let flightFrames = 2.0 * vzInitial / gravityPerFrame  // ≈ 60 frames
 
         // Base aim: hole with noise scaled by weather
-        let noiseFactor: CGFloat = rainActive ? 2.6 : 1.8
+        let noiseFactor: CGFloat = rainActive ? 3.4 : 2.5
         let noise = holeRadius * noiseFactor
         var aimX = holeCenter.x + CGFloat.random(in: -noise...noise)
         var aimY = holeCenter.y + CGFloat.random(in: -noise * 0.5...noise * 0.5)
@@ -1269,8 +1324,8 @@ final class CornholeMiniGameScene: SKScene {
         // strong chance to aim with tight precision and cancel those points.
         if selectedOpponent == .tom {
             let playerHoles = activeBags.filter { $0.owner == .player && $0.hasScored }.count
-            if playerHoles > 0, Double.random(in: 0..<1) < 0.72 {
-                let preciseNoise = holeRadius * 0.22
+            if playerHoles > 0, Double.random(in: 0..<1) < 0.55 {
+                let preciseNoise = holeRadius * 0.38
                 aimX = holeCenter.x + CGFloat.random(in: -preciseNoise...preciseNoise)
                 aimY = holeCenter.y + CGFloat.random(in: -preciseNoise * 0.5...preciseNoise * 0.5)
             }
