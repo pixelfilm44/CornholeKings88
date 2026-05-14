@@ -144,6 +144,7 @@ final class CornholeBaseballScene: SKScene {
 
     override func didMove(to view: SKView) {
         anchorPoint = CGPoint(x: 0.5, y: 0.5)
+        preloadAssets()
         computeLayout()
         setupCameraRig()
         setupGameWorld()
@@ -166,6 +167,36 @@ final class CornholeBaseballScene: SKScene {
         hudHostingController = nil
         closeUIButton?.removeFromSuperview()
         closeUIButton = nil
+    }
+
+    private func preloadAssets() {
+        let textures = ["bag_16bit"].map { name -> SKTexture in
+            let t = SKTexture(imageNamed: name)
+            t.filteringMode = .nearest
+            return t
+        }
+        SKTexture.preload(textures) { }
+
+        let sounds = ["bag_land.wav",    "phase_change.wav", "strike_call.wav",
+                      "bat_whiff.wav",   "bat_crack.wav",    "out_caught.wav",
+                      "game_win.wav",    "game_lose.wav"]
+        sounds.forEach { warmUpSound($0) }
+    }
+
+    private func warmUpSound(_ filename: String) {
+        let base = (filename as NSString).deletingPathExtension
+        let ext  = (filename as NSString).pathExtension
+        guard Bundle.main.url(forResource: base, withExtension: ext) != nil else { return }
+        let audio = SKAudioNode(fileNamed: filename)
+        audio.autoplayLooped = false
+        audio.isPositional   = false
+        addChild(audio)
+        audio.run(SKAction.sequence([
+            SKAction.changeVolume(to: 0, duration: 0),
+            SKAction.play(),
+            SKAction.wait(forDuration: 0.05),
+            SKAction.run { [weak audio] in audio?.removeFromParent() },
+        ]))
     }
 
     // MARK: - SwiftUI HUD injection

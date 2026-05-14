@@ -123,6 +123,7 @@ final class BeeHiveScene: SKScene {
 
     override func didMove(to view: SKView) {
         anchorPoint = CGPoint(x: 0.5, y: 0.5)
+        preloadAssets()
         playerHearts  = startingHearts
         remainingHearts = playerHearts
         computeLayout()
@@ -130,6 +131,35 @@ final class BeeHiveScene: SKScene {
         setupUI()
         showFirstTimeTutorial()
         addCrtOverlay()
+    }
+
+    private func preloadAssets() {
+        let textures = ["bag_16bit"].map { name -> SKTexture in
+            let t = SKTexture(imageNamed: name)
+            t.filteringMode = .nearest
+            return t
+        }
+        SKTexture.preload(textures) { }
+
+        let sounds = ["bag_land.wav", "hole_score.wav", "dog_bite.wav",
+                      "gopher_pop.wav", "game_win.wav",  "game_lose.wav"]
+        sounds.forEach { warmUpSound($0) }
+    }
+
+    private func warmUpSound(_ filename: String) {
+        let base = (filename as NSString).deletingPathExtension
+        let ext  = (filename as NSString).pathExtension
+        guard Bundle.main.url(forResource: base, withExtension: ext) != nil else { return }
+        let audio = SKAudioNode(fileNamed: filename)
+        audio.autoplayLooped = false
+        audio.isPositional   = false
+        addChild(audio)
+        audio.run(SKAction.sequence([
+            SKAction.changeVolume(to: 0, duration: 0),
+            SKAction.play(),
+            SKAction.wait(forDuration: 0.05),
+            SKAction.run { [weak audio] in audio?.removeFromParent() },
+        ]))
     }
 
     // MARK: - Layout
@@ -758,14 +788,9 @@ final class BeeHiveScene: SKScene {
         removeBag(bag)
         activeBees.removeAll { $0 === bee }
 
-        // Reaching 10 hits unlocks the honey-bag reward but does NOT end the game —
-        // the player keeps fighting until they run out of hearts. Show a one-time
-        // celebration so they know the bonus is locked in.
         if beesHit == totalBees {
-            showFloatingLabel("+3 HONEY UNLOCKED!",
-                              at: CGPoint(x: 0, y: 0),
-                              color: SKColor(red: 0.95, green: 0.82, blue: 0.10, alpha: 1))
             UINotificationFeedbackGenerator().notificationOccurred(.success)
+            triggerGameOver(playerWon: true)
         }
     }
 

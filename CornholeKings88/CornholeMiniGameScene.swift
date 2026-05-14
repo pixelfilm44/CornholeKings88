@@ -164,6 +164,7 @@ final class CornholeMiniGameScene: SKScene {
 
     override func didMove(to view: SKView) {
         anchorPoint = CGPoint(x: 0.5, y: 0.5)
+        preloadAssets()
         computeLayout()
         setupGameWorld()
         setupBoard()
@@ -173,6 +174,40 @@ final class CornholeMiniGameScene: SKScene {
 
         // Picker → tutorial → startRound
         showOpponentPicker()
+    }
+
+    private func preloadAssets() {
+        // Force textures into GPU memory so the first bag throw doesn't stutter
+        let textures = ["bag_16bit", "board_16bit"].map { name -> SKTexture in
+            let t = SKTexture(imageNamed: name)
+            t.filteringMode = .nearest
+            return t
+        }
+        SKTexture.preload(textures) { }
+
+        // Warm up AVAudioEngine (shared with playSoundFileNamed) by playing each
+        // sound once at volume 0. Guard against missing files — SKAudioNode crashes
+        // hard on a missing file while playSoundFileNamed silently no-ops.
+        let sounds = ["bag_land.wav", "hole_score.wav", "round_end.wav",
+                      "rain_start.wav", "gopher_pop.wav", "gopher_steal.wav",
+                      "game_win.wav",  "game_lose.wav"]
+        sounds.forEach { warmUpSound($0) }
+    }
+
+    private func warmUpSound(_ filename: String) {
+        let base = (filename as NSString).deletingPathExtension
+        let ext  = (filename as NSString).pathExtension
+        guard Bundle.main.url(forResource: base, withExtension: ext) != nil else { return }
+        let audio = SKAudioNode(fileNamed: filename)
+        audio.autoplayLooped = false
+        audio.isPositional   = false
+        addChild(audio)
+        audio.run(SKAction.sequence([
+            SKAction.changeVolume(to: 0, duration: 0),
+            SKAction.play(),
+            SKAction.wait(forDuration: 0.05),
+            SKAction.run { [weak audio] in audio?.removeFromParent() },
+        ]))
     }
 
     // MARK: - Layout
@@ -594,9 +629,7 @@ final class CornholeMiniGameScene: SKScene {
 
         if satchelItems.isEmpty {
             honeyBagSelected = false
-            satchelOpen      = false
-            satchelPanel?.removeFromParent()
-            satchelPanel = nil
+            closeSatchelPanel()
             btn.isHidden = true
             return
         }
@@ -615,103 +648,217 @@ final class CornholeMiniGameScene: SKScene {
         }
     }
 
-    /// Opens the item-picker panel above the satchel button.
+    /// Opens a panel anchored to the right side; slides up from below and stays open
+    /// until the user taps the X button. Tapping a bag arms it as the active bag type.
     private func openSatchelPanel() {
         closeSatchelPanel()
-        guard let btn = satchelButton, !satchelItems.isEmpty else { return }
+        guard !satchelItems.isEmpty else { return }
         satchelOpen = true
 
-        let rowH: CGFloat    = 28
-        let panelW: CGFloat  = 150
-        let padding: CGFloat = 6
-        let panelH           = rowH * CGFloat(satchelItems.count) + padding * 2
+        let rowH: CGFloat    = 44
+        let panelW: CGFloat  = min(size.width * 0.52, 190)
+        let titleH: CGFloat  = 32
+        let padding: CGFloat = 10
+        let panelH           = titleH + rowH * CGFloat(satchelItems.count) + padding * 2
+
+        // Anchor just above the satchel button in the bottom-right corner.
+        let bottomH: CGFloat = max(40, size.height * 0.08)
+        let iconH:   CGFloat = 36
+        let btnTopY  = -size.height / 2 + bottomH + iconH + 6   // top edge of satchel button
+        let finalY   = btnTopY + 6 + panelH / 2                 // panel sits 6 pt above button
+        let startY   = finalY - 12                              // rises 12 pt on open
+        let panelX   = size.width / 2 - panelW / 2 - 8         // right-aligned
 
         let panel = SKNode()
         panel.name      = "satchelPanel"
-        panel.position  = CGPoint(x: btn.position.x - panelW / 2 + 38 / 2,
-                                  y: btn.position.y + 36 / 2 + panelH / 2 + 4)
+        panel.position  = CGPoint(x: panelX, y: startY)
         panel.zPosition = 650
         addChild(panel)
         satchelPanel = panel
 
-        // Background
-        let bg = SKSpriteNode(color: SKColor(red: 0.06, green: 0.03, blue: 0.01, alpha: 0.96),
+        // Dark backing — named so stray taps on it are swallowed
+        let bg = SKSpriteNode(color: SKColor(red: 0.06, green: 0.03, blue: 0.01, alpha: 0.97),
                               size: CGSize(width: panelW, height: panelH))
+        bg.name      = "satchelPanelBg"
         bg.zPosition = 0
         panel.addChild(bg)
 
-        // 1-px gold border
-        for (dx, dy, w, h): (CGFloat, CGFloat, CGFloat, CGFloat) in [
-            (0,  panelH / 2 - 0.5, panelW, 1),   // top
-            (0, -panelH / 2 + 0.5, panelW, 1),   // bottom
-            (-panelW / 2 + 0.5, 0, 1, panelH),   // left
-            ( panelW / 2 - 0.5, 0, 1, panelH),   // right
-        ] {
-            let line = SKSpriteNode(color: SKColor(red: 0.50, green: 0.35, blue: 0.15, alpha: 0.70),
-                                    size: CGSize(width: w, height: h))
-            line.position  = CGPoint(x: dx, y: dy)
-            line.zPosition = 1
-            panel.addChild(line)
-        }
+        // Gold border
+        let border = SKShapeNode(rectOf: CGSize(width: panelW + 2, height: panelH + 2),
+                                 cornerRadius: 3)
+        border.strokeColor = SKColor(red: 0.60, green: 0.42, blue: 0.15, alpha: 1)
+        border.fillColor   = .clear
+        border.lineWidth   = 2
+        border.zPosition   = 1
+        panel.addChild(border)
+
+        let fs = max(7, size.width * 0.038)
+        let titleY = panelH / 2 - padding - titleH / 2
+
+        // Title label (left-of-centre to leave room for X)
+        let title = SKLabelNode(fontNamed: "PressStart2P-Regular")
+        title.fontSize                = fs * 0.68
+        title.fontColor               = SKColor(red: 0.95, green: 0.75, blue: 0.38, alpha: 1)
+        title.text                    = "BAGS"
+        title.verticalAlignmentMode   = .center
+        title.horizontalAlignmentMode = .left
+        title.position  = CGPoint(x: -panelW / 2 + 10, y: titleY)
+        title.zPosition = 2
+        panel.addChild(title)
+
+        // X close button — top-right of title bar
+        let xBtn = SKNode()
+        xBtn.name      = "satchelCloseBtn"
+        xBtn.position  = CGPoint(x: panelW / 2 - 16, y: titleY)
+        xBtn.zPosition = 3
+        panel.addChild(xBtn)
+
+        let xBg = SKSpriteNode(color: SKColor(red: 0.28, green: 0.08, blue: 0.04, alpha: 0.85),
+                               size: CGSize(width: 22, height: 22))
+        xBg.zPosition = 0
+        xBtn.addChild(xBg)
+
+        let xPath = CGMutablePath()
+        let xi: CGFloat = 5
+        xPath.move(to: CGPoint(x: -xi, y: -xi)); xPath.addLine(to: CGPoint(x: xi, y:  xi))
+        xPath.move(to: CGPoint(x:  xi, y: -xi)); xPath.addLine(to: CGPoint(x: -xi, y: xi))
+        let xShape = SKShapeNode(path: xPath)
+        xShape.strokeColor = SKColor(red: 0.95, green: 0.35, blue: 0.25, alpha: 1)
+        xShape.lineWidth   = 2
+        xShape.lineCap     = .round
+        xShape.zPosition   = 1
+        xBtn.addChild(xShape)
+
+        // Divider below title
+        let divider = SKSpriteNode(color: SKColor(red: 0.50, green: 0.35, blue: 0.15, alpha: 0.55),
+                                   size: CGSize(width: panelW - 12, height: 1))
+        divider.position  = CGPoint(x: 0, y: panelH / 2 - padding - titleH)
+        divider.zPosition = 2
+        panel.addChild(divider)
 
         // One row per item
+        let rowsTop = panelH / 2 - padding - titleH - rowH / 2
         for (idx, item) in satchelItems.enumerated() {
-            let rowY = panelH / 2 - padding - rowH * CGFloat(idx) - rowH / 2
+            let rowY = rowsTop - rowH * CGFloat(idx)
             let row  = SKNode()
             row.name      = "satchelItem_\(item.type.rawValue)"
             row.position  = CGPoint(x: 0, y: rowY)
             row.zPosition = 2
             panel.addChild(row)
 
-            // Highlight if currently selected
             let isSelected = (item.type == .honeyBag && honeyBagSelected)
             let rowBg = SKSpriteNode(
                 color: isSelected
-                    ? SKColor(red: 0.22, green: 0.14, blue: 0.04, alpha: 0.85)
-                    : SKColor.clear,
-                size: CGSize(width: panelW - 2, height: rowH - 2))
+                    ? SKColor(red: 0.28, green: 0.18, blue: 0.04, alpha: 0.90)
+                    : SKColor(white: 1, alpha: 0.04),
+                size: CGSize(width: panelW - 8, height: rowH - 6))
             rowBg.name      = "satchelRowBg_\(item.type.rawValue)"
             rowBg.zPosition = 0
             row.addChild(rowBg)
 
-            // Coloured icon square
-            let icon = SKSpriteNode(color: item.type.color,
-                                    size: CGSize(width: 10, height: 10))
-            icon.position  = CGPoint(x: -panelW / 2 + 14, y: 0)
+            // Selection circle
+            let check = SKShapeNode(circleOfRadius: 6)
+            check.name        = "satchelCheck_\(item.type.rawValue)"
+            check.strokeColor = isSelected
+                ? SKColor(red: 0.95, green: 0.72, blue: 0.10, alpha: 1)
+                : SKColor(white: 0.45, alpha: 1)
+            check.fillColor   = isSelected
+                ? SKColor(red: 0.95, green: 0.72, blue: 0.10, alpha: 0.30)
+                : .clear
+            check.lineWidth   = 1.5
+            check.position    = CGPoint(x: -panelW / 2 + 16, y: 0)
+            check.zPosition   = 1
+            row.addChild(check)
+
+            // Coloured bag icon
+            let icon = SKSpriteNode(color: item.type.color, size: CGSize(width: 11, height: 11))
+            icon.position  = CGPoint(x: -panelW / 2 + 34, y: 0)
             icon.zPosition = 1
             row.addChild(icon)
 
-            // Item name + count
+            // Name + count
             let lbl = SKLabelNode(fontNamed: "PressStart2P-Regular")
-            lbl.fontSize               = 7
-            lbl.fontColor              = isSelected ? SKColor(white: 1.0, alpha: 1) : SKColor(white: 0.80, alpha: 1)
-            lbl.text                   = "\(item.type.displayName) ×\(item.count)"
-            lbl.verticalAlignmentMode  = .center
+            lbl.name                    = "satchelLbl_\(item.type.rawValue)"
+            lbl.fontSize                = fs * 0.60
+            lbl.fontColor               = isSelected ? SKColor(white: 1.0, alpha: 1) : SKColor(white: 0.80, alpha: 1)
+            lbl.text                    = "\(item.type.displayName) ×\(item.count)"
+            lbl.verticalAlignmentMode   = .center
             lbl.horizontalAlignmentMode = .left
-            lbl.position               = CGPoint(x: -panelW / 2 + 24, y: 0)
-            lbl.zPosition              = 1
+            lbl.position                = CGPoint(x: -panelW / 2 + 48, y: 0)
+            lbl.zPosition               = 1
             row.addChild(lbl)
+        }
+
+        // Pop up from just below its resting position
+        panel.alpha = 0
+        let rise = SKAction.move(to: CGPoint(x: panelX, y: finalY), duration: 0.15)
+        rise.timingMode = .easeOut
+        panel.run(SKAction.group([.fadeIn(withDuration: 0.15), rise]))
+    }
+
+    /// Fades the panel out with a short drop then removes it.
+    private func closeSatchelPanel() {
+        satchelOpen = false
+
+        if let panel = satchelPanel {
+            satchelPanel = nil
+            let drop = SKAction.moveBy(x: 0, y: -8, duration: 0.12)
+            drop.timingMode = .easeIn
+            panel.run(SKAction.sequence([
+                SKAction.group([drop, .fadeOut(withDuration: 0.12)]),
+                .removeFromParent(),
+            ]))
         }
     }
 
-    /// Removes the open satchel panel without changing selection state.
-    private func closeSatchelPanel() {
-        satchelPanel?.removeFromParent()
-        satchelPanel = nil
-        satchelOpen  = false
+    /// Updates row visuals and counts in-place to reflect the current selection and inventory state.
+    private func refreshSatchelPanelRows() {
+        guard let panel = satchelPanel else { return }
+        // Rebuild satchelItems from current counts so the loop sees up-to-date values
+        let allItems: [(type: ItemType, count: Int)] = [(type: .honeyBag, count: availableHoneyBags)]
+        for item in allItems {
+            let isSelected = (item.type == .honeyBag && honeyBagSelected)
+            let key = item.type.rawValue
+
+            if let rowBg = panel.childNode(withName: "//satchelRowBg_\(key)") as? SKSpriteNode {
+                rowBg.color = isSelected
+                    ? SKColor(red: 0.28, green: 0.18, blue: 0.04, alpha: 0.90)
+                    : SKColor(white: 1, alpha: 0.04)
+            }
+            if let check = panel.childNode(withName: "//satchelCheck_\(key)") as? SKShapeNode {
+                check.strokeColor = isSelected
+                    ? SKColor(red: 0.95, green: 0.72, blue: 0.10, alpha: 1)
+                    : SKColor(white: 0.45, alpha: 1)
+                check.fillColor = isSelected
+                    ? SKColor(red: 0.95, green: 0.72, blue: 0.10, alpha: 0.30)
+                    : .clear
+            }
+            if let lbl = panel.childNode(withName: "//satchelLbl_\(key)") as? SKLabelNode {
+                lbl.fontColor = isSelected ? SKColor(white: 1.0, alpha: 1) : SKColor(white: 0.80, alpha: 1)
+                lbl.text = "\(item.type.displayName) ×\(item.count)"
+            }
+        }
     }
 
-    /// Toggles selection of a special item type and closes the panel.
+    /// Arms or disarms a special bag type. Count decrements immediately on arm; refunds on disarm.
     private func selectSatchelItem(_ type: ItemType) {
         switch type {
         case .honeyBag:
-            honeyBagSelected = !honeyBagSelected
+            if honeyBagSelected {
+                // Disarm — refund the bag
+                honeyBagSelected = false
+                availableHoneyBags += 1
+            } else if availableHoneyBags > 0 {
+                // Arm — consume one bag now so the count reflects what's left
+                honeyBagSelected = true
+                availableHoneyBags -= 1
+            }
         default:
             break
         }
-        closeSatchelPanel()
         updateSatchelButton()
         updateTurnIndicator()
+        refreshSatchelPanelRows()
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
     }
 
@@ -750,8 +897,8 @@ final class CornholeMiniGameScene: SKScene {
         aiBagsThrown        = 0
         hasCalculatedScore  = false
         honeyBagSelected    = false
-        closeSatchelPanel()
         updateSatchelButton()
+        refreshSatchelPanelRows()
 
         for bag in activeBags {
             bag.node.removeFromParent()
@@ -1066,12 +1213,13 @@ final class CornholeMiniGameScene: SKScene {
     // MARK: - Throwing
 
     private func throwBag(owner: BagOwner, startX: CGFloat, vx: CGFloat, vy: CGFloat) {
-        let useHoney = owner == .player && honeyBagSelected && availableHoneyBags > 0
+        // availableHoneyBags was already decremented when the player armed the bag in the satchel.
+        let useHoney = owner == .player && honeyBagSelected
         if useHoney {
-            availableHoneyBags -= 1
             honeyBagsUsed += 1
             honeyBagSelected = false
             updateSatchelButton()
+            refreshSatchelPanelRows()
         }
         let bag = MiniGameBag(owner: owner, startX: startX, startY: throwLineY, isHoney: useHoney)
         bag.vx = vx
@@ -1164,8 +1312,9 @@ final class CornholeMiniGameScene: SKScene {
             return
         }
 
-        // Check UI buttons first
-        if handleButtonTap(at: loc) { return }
+        // Swallow touches over UI to prevent a throw from starting.
+        // Actions (selectSatchelItem, openPanel, etc.) fire once in touchesEnded.
+        if handleButtonTap(at: loc, fireActions: false) { return }
 
         touchStart = loc
         aimingLine?.removeFromParent()
@@ -1223,20 +1372,27 @@ final class CornholeMiniGameScene: SKScene {
 
     // Returns true if a named button was tapped (consuming the touch).
     // Uses nodes(at:) so nested buttons (inside panels) are found correctly.
+    // Pass fireActions:false from touchesBegan to swallow satchel-item touches without
+    // triggering selection — selection fires once in touchesEnded to avoid double-toggle.
     @discardableResult
-    private func handleButtonTap(at location: CGPoint) -> Bool {
+    private func handleButtonTap(at location: CGPoint, fireActions: Bool = true) -> Bool {
         for node in nodes(at: location) {
             var n: SKNode? = node
             while let current = n {
                 switch current.name {
                 case "satchelButton":
-                    if gameState == .playerTurn {
-                        if satchelOpen { closeSatchelPanel() }
-                        else           { openSatchelPanel() }
+                    if fireActions, gameState == .playerTurn, !satchelOpen {
+                        openSatchelPanel()
                     }
                     return true
+                case "satchelCloseBtn":
+                    if fireActions { closeSatchelPanel() }
+                    return true
+                case "satchelBackdrop", "satchelPanelBg":
+                    return true  // swallow — panel stays open
                 case let name where name?.hasPrefix("satchelItem_") == true:
-                    if gameState == .playerTurn,
+                    if fireActions,
+                       gameState == .playerTurn,
                        let name = name,
                        let type = ItemType(rawValue: String(name.dropFirst("satchelItem_".count))) {
                         selectSatchelItem(type)
@@ -1649,8 +1805,9 @@ final class CornholeMiniGameScene: SKScene {
     }
 
     private func addStormDarkOverlay() {
+        // Moonlight tint: cool blue wash at low opacity so the scene stays bright
         let overlay = SKSpriteNode(
-            color: SKColor(red: 0.04, green: 0.04, blue: 0.16, alpha: 0.68),
+            color: SKColor(red: 0.10, green: 0.18, blue: 0.55, alpha: 0.32),
             size: CGSize(width: size.width * 2, height: size.height * 2))
         overlay.zPosition = 95   // above game world, below storm particles
         overlay.alpha = 0
