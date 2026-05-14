@@ -808,6 +808,7 @@ final class CornholeMiniGameScene: SKScene {
                 let dist = hypot(bag.bx - holeCenter.x, bag.by - holeCenter.y)
                 if dist <= holeRadius && !bag.hasScored {
                     bag.hasScored  = true
+                    CornholeStatsManager.shared.recordCornhole()
                     bag.isGrounded = true
                     bag.vx = 0; bag.vy = 0; bag.vz = 0; bag.rotV = 0
                     UINotificationFeedbackGenerator().notificationOccurred(.success)
@@ -2045,6 +2046,8 @@ final class CornholeMiniGameScene: SKScene {
     // MARK: - Dismiss
 
     private func dismissScene(playerWon: Bool) {
+        if playerWon { CornholeStatsManager.shared.recordWin() }
+        else         { CornholeStatsManager.shared.recordLoss() }
         onComplete?(playerWon)
         guard let view = self.view, let prev = previousScene else { return }
         let transition = SKTransition.push(with: .down, duration: 0.38)

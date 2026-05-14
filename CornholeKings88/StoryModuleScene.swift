@@ -124,7 +124,7 @@ final class StoryModuleScene: SKScene {
         // Body text label (multi-line, anchored top-left)
         let textY = divY - titleLabel.fontSize - 14
         textLabel = SKLabelNode(fontNamed: "PressStart2P-Regular")
-        textLabel.fontSize = min(18, W / 17)
+        textLabel.fontSize = min(14, W / 17)
         textLabel.fontColor = .white
         textLabel.numberOfLines = 0
         textLabel.preferredMaxLayoutWidth = panelW - 24

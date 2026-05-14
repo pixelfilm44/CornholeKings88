@@ -11,226 +11,472 @@ final class MainMenuScene: SKScene {
 
     weak var menuDelegate: MainMenuSceneDelegate?
 
-    // MARK: - Layout (set from view bounds in didMove)
     private var W: CGFloat = 0, H: CGFloat = 0
 
-    // MARK: - Scrolling road strip
-    private var roadTile1: SKSpriteNode!
-    private var roadTile2: SKSpriteNode!
-    private let scrollSpeed: CGFloat = 60
-
-    // MARK: - Buttons
     private struct MenuItem {
-        let label: String, subLabel: String
-        let color: SKColor, name: String
+        let label: String
+        let subLabel: String
+        let name: String
+        let isPrimary: Bool
     }
+
     private let items: [MenuItem] = [
-        MenuItem(label: "STORY MODE",     subLabel: "adventure", color: SKColor(red:0.72,green:0.28,blue:0.92,alpha:1), name: "story"),
-        MenuItem(label: "BEANBAG BIKE",   subLabel: "racing",    color: SKColor(red:0.10,green:0.85,blue:0.90,alpha:1), name: "bike"),
-        MenuItem(label: "CORNHOLE",       subLabel: "bag toss",  color: SKColor(red:0.95,green:0.85,blue:0.10,alpha:1), name: "cornhole"),
-        MenuItem(label: "BASEBALL",       subLabel: "batting",   color: SKColor(red:0.95,green:0.45,blue:0.10,alpha:1), name: "baseball"),
-        MenuItem(label: "BEEHIVE BATTLE", subLabel: "defense",   color: SKColor(red:0.95,green:0.80,blue:0.05,alpha:1), name: "beehive"),
-        MenuItem(label: "EXPLORE",        subLabel: "open world",color: SKColor(red:0.40,green:0.90,blue:0.40,alpha:1), name: "explore"),
+        MenuItem(label: "PLAY",       subLabel: "adventure",   name: "story",     isPrimary: true),
+        MenuItem(label: "MINI GAMES", subLabel: "pick a game", name: "minigames", isPrimary: false),
+        MenuItem(label: "STATS",      subLabel: "records",     name: "stats",     isPrimary: false),
+        MenuItem(label: "SETTINGS",   subLabel: "options",     name: "settings",  isPrimary: false),
     ]
-    private var buttonNodes: [SKNode] = []
+
+    private var buttonSprites: [String: SKSpriteNode] = [:]
 
     // MARK: - didMove
     override func didMove(to view: SKView) {
-        // Anchor at center so (0,0) == screen center — must be set before any layout.
         anchorPoint = CGPoint(x: 0.5, y: 0.5)
-
-        // Use view bounds directly; the scene was created with view.bounds.size so
-        // size already equals view.bounds.size, but reading it here is the safe pattern.
         W = size.width
         H = size.height
 
-        backgroundColor = SKColor(red: 0.08, green: 0.10, blue: 0.08, alpha: 1)
+        backgroundColor = SKColor(red: 0.02, green: 0.04, blue: 0.02, alpha: 1)
 
-        setupBackground()
-        setupTitle()
-        setupMenuButtons()
+        setupTopStrip()
+        setupCrest()   // calls setupMenuButtons(crestBottom:) internally
+        setupEmbers()
         setupFooter()
     }
 
-    // MARK: - Background road strip (decorative, faint)
-    private func setupBackground() {
-        let rw = W * 0.38
-        let tex = makeRoadStrip(width: rw, height: H)
-        let sz  = CGSize(width: rw, height: H)
+    // MARK: - Top strip
+    private func setupTopStrip() {
+        let font = "PressStart2P-Regular"
+        let stripH: CGFloat = 20
+        let stripY = H / 2 - stripH / 2
 
-        roadTile1 = SKSpriteNode(texture: tex, size: sz)
-        roadTile1.position  = .zero; roadTile1.alpha = 0.30; roadTile1.zPosition = -5
-        addChild(roadTile1)
+        let bg = SKSpriteNode(texture: makeTopStripTexture(width: W, height: stripH),
+                              size: CGSize(width: W, height: stripH))
+        bg.position = CGPoint(x: 0, y: stripY)
+        bg.zPosition = 10
+        addChild(bg)
 
-        roadTile2 = SKSpriteNode(texture: tex, size: sz)
-        roadTile2.position  = CGPoint(x: 0, y: H); roadTile2.alpha = 0.30; roadTile2.zPosition = -5
-        addChild(roadTile2)
+        let ver = SKLabelNode(fontNamed: font)
+        ver.text = "v1.0.0  OFFLINE"
+        ver.fontSize = min(5, W / 58)
+        ver.fontColor = SKColor(white: 0.53, alpha: 1)
+        ver.horizontalAlignmentMode = .left
+        ver.verticalAlignmentMode = .center
+        ver.position = CGPoint(x: -W / 2 + 10, y: stripY)
+        ver.zPosition = 11
+        addChild(ver)
+
+        let coin = SKLabelNode(fontNamed: font)
+        coin.text = "\u{25C6} 1,247"
+        coin.fontSize = min(5, W / 58)
+        coin.fontColor = SKColor(red: 0.78, green: 0.57, blue: 0.16, alpha: 1)
+        coin.horizontalAlignmentMode = .right
+        coin.verticalAlignmentMode = .center
+        coin.position = CGPoint(x: W / 2 - 10, y: stripY)
+        coin.zPosition = 11
+        addChild(coin)
     }
 
-    private func makeRoadStrip(width: CGFloat, height: CGFloat) -> SKTexture {
+    // MARK: - Crest
+    private func setupCrest() {
+        let font = "PressStart2P-Regular"
+        let stripH: CGFloat = 20
+
+        // Lay out crest as a block from stripBottom downward
+        let stripBottom = H / 2 - stripH
+        let emblemSize: CGFloat = 40
+        let plaqueW = min(W * 0.72, 240)
+        let plaqueH: CGFloat = 74
+        let padding: CGFloat = 8
+
+        let crestTop = stripBottom - 20
+        let emblemCY = crestTop - emblemSize / 2
+        let plaqueCY = emblemCY - emblemSize / 2 - padding - plaqueH / 2
+
+        // Emblem
+        let emblemTex = makeEmblemTexture(size: CGSize(width: emblemSize, height: emblemSize))
+        let emblem = SKSpriteNode(texture: emblemTex, size: CGSize(width: emblemSize, height: emblemSize))
+        emblem.position = CGPoint(x: 0, y: emblemCY)
+        emblem.zPosition = 10
+        addChild(emblem)
+
+        // Wooden plaque
+        let plaque = SKSpriteNode(texture: makePlaqueTexture(size: CGSize(width: plaqueW, height: plaqueH)),
+                                  size: CGSize(width: plaqueW, height: plaqueH))
+        plaque.position = CGPoint(x: 0, y: plaqueCY)
+        plaque.zPosition = 10
+        addChild(plaque)
+
+        // Rivet dots
+        let rv: CGFloat = plaqueH / 2 - 6
+        let rh: CGFloat = plaqueW / 2 - 6
+        for (dx, dy) in [(-rh, rv), (rh, rv), (-rh, -rv), (rh, -rv)] {
+            addRivet(at: CGPoint(x: dx, y: plaqueCY + dy), radius: 3.5, z: 15)
+        }
+
+        // "CORNHOLE" top line
+        let titleFS = min(18, plaqueW / 12)
+        let titleColor = SKColor(red: 0.78, green: 0.57, blue: 0.16, alpha: 1)
+
+        let line1 = SKLabelNode(fontNamed: font)
+        line1.text = "CORNHOLE"
+        line1.fontSize = titleFS
+        line1.fontColor = titleColor
+        line1.horizontalAlignmentMode = .center
+        line1.verticalAlignmentMode = .center
+        line1.position = CGPoint(x: 0, y: plaqueCY + titleFS * 0.55)
+        line1.zPosition = 11
+        addChild(line1)
+
+        let line2 = SKLabelNode(fontNamed: font)
+        line2.text = "KINGS"
+        line2.fontSize = titleFS
+        line2.fontColor = titleColor
+        line2.horizontalAlignmentMode = .center
+        line2.verticalAlignmentMode = .center
+        line2.position = CGPoint(x: 0, y: plaqueCY - titleFS * 0.55)
+        line2.zPosition = 11
+        addChild(line2)
+
+        // Store bottom of crest for button layout
+        let crestBottom = plaqueCY - plaqueH / 2
+        setupMenuButtons(crestBottom: crestBottom)
+    }
+
+    // MARK: - Menu Buttons
+    // Called from setupCrest so we have crestBottom
+    private func setupMenuButtons(crestBottom: CGFloat) {
+        let font = "PressStart2P-Regular"
+        let btnW = min(W * 0.84, 300)
+        let primaryH: CGFloat = 56
+        let normalH: CGFloat = 46
+        let gap: CGFloat = 10
+        let footerTop = -H / 2 + 40
+
+        let totalBtnsH = primaryH + CGFloat(items.count - 1) * (normalH + gap)
+        let zone = crestBottom - 16
+        let availableH = zone - footerTop
+        let startY = zone - (availableH - totalBtnsH) / 2
+
+        var curY = startY
+
+        for item in items {
+            let btnH = item.isPrimary ? primaryH : normalH
+
+            let tex = makeButtonTexture(size: CGSize(width: btnW, height: btnH), isPrimary: item.isPrimary)
+            let sprite = SKSpriteNode(texture: tex, size: CGSize(width: btnW, height: btnH))
+            let centerY = curY - btnH / 2
+            sprite.position = CGPoint(x: 0, y: centerY)
+            sprite.zPosition = 20
+            sprite.name = item.name
+            addChild(sprite)
+            buttonSprites[item.name] = sprite
+
+            // Left-side rivets
+            addRivet(at: CGPoint(x: -btnW / 2 + 9, y: centerY + btnH / 2 - 9), radius: 2.5, z: 21)
+            addRivet(at: CGPoint(x: -btnW / 2 + 9, y: centerY - btnH / 2 + 9), radius: 2.5, z: 21)
+
+            // Label
+            let titleColor: SKColor = item.isPrimary
+                ? SKColor(red: 1.0, green: 0.89, blue: 0.69, alpha: 1)
+                : SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 1)
+            let titleFS: CGFloat = item.isPrimary ? min(14, btnW / 18) : min(11, btnW / 23)
+
+            let lbl = SKLabelNode(fontNamed: font)
+            lbl.text = item.label
+            lbl.fontSize = titleFS
+            lbl.fontColor = titleColor
+            lbl.horizontalAlignmentMode = .left
+            lbl.verticalAlignmentMode = .center
+            lbl.position = CGPoint(x: -btnW / 2 + 22, y: centerY + (item.isPrimary ? 9 : 7))
+            lbl.zPosition = 21
+            lbl.name = item.name
+            addChild(lbl)
+
+            let sub = SKLabelNode(fontNamed: font)
+            sub.text = item.subLabel
+            sub.fontSize = min(6, btnW / 44)
+            sub.fontColor = item.isPrimary
+                ? SKColor(red: 0.84, green: 0.63, blue: 0.38, alpha: 1)
+                : SKColor(white: 0.67, alpha: 1)
+            sub.horizontalAlignmentMode = .left
+            sub.verticalAlignmentMode = .center
+            sub.position = CGPoint(x: -btnW / 2 + 22, y: centerY - (item.isPrimary ? 9 : 7))
+            sub.zPosition = 21
+            sub.name = item.name
+            addChild(sub)
+
+            // Arrow (animated)
+            let arrow = SKLabelNode(fontNamed: font)
+            arrow.text = "\u{25B6}"
+            arrow.fontSize = min(10, btnW / 28)
+            arrow.fontColor = SKColor(red: 0.78, green: 0.57, blue: 0.16, alpha: 0.85)
+            arrow.horizontalAlignmentMode = .right
+            arrow.verticalAlignmentMode = .center
+            arrow.position = CGPoint(x: btnW / 2 - 14, y: centerY)
+            arrow.zPosition = 21
+            arrow.name = item.name
+            arrow.run(.repeatForever(.sequence([
+                .moveBy(x: 2, y: 0, duration: 0.6),
+                .moveBy(x: -2, y: 0, duration: 0.6),
+            ])))
+            addChild(arrow)
+
+            curY -= btnH + gap
+        }
+    }
+
+    // MARK: - Ember particles
+    private func setupEmbers() {
+        let positions: [(CGFloat, CGFloat, Double)] = [
+            (0.18, 0.18, 0.0), (0.78, 0.24, 0.6), (0.08, 0.46, 1.2),
+            (0.88, 0.52, 1.8), (0.18, 0.72, 2.4), (0.72, 0.78, 3.0),
+        ]
+        for (px, py, delay) in positions {
+            let ember = SKShapeNode(rectOf: CGSize(width: 2, height: 2))
+            ember.fillColor = SKColor(red: 0.78, green: 0.57, blue: 0.16, alpha: 0.8)
+            ember.strokeColor = .clear
+            ember.position = CGPoint(x: -W / 2 + px * W, y: H / 2 - py * H)
+            ember.zPosition = 5
+            ember.run(.repeatForever(.sequence([
+                .wait(forDuration: delay),
+                .group([
+                    .sequence([.fadeAlpha(to: 1.0, duration: 2.0), .fadeAlpha(to: 0.3, duration: 2.0)]),
+                    .sequence([.moveBy(x: 0, y: -5, duration: 2.0), .moveBy(x: 0, y: 5, duration: 2.0)]),
+                ]),
+            ])))
+            addChild(ember)
+        }
+    }
+
+    // MARK: - Footer
+    private func setupFooter() {
+        let font = "PressStart2P-Regular"
+        let y = -H / 2 + 18
+
+        let copy = SKLabelNode(fontNamed: font)
+        copy.text = "\u{00A9} 2026 CK88"
+        copy.fontSize = min(5, W / 60)
+        copy.fontColor = SKColor(white: 0.40, alpha: 1)
+        copy.horizontalAlignmentMode = .left
+        copy.verticalAlignmentMode = .center
+        copy.position = CGPoint(x: -W / 2 + 12, y: y)
+        copy.zPosition = 10
+        addChild(copy)
+
+        let press = SKLabelNode(fontNamed: font)
+        press.text = "PRESS START"
+        press.fontSize = min(6, W / 52)
+        press.fontColor = SKColor(red: 0.78, green: 0.57, blue: 0.16, alpha: 1)
+        press.horizontalAlignmentMode = .center
+        press.verticalAlignmentMode = .center
+        press.position = CGPoint(x: 0, y: y)
+        press.zPosition = 10
+        press.run(.repeatForever(.sequence([
+            .fadeIn(withDuration: 0),
+            .wait(forDuration: 0.7),
+            .fadeAlpha(to: 0.3, duration: 0),
+            .wait(forDuration: 0.7),
+        ])))
+        addChild(press)
+
+        let lr = SKLabelNode(fontNamed: font)
+        lr.text = "L1 \u{25C6} R1"
+        lr.fontSize = min(5, W / 60)
+        lr.fontColor = SKColor(white: 0.40, alpha: 1)
+        lr.horizontalAlignmentMode = .right
+        lr.verticalAlignmentMode = .center
+        lr.position = CGPoint(x: W / 2 - 12, y: y)
+        lr.zPosition = 10
+        addChild(lr)
+
+        let reset = SKLabelNode(fontNamed: font)
+        reset.text = "RESET STORY"
+        reset.fontSize = min(5, W / 60)
+        reset.fontColor = SKColor(white: 0.20, alpha: 1)
+        reset.horizontalAlignmentMode = .right
+        reset.verticalAlignmentMode = .center
+        reset.position = CGPoint(x: W / 2 - 12, y: y + 14)
+        reset.zPosition = 10
+        reset.name = "resetStory"
+        addChild(reset)
+    }
+
+    // MARK: - Texture Builders
+
+    private func addRivet(at pos: CGPoint, radius: CGFloat, z: CGFloat) {
+        let r = SKShapeNode(circleOfRadius: radius)
+        r.fillColor = SKColor(white: 0.42, alpha: 1)
+        r.strokeColor = SKColor(white: 0.20, alpha: 1)
+        r.lineWidth = 0.5
+        r.position = pos
+        r.zPosition = z
+        addChild(r)
+    }
+
+    private func makeTopStripTexture(width: CGFloat, height: CGFloat) -> SKTexture {
         let fmt = UIGraphicsImageRendererFormat(); fmt.scale = 1
         let img = UIGraphicsImageRenderer(size: CGSize(width: width, height: height), format: fmt).image { ctx in
             let c = ctx.cgContext
-            c.setFillColor(UIColor(white: 0.18, alpha: 1).cgColor)
+            c.setFillColor(UIColor(red: 0.04, green: 0.04, blue: 0.04, alpha: 1).cgColor)
             c.fill(CGRect(x: 0, y: 0, width: width, height: height))
-            c.setFillColor(UIColor(white: 0.82, alpha: 1).cgColor)
-            c.fill(CGRect(x: 0,       y: 0, width: 3, height: height))
-            c.fill(CGRect(x: width-3, y: 0, width: 3, height: height))
-            c.setStrokeColor(UIColor(red: 0.95, green: 0.85, blue: 0.10, alpha: 1).cgColor)
-            c.setLineWidth(2); c.setLineDash(phase: 0, lengths: [16, 10])
-            let cx = width / 2
-            c.move(to: CGPoint(x: cx, y: 0)); c.addLine(to: CGPoint(x: cx, y: height))
-            c.strokePath()
+            // Bottom accent line in wood color
+            c.setFillColor(UIColor(red: 0.35, green: 0.20, blue: 0.05, alpha: 1).cgColor)
+            c.fill(CGRect(x: 0, y: height - 2, width: width, height: 2))
         }
         let t = SKTexture(image: img); t.filteringMode = .nearest; return t
     }
 
-    // MARK: - Title  (plain SKLabelNodes — no SKEffectNode wrapping)
-    private func setupTitle() {
-        let font = "PressStart2P-Regular"
+    private func makeEmblemTexture(size: CGSize) -> SKTexture {
+        let fmt = UIGraphicsImageRendererFormat(); fmt.scale = 1
+        let img = UIGraphicsImageRenderer(size: size, format: fmt).image { ctx in
+            let c = ctx.cgContext
+            let cx = size.width / 2, cy = size.height / 2
 
-        // Main title
-        let title = SKLabelNode(fontNamed: font)
-        title.text      = "CORNHOLE KINGS"
-        title.fontSize  = min(22, W / 14)
-        title.fontColor = SKColor(red: 0.95, green: 0.82, blue: 0.10, alpha: 1)
-        title.horizontalAlignmentMode = .center
-        title.verticalAlignmentMode   = .center
-        title.position  = CGPoint(x: 0, y: H/2 - 88)
-        title.zPosition = 10
-        title.run(.repeatForever(.sequence([
-            .scale(to: 1.03, duration: 1.2),
-            .scale(to: 0.97, duration: 1.2)
-        ])))
-        addChild(title)
+            // Blue bag (rotate 30°)
+            c.saveGState()
+            c.translateBy(x: cx, y: cy)
+            c.rotate(by: .pi / 6)
+            c.setFillColor(UIColor(red: 0.29, green: 0.56, blue: 0.86, alpha: 1).cgColor)
+            c.setStrokeColor(UIColor(red: 0.06, green: 0.16, blue: 0.33, alpha: 1).cgColor)
+            c.setLineWidth(1)
+            let bag1 = UIBezierPath(roundedRect: CGRect(x: -12, y: -3, width: 24, height: 6), cornerRadius: 1)
+            c.addPath(bag1.cgPath); c.drawPath(using: .fillStroke)
+            c.restoreGState()
 
-        // Subtitle
-        let sub = SKLabelNode(fontNamed: font)
-        sub.text      = "CHOOSE YOUR GAME"
-        sub.fontSize  = min(9, W / 36)
-        sub.fontColor = SKColor(white: 0.60, alpha: 1)
-        sub.horizontalAlignmentMode = .center
-        sub.verticalAlignmentMode   = .center
-        sub.position  = CGPoint(x: 0, y: H/2 - 122)
-        sub.zPosition = 10
-        addChild(sub)
-    }
+            // Red bag (rotate -30°)
+            c.saveGState()
+            c.translateBy(x: cx, y: cy)
+            c.rotate(by: -.pi / 6)
+            c.setFillColor(UIColor(red: 0.78, green: 0.13, blue: 0.10, alpha: 1).cgColor)
+            c.setStrokeColor(UIColor(red: 0.23, green: 0.04, blue: 0.02, alpha: 1).cgColor)
+            c.setLineWidth(1)
+            let bag2 = UIBezierPath(roundedRect: CGRect(x: -12, y: -3, width: 24, height: 6), cornerRadius: 1)
+            c.addPath(bag2.cgPath); c.drawPath(using: .fillStroke)
+            c.restoreGState()
 
-    // MARK: - Menu buttons
-    private func setupMenuButtons() {
-        let font    = "PressStart2P-Regular"
-        let btnH:   CGFloat = min(54, H / 11)
-        let btnW:   CGFloat = W * 0.82
-        let spacing = btnH + 12
-
-        // Start just below the subtitle, centered vertically in remaining space
-        let topMargin: CGFloat = H/2 - 148            // just below subtitle
-        let totalBtnsH = CGFloat(items.count) * spacing - 12
-        let startY = topMargin - (topMargin - (-H/2 + 40) - totalBtnsH) / 2 - btnH/2
-
-        for (i, item) in items.enumerated() {
-            let container = SKNode()
-            container.position  = CGPoint(x: 0, y: startY - CGFloat(i) * spacing)
-            container.zPosition = 20
-            container.name      = item.name
-
-            // Pill background
-            let pill = SKShapeNode(rect: CGRect(x: -btnW/2, y: -btnH/2, width: btnW, height: btnH),
-                                   cornerRadius: 8)
-            pill.fillColor   = SKColor(white: 0.13, alpha: 0.92)
-            pill.strokeColor = item.color.withAlphaComponent(0.55)
-            pill.lineWidth   = 1.5
-            pill.name        = item.name
-            container.addChild(pill)
-
-            // Left accent bar
-            let bar = SKShapeNode(rect: CGRect(x: -btnW/2, y: -btnH/2, width: 5, height: btnH),
-                                  cornerRadius: 4)
-            bar.fillColor = item.color; bar.strokeColor = .clear; bar.name = item.name
-            container.addChild(bar)
-
-            // Game name label
-            let lbl = SKLabelNode(fontNamed: font)
-            lbl.text = item.label; lbl.fontSize = min(12, W / 26)
-            lbl.fontColor = item.color
-            lbl.horizontalAlignmentMode = .left; lbl.verticalAlignmentMode = .center
-            lbl.position = CGPoint(x: -btnW/2 + 18, y: 7); lbl.name = item.name
-            container.addChild(lbl)
-
-            // Sub-label
-            let sub = SKLabelNode(fontNamed: font)
-            sub.text = item.subLabel; sub.fontSize = min(7, W / 50)
-            sub.fontColor = SKColor(white: 0.48, alpha: 1)
-            sub.horizontalAlignmentMode = .left; sub.verticalAlignmentMode = .center
-            sub.position = CGPoint(x: -btnW/2 + 18, y: -9); sub.name = item.name
-            container.addChild(sub)
-
-            // Right arrow
-            let arrow = SKLabelNode(fontNamed: font)
-            arrow.text = "▶"; arrow.fontSize = min(10, W / 34)
-            arrow.fontColor = item.color.withAlphaComponent(0.65)
-            arrow.horizontalAlignmentMode = .right; arrow.verticalAlignmentMode = .center
-            arrow.position = CGPoint(x: btnW/2 - 14, y: 0); arrow.name = item.name
-            container.addChild(arrow)
-
-            addChild(container)
-            buttonNodes.append(container)
+            // Center gold dot
+            c.setFillColor(UIColor(red: 0.78, green: 0.57, blue: 0.16, alpha: 1).cgColor)
+            c.setStrokeColor(UIColor(red: 0.35, green: 0.23, blue: 0.03, alpha: 1).cgColor)
+            c.setLineWidth(0.5)
+            c.addEllipse(in: CGRect(x: cx - 3, y: cy - 3, width: 6, height: 6))
+            c.drawPath(using: .fillStroke)
         }
+        let t = SKTexture(image: img); t.filteringMode = .nearest; return t
     }
 
-    private func setupFooter() {
-        let font = "PressStart2P-Regular"
+    private func makePlaqueTexture(size: CGSize) -> SKTexture {
+        let fmt = UIGraphicsImageRendererFormat(); fmt.scale = 1
+        let img = UIGraphicsImageRenderer(size: size, format: fmt).image { ctx in
+            let c = ctx.cgContext
+            let path = UIBezierPath(roundedRect: CGRect(origin: .zero, size: size), cornerRadius: 4)
+            c.addPath(path.cgPath); c.clip()
 
-        let lbl = SKLabelNode(fontNamed: font)
-        lbl.text      = "CORNHOLE KINGS  v1.0"
-        lbl.fontSize  = min(7, W / 52)
-        lbl.fontColor = SKColor(white: 0.28, alpha: 1)
-        lbl.horizontalAlignmentMode = .center
-        lbl.position  = CGPoint(x: 0, y: -H/2 + 22)
-        lbl.zPosition = 10
-        addChild(lbl)
+            // Wood gradient
+            let space = CGColorSpaceCreateDeviceRGB()
+            let woodColors = [
+                UIColor(red: 0.48, green: 0.31, blue: 0.18, alpha: 1).cgColor,
+                UIColor(red: 0.36, green: 0.20, blue: 0.09, alpha: 1).cgColor,
+                UIColor(red: 0.24, green: 0.12, blue: 0.03, alpha: 1).cgColor,
+            ] as CFArray
+            let grad = CGGradient(colorsSpace: space, colors: woodColors, locations: [0, 0.6, 1.0])!
+            c.drawLinearGradient(grad, start: .zero, end: CGPoint(x: 0, y: size.height), options: [])
 
-        // Temporary reset utility — wipes story progress back to chapter 1
-        let reset = SKLabelNode(fontNamed: font)
-        reset.text      = "RESET STORY"
-        reset.fontSize  = min(6, W / 56)
-        reset.fontColor = SKColor(white: 0.24, alpha: 1)
-        reset.horizontalAlignmentMode = .right
-        reset.position  = CGPoint(x: W/2 - 14, y: -H/2 + 10)
-        reset.zPosition = 10
-        reset.name      = "resetStory"
-        addChild(reset)
+            // Wood grain lines
+            c.setFillColor(UIColor(white: 0, alpha: 0.18).cgColor)
+            var x: CGFloat = 12
+            while x < size.width {
+                c.fill(CGRect(x: x, y: 0, width: 2, height: size.height))
+                x += 14
+            }
+
+            // Top highlight
+            c.setFillColor(UIColor(white: 1, alpha: 0.10).cgColor)
+            c.fill(CGRect(x: 0, y: 0, width: size.width, height: 1))
+
+            // Bottom shadow
+            c.setFillColor(UIColor(white: 0, alpha: 0.40).cgColor)
+            c.fill(CGRect(x: 0, y: size.height - 5, width: size.width, height: 5))
+
+            // Border
+            c.setStrokeColor(UIColor(red: 0.16, green: 0.09, blue: 0.03, alpha: 1).cgColor)
+            c.setLineWidth(3)
+            let border = UIBezierPath(roundedRect: CGRect(x: 1.5, y: 1.5, width: size.width - 3, height: size.height - 3), cornerRadius: 4)
+            c.addPath(border.cgPath); c.strokePath()
+        }
+        let t = SKTexture(image: img); t.filteringMode = .nearest; return t
     }
 
-    // MARK: - Update (scroll road strip)
-    override func update(_ currentTime: TimeInterval) {
-        guard roadTile1 != nil else { return }
-        let dy = scrollSpeed * 0.016
-        roadTile1.position.y -= dy
-        roadTile2.position.y -= dy
-        if roadTile1.position.y + H/2 < -H/2 { roadTile1.position.y = roadTile2.position.y + H }
-        if roadTile2.position.y + H/2 < -H/2 { roadTile2.position.y = roadTile1.position.y + H }
+    private func makeButtonTexture(size: CGSize, isPrimary: Bool) -> SKTexture {
+        let fmt = UIGraphicsImageRendererFormat(); fmt.scale = 1
+        let img = UIGraphicsImageRenderer(size: size, format: fmt).image { ctx in
+            let c = ctx.cgContext
+            let path = UIBezierPath(roundedRect: CGRect(origin: .zero, size: size), cornerRadius: 6)
+            c.addPath(path.cgPath); c.clip()
+
+            let space = CGColorSpaceCreateDeviceRGB()
+            if isPrimary {
+                // Warm wood/brown
+                let colors = [
+                    UIColor(red: 0.48, green: 0.23, blue: 0.09, alpha: 1).cgColor,
+                    UIColor(red: 0.35, green: 0.16, blue: 0.06, alpha: 1).cgColor,
+                    UIColor(red: 0.23, green: 0.10, blue: 0.03, alpha: 1).cgColor,
+                ] as CFArray
+                let grad = CGGradient(colorsSpace: space, colors: colors, locations: [0, 0.5, 1.0])!
+                c.drawLinearGradient(grad, start: .zero, end: CGPoint(x: 0, y: size.height), options: [])
+                // Warm glow accent
+                c.setFillColor(UIColor(red: 0.78, green: 0.55, blue: 0.16, alpha: 0.20).cgColor)
+                c.fillEllipse(in: CGRect(x: size.width * 0.55, y: size.height * 0.25, width: size.width * 0.5, height: size.height * 0.9))
+            } else {
+                // Iron
+                let colors = [
+                    UIColor(red: 0.35, green: 0.35, blue: 0.35, alpha: 1).cgColor,
+                    UIColor(red: 0.22, green: 0.22, blue: 0.22, alpha: 1).cgColor,
+                    UIColor(red: 0.12, green: 0.12, blue: 0.12, alpha: 1).cgColor,
+                ] as CFArray
+                let grad = CGGradient(colorsSpace: space, colors: colors, locations: [0, 0.5, 1.0])!
+                c.drawLinearGradient(grad, start: .zero, end: CGPoint(x: 0, y: size.height), options: [])
+                // Rust spots
+                c.setFillColor(UIColor(red: 0.63, green: 0.31, blue: 0.06, alpha: 0.35).cgColor)
+                c.fillEllipse(in: CGRect(x: size.width * 0.62, y: size.height * 0.30, width: size.width * 0.42, height: size.height * 0.75))
+                c.setFillColor(UIColor(red: 0.55, green: 0.24, blue: 0.04, alpha: 0.28).cgColor)
+                c.fillEllipse(in: CGRect(x: -size.width * 0.05, y: size.height * 0.45, width: size.width * 0.28, height: size.height * 0.65))
+            }
+
+            // Top highlight
+            c.setFillColor(UIColor(white: 1, alpha: 0.12).cgColor)
+            c.fill(CGRect(x: 0, y: 0, width: size.width, height: 1))
+
+            // Bottom shadow
+            c.setFillColor(UIColor(white: 0, alpha: 0.35).cgColor)
+            c.fill(CGRect(x: 0, y: size.height - 3, width: size.width, height: 3))
+
+            // Border
+            c.setStrokeColor(UIColor(white: 0.07, alpha: 1).cgColor)
+            c.setLineWidth(2)
+            let border = UIBezierPath(roundedRect: CGRect(x: 1, y: 1, width: size.width - 2, height: size.height - 2), cornerRadius: 5)
+            c.addPath(border.cgPath); c.strokePath()
+        }
+        let t = SKTexture(image: img); t.filteringMode = .nearest; return t
     }
 
     // MARK: - Touch
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         guard let touch = touches.first else { return }
-        let loc    = touch.location(in: self)
+        let loc = touch.location(in: self)
         let tapped = atPoint(loc)
-        let name   = tapped.name ?? tapped.parent?.name ?? ""
+        let name = tapped.name ?? tapped.parent?.name ?? ""
         guard !name.isEmpty else { return }
 
-        // Tap feedback
-        buttonNodes.first(where: { $0.name == name })?.run(
-            .sequence([.scale(to: 0.94, duration: 0.07), .scale(to: 1.0, duration: 0.07)])
-        )
+        if let sprite = buttonSprites[name] {
+            sprite.run(.sequence([
+                .scale(to: 0.94, duration: 0.07),
+                .scale(to: 1.0, duration: 0.07),
+            ]))
+        }
         handleSelection(name: name)
     }
 
     private func handleSelection(name: String) {
-        // Mini-games and GameScene need the pixel-perfect small coordinate space.
-        let ppSize = pixelPerfectSize() ?? size
-
         switch name {
         case "story":
             let s = StoryModuleScene(size: size)
@@ -239,60 +485,58 @@ final class MainMenuScene: SKScene {
             s.startAtCurrentProgress()
             push(to: s)
 
-        case "resetStory":
-            StoryManager.shared.reset()
-            // Brief visual confirmation
-            if let node = childNode(withName: "resetStory") as? SKLabelNode {
-                node.run(.sequence([
-                    .run { node.fontColor = SKColor(red: 0.72, green: 0.28, blue: 0.92, alpha: 1) },
-                    .wait(forDuration: 0.6),
-                    .run { node.fontColor = SKColor(white: 0.24, alpha: 1) }
-                ]))
+        case "minigames":
+            let s = MiniGamePickerScene(size: size)
+            s.scaleMode = .resizeFill
+            s.onBikeRace = { [weak self] in
+                guard let self = self else { return }
+                self.menuDelegate?.mainMenuSceneDidSelectBikeRace(self)
             }
-
-        case "bike":
-            menuDelegate?.mainMenuSceneDidSelectBikeRace(self)
-
-        case "cornhole":
-            let s = CornholeMiniGameScene(size: ppSize)
-            s.previousScene = self; s.scaleMode = .resizeFill
-            s.availableHoneyBags = 0; s.onComplete = { _ in }
             push(to: s)
 
-        case "baseball":
-            let s = CornholeBaseballScene(size: ppSize)
-            s.previousScene = self; s.scaleMode = .resizeFill
-            s.onComplete = { _ in }
-            push(to: s)
-
-        case "beehive":
-            let s = BeeHiveScene(size: ppSize)
-            s.previousScene = self; s.scaleMode = .resizeFill
-            s.startingHearts = 3; s.onComplete = { _ in }
-            push(to: s)
-
-        case "explore":
-            let s = GameScene(size: ppSize)
+        case "stats":
+            let s = StatsScene(size: size)
             s.scaleMode = .resizeFill
             push(to: s)
+
+        case "settings":
+            showComingSoon()
+
+        case "resetStory":
+            StoryManager.shared.reset()
+            if let lbl = childNode(withName: "resetStory") as? SKLabelNode {
+                let gold = SKColor(red: 0.78, green: 0.57, blue: 0.16, alpha: 1)
+                let dim  = SKColor(white: 0.20, alpha: 1)
+                lbl.run(.sequence([
+                    .run { lbl.fontColor = gold },
+                    .wait(forDuration: 0.6),
+                    .run { lbl.fontColor = dim },
+                ]))
+            }
 
         default: break
         }
     }
 
-    // MARK: - Helpers
-
-    /// Computes the same pixel-perfect scene size that GameViewController uses,
-    /// so mini-games and GameScene receive the coordinate space they expect.
-    private func pixelPerfectSize() -> CGSize? {
-        guard let v = self.view else { return nil }
-        let scale  = v.contentScaleFactor
-        let pixelW = v.bounds.width  * scale
-        let pixelH = v.bounds.height * scale
-        let n = max(2, min(floor(pixelW / 160), floor(pixelH / 120)))
-        return CGSize(width: floor(pixelW / n), height: floor(pixelH / n))
+    private func showComingSoon() {
+        let font = "PressStart2P-Regular"
+        let lbl = SKLabelNode(fontNamed: font)
+        lbl.text = "COMING SOON"
+        lbl.fontSize = min(10, W / 30)
+        lbl.fontColor = SKColor(red: 0.78, green: 0.57, blue: 0.16, alpha: 1)
+        lbl.horizontalAlignmentMode = .center
+        lbl.verticalAlignmentMode = .center
+        lbl.position = CGPoint(x: 0, y: 0)
+        lbl.zPosition = 50
+        addChild(lbl)
+        lbl.run(.sequence([
+            .wait(forDuration: 1.0),
+            .fadeOut(withDuration: 0.3),
+            .removeFromParent(),
+        ]))
     }
 
+    // MARK: - Helpers
     private func push(to scene: SKScene) {
         let t = SKTransition.push(with: .up, duration: 0.35)
         t.pausesOutgoingScene = false
