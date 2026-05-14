@@ -156,7 +156,9 @@ final class CornholeMiniGameScene: SKScene {
     private var aiScoreLabel:     SKLabelNode?
     private var windLabel:        SKLabelNode?
     private var messageNode: SKNode?
-    private var honeyBagButton: SKNode?
+    private var satchelButton: SKNode?
+    private var satchelPanel: SKNode?
+    private var satchelOpen = false
 
     // MARK: - Lifecycle
 
@@ -434,7 +436,7 @@ final class CornholeMiniGameScene: SKScene {
             .scale(to: 1.00, duration: 0.55),
         ])))
 
-        setupHoneyBagButton()
+        setupSatchelButton()
         addCrtOverlay()
     }
 
@@ -521,68 +523,201 @@ final class CornholeMiniGameScene: SKScene {
         return n
     }
 
-    // MARK: - Honey Bag Button
+    // MARK: - Satchel
 
-    /// Creates the honey bag selector button in the lower-right corner above the bottom chrome.
-    private func setupHoneyBagButton() {
-        let bottomH: CGFloat = max(40, size.height * 0.08)
-        let btnW: CGFloat = 62, btnH: CGFloat = 24
-
-        let btn = SKNode()
-        btn.name     = "honeyBagButton"
-        btn.position = CGPoint(x: size.width / 2 - btnW / 2 - 6,
-                               y: -size.height / 2 + bottomH + btnH / 2 + 10)
-        btn.zPosition = 600
-
-        let bg = SKSpriteNode(color: SKColor(red: 0.22, green: 0.14, blue: 0.04, alpha: 0.92),
-                              size: CGSize(width: btnW, height: btnH))
-        bg.name = "honeyBagBg"
-        bg.zPosition = 0
-        btn.addChild(bg)
-
-        let lbl = SKLabelNode(fontNamed: "PressStart2P-Regular")
-        lbl.fontSize = 7
-        lbl.fontColor = SKColor(red: 0.95, green: 0.72, blue: 0.10, alpha: 1)
-        lbl.text = "H×\(availableHoneyBags)"
-        lbl.verticalAlignmentMode  = .center
-        lbl.horizontalAlignmentMode = .center
-        lbl.name = "honeyBagLabel"
-        lbl.zPosition = 1
-        btn.addChild(lbl)
-
-        btn.isHidden = availableHoneyBags <= 0
-        addChild(btn)
-        honeyBagButton = btn
+    /// Returns the special bag types the player currently has available for cornhole.
+    private var satchelItems: [(type: ItemType, count: Int)] {
+        [(type: .honeyBag, count: availableHoneyBags)]
+            .filter { $0.count > 0 }
     }
 
-    /// Refreshes the honey bag button's text and colour to reflect current selection state.
-    private func updateHoneyBagButton() {
-        guard let btn = honeyBagButton else { return }
+    /// Pixel-art satchel icon button in the lower-right corner above the bottom chrome.
+    /// Visible whenever the player carries at least one special bag.
+    private func setupSatchelButton() {
+        let bottomH: CGFloat = max(40, size.height * 0.08)
+        let iconW: CGFloat = 38, iconH: CGFloat = 36
 
-        if availableHoneyBags <= 0 {
+        let btn = SKNode()
+        btn.name      = "satchelButton"
+        btn.position  = CGPoint(x: size.width / 2 - iconW / 2 - 8,
+                                y: -size.height / 2 + bottomH + iconH / 2 + 6)
+        btn.zPosition = 600
+
+        // Pouch body
+        let body = SKSpriteNode(color: SKColor(red: 0.28, green: 0.15, blue: 0.05, alpha: 0.95),
+                                size: CGSize(width: iconW, height: iconH))
+        body.zPosition = 0
+        btn.addChild(body)
+
+        // Flap (upper portion, slightly lighter)
+        let flap = SKSpriteNode(color: SKColor(red: 0.44, green: 0.25, blue: 0.08, alpha: 1.0),
+                                size: CGSize(width: iconW, height: iconH * 0.38))
+        flap.position = CGPoint(x: 0, y: iconH * 0.31)
+        flap.zPosition = 1
+        btn.addChild(flap)
+
+        // Clasp — gold square centred on the flap
+        let clasp = SKSpriteNode(color: SKColor(red: 0.95, green: 0.72, blue: 0.10, alpha: 1.0),
+                                 size: CGSize(width: 8, height: 6))
+        clasp.position = CGPoint(x: 0, y: iconH * 0.31)
+        clasp.zPosition = 2
+        btn.addChild(clasp)
+
+        // Item-count badge at the bottom of the body
+        let countTotal = satchelItems.reduce(0) { $0 + $1.count }
+        let badge = SKLabelNode(fontNamed: "PressStart2P-Regular")
+        badge.name                   = "satchelCountBadge"
+        badge.fontSize               = 7
+        badge.fontColor              = SKColor(white: 0.90, alpha: 1)
+        badge.text                   = "×\(countTotal)"
+        badge.verticalAlignmentMode  = .center
+        badge.horizontalAlignmentMode = .center
+        badge.position               = CGPoint(x: 0, y: -iconH * 0.28)
+        badge.zPosition              = 3
+        btn.addChild(badge)
+
+        // Selected-item indicator dot (hidden until something is armed)
+        let dot = SKSpriteNode(color: .clear, size: CGSize(width: 8, height: 8))
+        dot.name      = "satchelSelectedDot"
+        dot.position  = CGPoint(x: iconW / 2 - 5, y: -iconH / 2 + 5)
+        dot.zPosition = 4
+        btn.addChild(dot)
+
+        btn.isHidden = satchelItems.isEmpty
+        addChild(btn)
+        satchelButton = btn
+    }
+
+    /// Syncs the satchel button appearance with current selection / count state.
+    private func updateSatchelButton() {
+        guard let btn = satchelButton else { return }
+
+        if satchelItems.isEmpty {
             honeyBagSelected = false
+            satchelOpen      = false
+            satchelPanel?.removeFromParent()
+            satchelPanel = nil
             btn.isHidden = true
             return
         }
         btn.isHidden = false
 
-        let bg  = btn.childNode(withName: "honeyBagBg")  as? SKSpriteNode
-        let lbl = btn.childNode(withName: "honeyBagLabel") as? SKLabelNode
+        // Update count badge
+        let countTotal = satchelItems.reduce(0) { $0 + $1.count }
+        (btn.childNode(withName: "satchelCountBadge") as? SKLabelNode)?.text = "×\(countTotal)"
 
+        // Selected indicator dot: coloured when something is armed, clear otherwise
+        let dot = btn.childNode(withName: "satchelSelectedDot") as? SKSpriteNode
         if honeyBagSelected {
-            bg?.color = SKColor(red: 0.85, green: 0.58, blue: 0.06, alpha: 1.0)
-            lbl?.text = "STICKY!"
-            lbl?.fontColor = SKColor(white: 1.0, alpha: 1)
+            dot?.color = SKColor(red: 0.95, green: 0.72, blue: 0.10, alpha: 1.0)
         } else {
-            bg?.color = SKColor(red: 0.22, green: 0.14, blue: 0.04, alpha: 0.92)
-            lbl?.text = "H×\(availableHoneyBags)"
-            lbl?.fontColor = SKColor(red: 0.95, green: 0.72, blue: 0.10, alpha: 1)
+            dot?.color = .clear
         }
+    }
+
+    /// Opens the item-picker panel above the satchel button.
+    private func openSatchelPanel() {
+        closeSatchelPanel()
+        guard let btn = satchelButton, !satchelItems.isEmpty else { return }
+        satchelOpen = true
+
+        let rowH: CGFloat    = 28
+        let panelW: CGFloat  = 150
+        let padding: CGFloat = 6
+        let panelH           = rowH * CGFloat(satchelItems.count) + padding * 2
+
+        let panel = SKNode()
+        panel.name      = "satchelPanel"
+        panel.position  = CGPoint(x: btn.position.x - panelW / 2 + 38 / 2,
+                                  y: btn.position.y + 36 / 2 + panelH / 2 + 4)
+        panel.zPosition = 650
+        addChild(panel)
+        satchelPanel = panel
+
+        // Background
+        let bg = SKSpriteNode(color: SKColor(red: 0.06, green: 0.03, blue: 0.01, alpha: 0.96),
+                              size: CGSize(width: panelW, height: panelH))
+        bg.zPosition = 0
+        panel.addChild(bg)
+
+        // 1-px gold border
+        for (dx, dy, w, h): (CGFloat, CGFloat, CGFloat, CGFloat) in [
+            (0,  panelH / 2 - 0.5, panelW, 1),   // top
+            (0, -panelH / 2 + 0.5, panelW, 1),   // bottom
+            (-panelW / 2 + 0.5, 0, 1, panelH),   // left
+            ( panelW / 2 - 0.5, 0, 1, panelH),   // right
+        ] {
+            let line = SKSpriteNode(color: SKColor(red: 0.50, green: 0.35, blue: 0.15, alpha: 0.70),
+                                    size: CGSize(width: w, height: h))
+            line.position  = CGPoint(x: dx, y: dy)
+            line.zPosition = 1
+            panel.addChild(line)
+        }
+
+        // One row per item
+        for (idx, item) in satchelItems.enumerated() {
+            let rowY = panelH / 2 - padding - rowH * CGFloat(idx) - rowH / 2
+            let row  = SKNode()
+            row.name      = "satchelItem_\(item.type.rawValue)"
+            row.position  = CGPoint(x: 0, y: rowY)
+            row.zPosition = 2
+            panel.addChild(row)
+
+            // Highlight if currently selected
+            let isSelected = (item.type == .honeyBag && honeyBagSelected)
+            let rowBg = SKSpriteNode(
+                color: isSelected
+                    ? SKColor(red: 0.22, green: 0.14, blue: 0.04, alpha: 0.85)
+                    : SKColor.clear,
+                size: CGSize(width: panelW - 2, height: rowH - 2))
+            rowBg.name      = "satchelRowBg_\(item.type.rawValue)"
+            rowBg.zPosition = 0
+            row.addChild(rowBg)
+
+            // Coloured icon square
+            let icon = SKSpriteNode(color: item.type.color,
+                                    size: CGSize(width: 10, height: 10))
+            icon.position  = CGPoint(x: -panelW / 2 + 14, y: 0)
+            icon.zPosition = 1
+            row.addChild(icon)
+
+            // Item name + count
+            let lbl = SKLabelNode(fontNamed: "PressStart2P-Regular")
+            lbl.fontSize               = 7
+            lbl.fontColor              = isSelected ? SKColor(white: 1.0, alpha: 1) : SKColor(white: 0.80, alpha: 1)
+            lbl.text                   = "\(item.type.displayName) ×\(item.count)"
+            lbl.verticalAlignmentMode  = .center
+            lbl.horizontalAlignmentMode = .left
+            lbl.position               = CGPoint(x: -panelW / 2 + 24, y: 0)
+            lbl.zPosition              = 1
+            row.addChild(lbl)
+        }
+    }
+
+    /// Removes the open satchel panel without changing selection state.
+    private func closeSatchelPanel() {
+        satchelPanel?.removeFromParent()
+        satchelPanel = nil
+        satchelOpen  = false
+    }
+
+    /// Toggles selection of a special item type and closes the panel.
+    private func selectSatchelItem(_ type: ItemType) {
+        switch type {
+        case .honeyBag:
+            honeyBagSelected = !honeyBagSelected
+        default:
+            break
+        }
+        closeSatchelPanel()
+        updateSatchelButton()
+        updateTurnIndicator()
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
     }
 
     private func toggleHoneyBagSelection() {
         honeyBagSelected.toggle()
-        updateHoneyBagButton()
+        updateSatchelButton()
         updateTurnIndicator()
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
     }
@@ -615,7 +750,8 @@ final class CornholeMiniGameScene: SKScene {
         aiBagsThrown        = 0
         hasCalculatedScore  = false
         honeyBagSelected    = false
-        updateHoneyBagButton()
+        closeSatchelPanel()
+        updateSatchelButton()
 
         for bag in activeBags {
             bag.node.removeFromParent()
@@ -935,7 +1071,7 @@ final class CornholeMiniGameScene: SKScene {
             availableHoneyBags -= 1
             honeyBagsUsed += 1
             honeyBagSelected = false
-            updateHoneyBagButton()
+            updateSatchelButton()
         }
         let bag = MiniGameBag(owner: owner, startX: startX, startY: throwLineY, isHoney: useHoney)
         bag.vx = vx
@@ -1093,9 +1229,17 @@ final class CornholeMiniGameScene: SKScene {
             var n: SKNode? = node
             while let current = n {
                 switch current.name {
-                case "honeyBagButton":
-                    if gameState == .playerTurn && availableHoneyBags > 0 {
-                        toggleHoneyBagSelection()
+                case "satchelButton":
+                    if gameState == .playerTurn {
+                        if satchelOpen { closeSatchelPanel() }
+                        else           { openSatchelPanel() }
+                    }
+                    return true
+                case let name where name?.hasPrefix("satchelItem_") == true:
+                    if gameState == .playerTurn,
+                       let name = name,
+                       let type = ItemType(rawValue: String(name.dropFirst("satchelItem_".count))) {
+                        selectSatchelItem(type)
                     }
                     return true
                 case "closeButton":
