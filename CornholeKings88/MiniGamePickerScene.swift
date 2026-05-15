@@ -83,13 +83,11 @@ final class MiniGamePickerScene: SKScene {
         title.position  = CGPoint(x: 0, y: hCenterY); title.zPosition = 11
         addChild(title)
 
-        let back = SKLabelNode(fontNamed: font)
-        back.text = "\u{25C0} BACK"
-        back.fontSize = min(8, W / 42)
-        back.fontColor = engrave
-        back.horizontalAlignmentMode = .left
-        back.verticalAlignmentMode   = .center
-        back.position  = CGPoint(x: -W / 2 + 18, y: hCenterY)
+        let closeSize: CGFloat = min(30, W / 13)
+        let back = SKSpriteNode(imageNamed: "closeIcon")
+        back.size = CGSize(width: closeSize, height: closeSize)
+        back.texture?.filteringMode = .nearest
+        back.position  = CGPoint(x: -W / 2 + closeSize / 2 + 10, y: hCenterY)
         back.zPosition = 11; back.name = "back"
         addChild(back)
     }

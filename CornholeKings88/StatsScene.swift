@@ -33,13 +33,11 @@ final class StatsScene: SKScene {
         bg.zPosition = 10
         addChild(bg)
 
-        let back = SKLabelNode(fontNamed: font)
-        back.text = "\u{25C4} BACK"
-        back.fontSize = min(6, W / 50)
-        back.fontColor = SKColor(red: 0.78, green: 0.57, blue: 0.16, alpha: 1)
-        back.horizontalAlignmentMode = .left
-        back.verticalAlignmentMode = .center
-        back.position = CGPoint(x: -W / 2 + 10, y: stripY)
+        let closeSize: CGFloat = min(24, stripH + 4)
+        let back = SKSpriteNode(imageNamed: "closeIcon")
+        back.size = CGSize(width: closeSize, height: closeSize)
+        back.texture?.filteringMode = .nearest
+        back.position = CGPoint(x: -W / 2 + closeSize / 2 + 6, y: stripY)
         back.zPosition = 11
         back.name = "back"
         addChild(back)

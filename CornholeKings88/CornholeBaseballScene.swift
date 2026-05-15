@@ -211,56 +211,14 @@ final class CornholeBaseballScene: SKScene {
         view.addSubview(hc.view)
         hudHostingController = hc
 
-        // Close button — metal iron style (design spec: 44×44, gray gradient, rivets, red X)
-        let barH: CGFloat = view.bounds.height * 0.105
-        let btnSize: CGFloat = 44
+        let sz: CGFloat = 66
         let safeTop = view.safeAreaInsets.top
         let btn = UIButton(type: .custom)
-        btn.frame = CGRect(
-            x: view.bounds.width - btnSize - 8,
-            y: max(safeTop + 4, (barH - btnSize) / 2),
-            width: btnSize, height: btnSize
-        )
-        btn.layer.cornerRadius = 6
-        btn.layer.masksToBounds = false
-        btn.layer.borderWidth = 2
-        btn.layer.borderColor = UIColor(white: 0.07, alpha: 1).cgColor
-
-        // Iron gradient background
-        let grad = CAGradientLayer()
-        grad.frame = btn.bounds
-        grad.colors = [
-            UIColor(red: 0.35, green: 0.35, blue: 0.35, alpha: 1).cgColor,
-            UIColor(red: 0.22, green: 0.22, blue: 0.22, alpha: 1).cgColor,
-            UIColor(red: 0.12, green: 0.12, blue: 0.12, alpha: 1).cgColor,
-        ]
-        grad.locations = [0, 0.5, 1.0]
-        grad.startPoint = CGPoint(x: 0.5, y: 0)
-        grad.endPoint   = CGPoint(x: 0.5, y: 1)
-        grad.cornerRadius = 6
-        btn.layer.insertSublayer(grad, at: 0)
-
-        // Red X mark
-        let xLayer = CAShapeLayer()
-        xLayer.frame = btn.bounds
-        let xPath = UIBezierPath()
-        xPath.move(to: CGPoint(x: 13, y: 13)); xPath.addLine(to: CGPoint(x: 31, y: 31))
-        xPath.move(to: CGPoint(x: 31, y: 13)); xPath.addLine(to: CGPoint(x: 13, y: 31))
-        xLayer.path = xPath.cgPath
-        xLayer.strokeColor = UIColor(red: 0.831, green: 0.267, blue: 0.118, alpha: 1).cgColor
-        xLayer.lineWidth = 3
-        xLayer.lineCap = .square
-        btn.layer.addSublayer(xLayer)
-
-        // Corner rivets
-        for (rx, ry): (CGFloat, CGFloat) in [(5,5),(39,5),(5,39),(39,39)] {
-            let rv = CALayer()
-            rv.frame = CGRect(x: rx - 2, y: ry - 2, width: 4, height: 4)
-            rv.cornerRadius = 2
-            rv.backgroundColor = UIColor(white: 0.55, alpha: 1).cgColor
-            btn.layer.addSublayer(rv)
-        }
-
+        btn.frame = CGRect(x: view.bounds.width - sz - 8,
+                           y: max(safeTop + 4, 4),
+                           width: sz, height: sz)
+        btn.setImage(UIImage(named: "closeIcon"), for: .normal)
+        btn.imageView?.contentMode = .scaleAspectFit
         btn.addTarget(self, action: #selector(closeButtonTapped), for: .touchUpInside)
         view.addSubview(btn)
         closeUIButton = btn

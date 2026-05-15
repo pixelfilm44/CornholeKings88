@@ -130,6 +130,8 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         physicsWorld.gravity = .zero
         physicsWorld.contactDelegate = self
 
+        MusicPlayer.shared.play(named: "CornholeKingsTheme")
+
         // Prevent re-adding nodes that already have parents when returning from the mini-game
         guard !hasSetup else { return }
         hasSetup = true

@@ -194,21 +194,11 @@ final class StoryModuleScene: SKScene {
         border.zPosition = 19
         addChild(border)
 
-        // Close button — LEFT, 44×44, dark iron with red ✕
-        let closeNode = SKNode()
-        let closeBg = SKSpriteNode(color: SKColor(red: 0.16, green: 0.07, blue: 0.05, alpha: 0.95),
-                                   size: CGSize(width: btnH, height: btnH))
-        closeBg.zPosition = 0
-        closeNode.addChild(closeBg)
-        let closeX = SKLabelNode(fontNamed: font)
-        closeX.text                    = "✕"
-        closeX.fontSize                = 14
-        closeX.fontColor               = SKColor(red: 0.83, green: 0.27, blue: 0.12, alpha: 1)
-        closeX.verticalAlignmentMode   = .center
-        closeX.horizontalAlignmentMode = .center
-        closeX.zPosition               = 1
-        closeNode.addChild(closeX)
-        closeNode.position  = CGPoint(x: -W / 2 + btnH / 2 + 6, y: barY)
+        let closeNode = SKSpriteNode(imageNamed: "closeIcon")
+        let closeSz = btnH * 1.5
+        closeNode.size = CGSize(width: closeSz, height: closeSz)
+        closeNode.texture?.filteringMode = .nearest
+        closeNode.position  = CGPoint(x: -W / 2 + closeSz / 2 + 6, y: barY)
         closeNode.name      = "backToMenu"
         closeNode.zPosition = 22
         addChild(closeNode)

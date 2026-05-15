@@ -509,11 +509,9 @@ final class BeachBallCornholeScene: SKScene {
 
     private func pushCloseButton(to view: UIView) {
         let btn = UIButton(type: .custom)
-        btn.frame = CGRect(x: 12, y: 12, width: 44, height: 44)
-        btn.setTitle("✕", for: .normal)
-        btn.titleLabel?.font = UIFont(name: "PressStart2P-Regular", size: 13) ??
-                               UIFont.systemFont(ofSize: 13)
-        btn.setTitleColor(UIColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 1), for: .normal)
+        btn.frame = CGRect(x: 12, y: 12, width: 66, height: 66)
+        btn.setImage(UIImage(named: "closeIcon"), for: .normal)
+        btn.imageView?.contentMode = .scaleAspectFit
         btn.addTarget(self, action: #selector(closeButtonTapped), for: .touchUpInside)
         view.addSubview(btn)
         closeUIButton = btn

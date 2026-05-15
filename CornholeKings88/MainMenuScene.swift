@@ -35,6 +35,8 @@ final class MainMenuScene: SKScene {
         W = size.width
         H = size.height
 
+        MusicPlayer.shared.play(named: "CornholeKingsTheme")
+
         backgroundColor = .black
 
         setupBackground()

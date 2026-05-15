@@ -351,25 +351,11 @@ final class BridgePiranhaScene: SKScene {
     }
 
     private func pushCloseButton(to view: SKView) {
-        let sz: CGFloat = 44
-        let btn = UIButton(frame: CGRect(
-            x: view.bounds.width - sz - 8, y: 8, width: sz, height: sz))
-        btn.backgroundColor    = UIColor(red: 0.12, green: 0.09, blue: 0.06, alpha: 0.92)
-        btn.layer.borderColor  = UIColor(red: 0.40, green: 0.28, blue: 0.10, alpha: 0.70).cgColor
-        btn.layer.borderWidth  = 1.5
-        btn.layer.cornerRadius = 4
-
-        let xl = CAShapeLayer()
-        xl.frame = btn.bounds
-        let xp = UIBezierPath()
-        xp.move(to: CGPoint(x: 13, y: 13)); xp.addLine(to: CGPoint(x: 31, y: 31))
-        xp.move(to: CGPoint(x: 31, y: 13)); xp.addLine(to: CGPoint(x: 13, y: 31))
-        xl.path        = xp.cgPath
-        xl.strokeColor = UIColor(red: 0.83, green: 0.27, blue: 0.12, alpha: 1).cgColor
-        xl.lineWidth   = 3
-        xl.lineCap     = .square
-        btn.layer.addSublayer(xl)
-
+        let sz: CGFloat = 66
+        let btn = UIButton(type: .custom)
+        btn.frame = CGRect(x: view.bounds.width - sz - 8, y: 8, width: sz, height: sz)
+        btn.setImage(UIImage(named: "closeIcon"), for: .normal)
+        btn.imageView?.contentMode = .scaleAspectFit
         btn.addTarget(self, action: #selector(closeButtonTapped), for: .touchUpInside)
         view.addSubview(btn)
         closeUIButton = btn
