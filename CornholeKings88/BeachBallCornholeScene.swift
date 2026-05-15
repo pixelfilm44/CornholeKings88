@@ -117,6 +117,7 @@ final class BeachBallCornholeScene: SKScene {
     private var aiBallTexture: SKTexture!
     private var readyIndicator: SKSpriteNode?   // ball shown at throw line when player can throw
     private var wasReady = true                 // tracks cooldown→ready transition
+    private var countdownActive = true          // blocks input and AI until countdown finishes
     private var messageNode: SKNode?
     private var confirmPanel: SKNode?
     private var confirmingQuit = false
@@ -140,11 +141,65 @@ final class BeachBallCornholeScene: SKScene {
         warmUpSounds()
         boardDriftVx = 18.0 * (Bool.random() ? 1 : -1)
         driftVarianceTimer = Double.random(in: 1.5...3.0)
+        readyIndicator?.alpha = 0
+        startCountdown()
     }
 
     override func willMove(from view: SKView) {
         closeUIButton?.removeFromSuperview()
         closeUIButton = nil
+    }
+
+    // MARK: - Countdown
+
+    private func startCountdown() {
+        let gold = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 1)
+        let green = SKColor(red: 0.18, green: 0.90, blue: 0.40, alpha: 1)
+
+        func beatLabel(text: String, color: SKColor) -> SKAction {
+            return .run { [weak self] in
+                guard let self else { return }
+                let lbl = SKLabelNode(fontNamed: "PressStart2P-Regular")
+                lbl.text = text
+                lbl.fontSize = min(64, self.W / 5)
+                lbl.fontColor = color
+                lbl.horizontalAlignmentMode = .center
+                lbl.verticalAlignmentMode = .center
+                lbl.position = .zero
+                lbl.zPosition = 900
+                lbl.setScale(0.4)
+                self.addChild(lbl)
+                lbl.run(.sequence([
+                    .group([
+                        .scale(to: 1.0, duration: 0.15),
+                        .fadeIn(withDuration: 0.10),
+                    ]),
+                    .wait(forDuration: 0.50),
+                    .group([
+                        .scale(to: 1.4, duration: 0.25),
+                        .fadeOut(withDuration: 0.25),
+                    ]),
+                    .removeFromParent(),
+                ]))
+            }
+        }
+
+        let beat: TimeInterval = 0.85
+        run(.sequence([
+            beatLabel(text: "3", color: gold),
+            .wait(forDuration: beat),
+            beatLabel(text: "2", color: gold),
+            .wait(forDuration: beat),
+            beatLabel(text: "1", color: gold),
+            .wait(forDuration: beat),
+            beatLabel(text: "SHOOT!", color: green),
+            .wait(forDuration: 0.55),
+            .run { [weak self] in
+                guard let self else { return }
+                self.countdownActive = false
+                self.showReadyIndicator()
+            },
+        ]))
     }
 
     // MARK: - Layout
@@ -595,7 +650,7 @@ final class BeachBallCornholeScene: SKScene {
         let realDt = min(0.1, currentTime - lastUpdateTime)
         lastUpdateTime = currentTime
 
-        guard !gameOver else { return }
+        guard !gameOver, !countdownActive else { return }
 
         // Count down
         timeRemaining = max(0, timeRemaining - realDt)
@@ -976,6 +1031,7 @@ final class BeachBallCornholeScene: SKScene {
 
         if confirmingQuit { handleButtonTap(at: loc); return }
         if gameOver       { handleButtonTap(at: loc); return }
+        if countdownActive { return }
 
         if handleButtonTap(at: loc, fireActions: false) { return }
 
@@ -1006,6 +1062,8 @@ final class BeachBallCornholeScene: SKScene {
         if confirmingQuit || gameOver {
             handleButtonTap(at: end); touchStart = nil; return
         }
+
+        if countdownActive { touchStart = nil; return }
 
         if handleButtonTap(at: end) { touchStart = nil; return }
 
