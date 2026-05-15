@@ -800,7 +800,7 @@ final class BridgePiranhaScene: SKScene {
     private func checkEndCondition() {
         if bridgeComplete {
             endGame(won: true)
-        } else if bagsRemaining <= 0 {
+        } else if bagsRemaining < (8 - filledCount) {
             endGame(won: false)
         } else {
             aimIndicator?.isHidden = false
