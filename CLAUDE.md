@@ -39,6 +39,11 @@ Mini-games replace the active scene entirely and return to `GameScene` via `prev
 - `CornholeMiniGameScene` — cornhole bag-toss mini-game
 - `CornholeBaseballScene` — beanbag baseball mini-game with a SwiftUI HUD overlay
 
+The main menu flow also branches to non-game scenes:
+- `StoryModuleScene` — story chapter viewer (launched from PLAY)
+- `MiniGamePickerScene` — mini-game selection (launched from MINI GAMES)
+- `StatsScene` — player stats screen (launched from STATS)
+
 ### Coordinate System & Pixel Scaling
 
 `GameViewController` computes an integer zoom factor `n` so that every source pixel maps to exactly `n` device pixels. The resulting scene size in source pixels is passed to `GameScene`. Inside `GameScene`, `worldZoom = 2.0` is applied to the camera scale (`cameraNode.setScale(1.0 / worldZoom)`), making tiles appear at 2× inside the already-scaled scene. The map is authored at 8×8 tile size; the rendered tile size on screen is `8 × n × worldZoom` device pixels.
@@ -84,6 +89,22 @@ var onComplete: ((Bool) -> Void)?
 
 `CornholeBaseballScene` additionally injects a SwiftUI `BaseballHUDView` as a `UIHostingController` onto the host `SKView` in `didMove(to:)` and removes it in `willMove(from:)`.
 
+`CornholeMiniGameScene` calls `CornholeStatsManager.shared.recordCornhole()` each time any bag enters the hole, and `recordWin()`/`recordLoss()` in `dismissScene(playerWon:)` before calling `onComplete`. This covers both in-world cornhole boards and the mini-games picker path.
+
+### Stats System
+
+**`CornholeStatsManager.swift`** — singleton that persists cornhole game stats to `UserDefaults`:
+- `wins`, `losses`, `cornholes` (total bags through the hole, any owner)
+- `currentRank: String` — returns `"Rookie"` (rank progression system TBD)
+- `recordWin()`, `recordLoss()`, `recordCornhole()`, `reset()`
+
+**`StatsScene.swift`** — SpriteKit scene accessible from `MainMenuScene` via the STATS button. Matches the main menu aesthetic (dark background, wood plaque header, iron-panel stat cards, ember particles, CRT overlay). Displays:
+- **RECORD** — `W - L` wins and losses
+- **CORNHOLES** — lifetime bags through the hole
+- **RANK** — current rank string
+
+Navigation: `◄ BACK` strip at top (push-down transition back to `MainMenuScene`). Dim `RESET STATS` in the footer resets all stats and re-presents the scene with updated values.
+
 ### Inventory System
 
 Items scattered in the world can be walked over to collect them. The system has four files:
@@ -113,8 +134,12 @@ Items scattered in the world can be walked over to collect them. The system has 
 | `collectibleBit` | CollectibleNode | `0x1 << 2` | Physics category for collectible items |
 | `enemyBit` | PlayerNode | `0x1 << 3` | Physics category reserved for enemies |
 
+### Story Module
+
+`StoryModuleScene` displays story chapter text over a full-screen panel. Body text `fontSize` is capped at `min(14, W / 17)` — keep this value at 14 to match the pixel-art scale.
+
 ### Asset Notes
 
 - All PNGs and the `.tmx` file must be added to **Copy Bundle Resources** in Xcode. Xcode's "synchronized folders" setting does not copy `.tsx` files, so tilesets are resolved purely from PNGs at runtime.
 - `filteringMode = .nearest` is set on every texture and on `SKView.layer.magnificationFilter` to preserve pixel-art crispness.
-- The font `PressStart2P-Regular` is used in the baseball HUD — it must be included in the bundle and declared in `Info.plist` under `UIAppFonts`.
+- The font `PressStart2P-Regular` is used throughout the UI (menus, HUD, stats screen, story module) — it must be included in the bundle and declared in `Info.plist` under `UIAppFonts`.
