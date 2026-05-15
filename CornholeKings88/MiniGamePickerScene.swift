@@ -19,12 +19,13 @@ final class MiniGamePickerScene: SKScene {
     }
 
     private let items: [MenuItem] = [
-        MenuItem(label: "STORY MODE",     subLabel: "adventure",  name: "story",    isLocked: false),
-        MenuItem(label: "BEANBAG BIKE",   subLabel: "racing",     name: "bike",     isLocked: false),
-        MenuItem(label: "CORNHOLE",       subLabel: "bag toss",   name: "cornhole", isLocked: false),
-        MenuItem(label: "BASEBALL",       subLabel: "batting",    name: "baseball", isLocked: false),
-        MenuItem(label: "BEEHIVE BATTLE", subLabel: "defense",    name: "beehive",  isLocked: false),
-        MenuItem(label: "EXPLORE",        subLabel: "open world", name: "explore",  isLocked: true),
+        MenuItem(label: "STORY MODE",     subLabel: "adventure",  name: "story",      isLocked: false),
+        MenuItem(label: "BEANBAG BIKE",   subLabel: "racing",     name: "bike",       isLocked: false),
+        MenuItem(label: "CORNHOLE",       subLabel: "bag toss",   name: "cornhole",   isLocked: false),
+        MenuItem(label: "BASEBALL",       subLabel: "batting",    name: "baseball",   isLocked: false),
+        MenuItem(label: "BEEHIVE BATTLE", subLabel: "defense",    name: "beehive",    isLocked: false),
+        MenuItem(label: "BEACH BALL",     subLabel: "pool blitz", name: "beachball",  isLocked: false),
+        MenuItem(label: "EXPLORE",        subLabel: "open world", name: "explore",    isLocked: true),
     ]
 
     // Palette
@@ -468,6 +469,43 @@ final class MiniGamePickerScene: SKScene {
                 c.setFillColor(fillColor.cgColor)
                 c.fillEllipse(in: CGRect(x: s.width * 0.73, y: s.height * 0.07, width: 3, height: 3))
 
+            case "beachball":
+                // Pool water background square
+                c.setFillColor(UIColor(red: 0.04, green: 0.22, blue: 0.46, alpha: 1).cgColor)
+                c.fill(CGRect(x: 0, y: 0, width: s.width, height: s.height))
+                // Beach ball — striped circle
+                let bbcx = s.width / 2, bbcy = s.height / 2, bbr = s.width * 0.40
+                let bbSlice = (2.0 * CGFloat.pi) / 6.0
+                let bbColors: [UIColor] = [
+                    UIColor(red: 0.92, green: 0.15, blue: 0.15, alpha: 1),
+                    UIColor(red: 0.95, green: 0.84, blue: 0.08, alpha: 1),
+                    UIColor(red: 0.08, green: 0.38, blue: 0.92, alpha: 1),
+                    UIColor(red: 0.12, green: 0.70, blue: 0.22, alpha: 1),
+                    UIColor(red: 0.94, green: 0.94, blue: 0.92, alpha: 1),
+                    accentColor,
+                ]
+                for (si, bbc) in bbColors.enumerated() {
+                    c.setFillColor(bbc.cgColor)
+                    let startA2 = CGFloat(si) * bbSlice - .pi / 2
+                    let bbPath = CGMutablePath()
+                    bbPath.move(to: CGPoint(x: bbcx, y: bbcy))
+                    bbPath.addArc(center: CGPoint(x: bbcx, y: bbcy), radius: bbr,
+                                  startAngle: startA2, endAngle: startA2 + bbSlice, clockwise: false)
+                    bbPath.closeSubpath()
+                    c.addPath(bbPath); c.fillPath()
+                }
+                c.setFillColor(UIColor(white: 0.96, alpha: 1).cgColor)
+                c.fillEllipse(in: CGRect(x: bbcx - 2, y: bbcy - 2, width: 4, height: 4))
+                // Wave ripple underneath
+                c.setStrokeColor(UIColor(red: 0.40, green: 0.78, blue: 1.0, alpha: 0.55).cgColor)
+                c.setLineWidth(1.0)
+                let wy2 = s.height * 0.76
+                c.move(to: CGPoint(x: s.width * 0.14, y: wy2))
+                c.addCurve(to: CGPoint(x: s.width * 0.86, y: wy2),
+                           control1: CGPoint(x: s.width * 0.35, y: wy2 - 4),
+                           control2: CGPoint(x: s.width * 0.65, y: wy2 + 4))
+                c.strokePath()
+
             case "explore":
                 // Compass circle
                 c.setStrokeColor(strokeColor.cgColor); c.setLineWidth(1.5)
@@ -590,6 +628,12 @@ final class MiniGamePickerScene: SKScene {
             let s = BeeHiveScene(size: ppSize)
             s.previousScene = self; s.scaleMode = .resizeFill
             s.startingHearts = 3; s.onComplete = { _ in }
+            push(to: s)
+
+        case "beachball":
+            let s = BeachBallCornholeScene(size: ppSize)
+            s.previousScene = self; s.scaleMode = .resizeFill
+            s.onComplete = { _ in }
             push(to: s)
 
         case "explore":

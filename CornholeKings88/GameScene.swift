@@ -37,6 +37,11 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     // GID range for beehive tileset (firstgid=931, tilecount=4)
     private let beehiveGIDRange = 931...934
 
+    // Beach ball pool interaction (add a pool tileset at firstgid=935, tilecount=4 in Tiled)
+    private var poolPositions: [CGPoint] = []
+    private var nearbyPoolPosition: CGPoint?
+    private let poolGIDRange = 935...938
+
     // Tutorial state
     private var hasShownDogTutorial = false
 
@@ -422,6 +427,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         extractBaseballPositions(from: m)
         extractTreePositions(from: m)
         extractBeehivePositions(from: m)
+        extractPoolPositions(from: m)
         ySortStaticLayers(in: m)
     }
 
@@ -588,20 +594,39 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         print("🐝 Found \(cells.count) beehive tile(s) → \(beehivePositions.count) hive(s)")
     }
 
+    /// Scans for pool tiles (firstgid=935) and stores centroids for beach-ball cornhole triggers.
+    private func extractPoolPositions(from m: TMXMap) {
+        poolPositions.removeAll()
+        for (_, grid) in m.layerGIDs {
+            for r in 0..<m.rows {
+                for c in 0..<m.cols {
+                    let gid = grid[r][c] & 0x0FFF_FFFF
+                    guard poolGIDRange.contains(gid) else { continue }
+                    poolPositions.append(m.tileCenter(col: c, row: r))
+                }
+            }
+        }
+        if !poolPositions.isEmpty {
+            print("🏊 Found \(poolPositions.count) pool tile(s)")
+        }
+    }
+
     /// Called every frame. Shows a single "▲A" prompt for the nearest interactable
-    /// object — cornhole board, baseball zone, tree, or beehive — and hides it otherwise.
+    /// object — cornhole board, baseball zone, tree, beehive, or pool — and hides it otherwise.
     private func checkBoardProximity() {
         let cornholeRadius: CGFloat = 26
         let baseballRadius: CGFloat = 56
         let treeRadius:     CGFloat = 20
         let beehiveRadius:  CGFloat = 36
+        let poolRadius:     CGFloat = 36
 
-        // Find the single closest object across all four categories.
+        // Find the single closest object across all categories.
         var bestDist     = CGFloat.infinity
         var bestBoard:    CGPoint? = nil
         var bestBaseball: CGPoint? = nil
         var bestTree:     CGPoint? = nil
         var bestBeehive:  CGPoint? = nil
+        var bestPool:     CGPoint? = nil
 
         for pos in cornholeBoardPositions {
             let d = hypot(player.position.x - pos.x, player.position.y - pos.y)
@@ -626,11 +651,19 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
                 bestBeehive = pos
             }
         }
+        for pos in poolPositions {
+            let d = hypot(player.position.x - pos.x, player.position.y - pos.y)
+            if d < poolRadius && d < bestDist {
+                bestDist = d; bestBoard = nil; bestBaseball = nil; bestTree = nil
+                bestBeehive = nil; bestPool = pos
+            }
+        }
 
         nearbyBoardPosition    = bestBoard
         nearbyBaseballPosition = bestBaseball
         nearbyTreePosition     = bestTree
         nearbyBeehivePosition  = bestBeehive
+        nearbyPoolPosition     = bestPool
 
         // Auto-descend when the player walks away from the tree they climbed.
         if bestTree == nil && player.isInTree { player.descendTree() }
@@ -641,6 +674,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         else if let p = bestBaseball  { anchor = CGPoint(x: p.x, y: p.y + 22) }
         else if let p = bestTree      { anchor = CGPoint(x: p.x, y: p.y + 22) }
         else if let p = bestBeehive   { anchor = CGPoint(x: p.x, y: p.y + 22) }
+        else if let p = bestPool      { anchor = CGPoint(x: p.x, y: p.y + 22) }
         else                          { anchor = nil }
 
         if let pos = anchor {
@@ -757,6 +791,25 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         let transition = SKTransition.push(with: .up, duration: 0.38)
         transition.pausesOutgoingScene = false
         view.presentScene(bee, transition: transition)
+    }
+
+    private func openBeachBallCornhole() {
+        guard let view = self.view else { return }
+        isTransitioning = true
+        player.moveDirection = .zero
+        player.physicsBody?.velocity = .zero
+        resetBeanbagControl()
+
+        let beach = BeachBallCornholeScene(size: self.size)
+        beach.scaleMode     = self.scaleMode
+        beach.previousScene = self
+        beach.onComplete = { [weak self] _ in
+            self?.isTransitioning = false
+        }
+
+        let transition = SKTransition.push(with: .up, duration: 0.38)
+        transition.pausesOutgoingScene = false
+        view.presentScene(beach, transition: transition)
     }
 
     /// Walks playerHearts down to `remaining`, removing heart labels from the HUD one by one.
@@ -936,6 +989,8 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
                 openCornholeBaseball()
             } else if nearbyBeehivePosition != nil {
                 openBeeHiveMiniGame()
+            } else if nearbyPoolPosition != nil {
+                openBeachBallCornhole()
             } else if nearbyTreePosition != nil {
                 if player.isInTree { player.descendTree() } else { player.climbTree() }
             }

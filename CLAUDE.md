@@ -43,6 +43,7 @@ The main menu flow also branches to non-game scenes:
 - `StoryModuleScene` — story chapter viewer (launched from PLAY)
 - `MiniGamePickerScene` — mini-game selection (launched from MINI GAMES)
 - `StatsScene` — player stats screen (launched from STATS)
+- `BeachBallCornholeScene` — pool beachball cornhole blitz (launched from MINI GAMES or pool world trigger)
 
 ### Coordinate System & Pixel Scaling
 
@@ -129,10 +130,32 @@ Items scattered in the world can be walked over to collect them. The system has 
 | `cornholeBoardGIDRange` | GameScene | 917...920 | GIDs that trigger cornhole mini-game |
 | `baseballGIDRange` | GameScene | 921...922 | GIDs that trigger baseball mini-game |
 | `treeGIDRange` | GameScene | 923...930 | GIDs that trigger tree climbing |
+| `beehiveGIDRange` | GameScene | 931...934 | GIDs that trigger beehive mini-game |
+| `poolGIDRange` | GameScene | 935...938 | GIDs that trigger beach-ball cornhole (tileset not yet added) |
 | `moveSpeed` | PlayerNode | 120.0 | Player world-units per second |
 | `totalCycles` / `pitchesPerHalf` | CornholeBaseballScene | 3 / 3 | Baseball game length |
 | `collectibleBit` | CollectibleNode | `0x1 << 2` | Physics category for collectible items |
 | `enemyBit` | PlayerNode | `0x1 << 3` | Physics category reserved for enemies |
+
+### BeachBall Cornhole
+
+`BeachBallCornholeScene` is a simultaneous 2-minute blitz where player and AI each throw
+classic striped beachballs at a floating, drifting cornhole board in a pool.
+
+**Key differences from `CornholeMiniGameScene`:**
+- **Timer-based** (2:00 countdown) instead of turn-based (first to 11)
+- **Simultaneous play** — both player and AI have independent 2-second throw cooldowns; no turns
+- **Beachball physics** — balls bounce off the board surface (`boardRestitution = 0.80`) rather than landing; only the hole scores
+- **Board drift** — `boardDriftX` shifts left-right with slow randomized speed; hole position tracks it via `holeCenterX`
+- **AI behavior** — throws reactively (0.25–0.85 s after player throws) and autonomously (every ~2 s); accuracy rubber-bands based on score gap
+- **Scoring** — 1 pt per cornhole only; board surface is worth 0 pts; winner is player with most cornholes at the buzzer
+- **bz visual scale** — uses `bzVisualScale = 0.35` (vs beanbag 0.50) to keep arc arcs on-screen given the identical arc physics
+
+**Entry points:**
+- `MiniGamePickerScene` → `"beachball"` card
+- World trigger — walk near a pool tile (GID 935–938) and press A. No pool tileset exists in `World1.tmx` yet; add one at firstgid=935, tilecount=4 when ready.
+
+**Beachball texture** is drawn programmatically in `BeachBallCornholeScene.makeBeachBallTexture(diameter:)` — no image asset needed.
 
 ### Story Module
 
