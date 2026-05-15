@@ -24,8 +24,9 @@ final class MiniGamePickerScene: SKScene {
         MenuItem(label: "CORNHOLE",       subLabel: "bag toss",   name: "cornhole",   isLocked: false),
         MenuItem(label: "BASEBALL",       subLabel: "batting",    name: "baseball",   isLocked: false),
         MenuItem(label: "BEEHIVE BATTLE", subLabel: "defense",    name: "beehive",    isLocked: false),
-        MenuItem(label: "BEACH BALL",     subLabel: "pool blitz", name: "beachball",  isLocked: false),
-        MenuItem(label: "EXPLORE",        subLabel: "open world", name: "explore",    isLocked: true),
+        MenuItem(label: "BEACH BALL",     subLabel: "pool blitz",    name: "beachball",  isLocked: false),
+        MenuItem(label: "PIRANHA BRIDGE", subLabel: "bridge build",  name: "piranha",    isLocked: false),
+        MenuItem(label: "EXPLORE",        subLabel: "open world",    name: "explore",    isLocked: true),
     ]
 
     // Palette
@@ -506,6 +507,24 @@ final class MiniGamePickerScene: SKScene {
                            control2: CGPoint(x: s.width * 0.65, y: wy2 + 4))
                 c.strokePath()
 
+            case "piranha":
+                // River (blue rect)
+                c.setFillColor(UIColor(red: 0.04, green: 0.16, blue: 0.40, alpha: 1).cgColor)
+                c.fill(CGRect(x: 0, y: s.height * 0.30, width: s.width, height: s.height * 0.40))
+                // Bridge bags (two small squares crossing the river)
+                c.setFillColor(accentColor.cgColor)
+                for bx2: CGFloat in [s.width * 0.28, s.width * 0.52, s.width * 0.76] {
+                    c.fill(CGRect(x: bx2 - 4, y: s.height * 0.41, width: 8, height: 8))
+                }
+                // Piranha fin
+                c.setFillColor(fillColor.cgColor)
+                let fPath = CGMutablePath()
+                fPath.move(to:    CGPoint(x: s.width * 0.70, y: s.height * 0.32))
+                fPath.addLine(to: CGPoint(x: s.width * 0.76, y: s.height * 0.18))
+                fPath.addLine(to: CGPoint(x: s.width * 0.82, y: s.height * 0.32))
+                fPath.closeSubpath()
+                c.addPath(fPath); c.fillPath()
+
             case "explore":
                 // Compass circle
                 c.setStrokeColor(strokeColor.cgColor); c.setLineWidth(1.5)
@@ -632,6 +651,12 @@ final class MiniGamePickerScene: SKScene {
 
         case "beachball":
             let s = BeachBallCornholeScene(size: ppSize)
+            s.previousScene = self; s.scaleMode = .resizeFill
+            s.onComplete = { _ in }
+            push(to: s)
+
+        case "piranha":
+            let s = BridgePiranhaScene(size: ppSize)
             s.previousScene = self; s.scaleMode = .resizeFill
             s.onComplete = { _ in }
             push(to: s)
