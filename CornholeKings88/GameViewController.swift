@@ -20,24 +20,19 @@ class GameViewController: UIViewController {
         guard !didPresentScene, let skView = view as? SKView else { return }
         didPresentScene = true
 
-        // Pixel-perfect sizing: largest integer N (>=2) keeping ≥160x120 source pixels.
-        let scale = skView.contentScaleFactor
-        let pixelW = skView.bounds.width * scale
-        let pixelH = skView.bounds.height * scale
-        let minSourceWidth:  CGFloat = 160
-        let minSourceHeight: CGFloat = 120
-        let maxByWidth  = floor(pixelW / minSourceWidth)
-        let maxByHeight = floor(pixelH / minSourceHeight)
-        let n = max(2, min(maxByWidth, maxByHeight))
-        let sceneW = floor(pixelW / n)
-        let sceneH = floor(pixelH / n)
-        // MainMenuScene is a full-screen UI — give it the view's actual point size so
-        // didMove(to:) sees the real dimensions.  (GameScene and mini-games still use
-        // the pixel-perfect sceneSize they were designed for.)
-        let menu = MainMenuScene(size: skView.bounds.size)
-        menu.scaleMode = .resizeFill
-        menu.menuDelegate = self
-        skView.presentScene(menu)
+        // Show a LoadingScene first that aggressively pre-warms every code path
+        // (Metal shader variants, audio decode, fonts, haptics) that previously
+        // caused a stutter on first collision. On completion, transition to the menu.
+        let loading = LoadingScene(size: skView.bounds.size)
+        loading.scaleMode = .resizeFill
+        loading.onComplete = { [weak self, weak skView] in
+            guard let self = self, let skView = skView else { return }
+            let menu = MainMenuScene(size: skView.bounds.size)
+            menu.scaleMode = .resizeFill
+            menu.menuDelegate = self
+            skView.presentScene(menu, transition: SKTransition.fade(withDuration: 0.3))
+        }
+        skView.presentScene(loading)
     }
 
     override var supportedInterfaceOrientations: UIInterfaceOrientationMask {
