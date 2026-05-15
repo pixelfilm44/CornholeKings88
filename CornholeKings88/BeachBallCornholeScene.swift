@@ -27,6 +27,14 @@ final class BeachBallCornholeScene: SKScene {
         var hasHitSurface = false      // hit water (or scored) — no more physics updates
         var boardBounces = 0           // count board bounces; after 6 add a lateral kick
 
+        // 3-axis spin illusion: independent xScale/yScale oscillation per ball
+        var spinPhX: CGFloat = 0       // phase accumulator for horizontal-axis squish
+        var spinPhY: CGFloat = 0       // phase accumulator for vertical-axis squish
+        var spinFrX: CGFloat = 0       // radians per frame — driven by lateral throw speed
+        var spinFrY: CGFloat = 0       // radians per frame — driven by forward throw speed
+        var spinAmX: CGFloat = 0       // amplitude of xScale oscillation (0 = no effect)
+        var spinAmY: CGFloat = 0       // amplitude of yScale oscillation
+
         let node: SKSpriteNode
         let shadow: SKSpriteNode
 
@@ -63,6 +71,12 @@ final class BeachBallCornholeScene: SKScene {
     private let ballRestitution: CGFloat = 0.82
     private let bzVisualScale: CGFloat = 0.35  // flatter perspective than beanbags' 0.50
 
+    // MARK: - Throw-target oscillation
+    private var targetX: CGFloat = 0
+    private var targetMovingRight = true
+    private var targetRange: CGFloat = 0   // set in computeLayout
+    private var targetSpeed: CGFloat = 0   // set in computeLayout
+
     // MARK: - Board drift
     private var boardDriftX: CGFloat = 0
     private var boardDriftVx: CGFloat = 0
@@ -74,7 +88,7 @@ final class BeachBallCornholeScene: SKScene {
     private var playerScore = 0
     private var aiScore = 0
     private var gameOver = false
-    private var timeRemaining: TimeInterval = 120.0
+    private var timeRemaining: TimeInterval = 90.0
     private var lastUpdateTime: TimeInterval = 0
 
     // Per-player cooldowns (seconds)
@@ -99,7 +113,10 @@ final class BeachBallCornholeScene: SKScene {
     private var timerLabel: SKLabelNode?
     private var cooldownBar: SKSpriteNode?
     private var cooldownBarBg: SKSpriteNode?
-    private var beachBallTexture: SKTexture!
+    private var playerBallTexture: SKTexture!
+    private var aiBallTexture: SKTexture!
+    private var readyIndicator: SKSpriteNode?   // ball shown at throw line when player can throw
+    private var wasReady = true                 // tracks cooldown→ready transition
     private var messageNode: SKNode?
     private var confirmPanel: SKNode?
     private var confirmingQuit = false
@@ -109,11 +126,16 @@ final class BeachBallCornholeScene: SKScene {
     override func didMove(to view: SKView) {
         anchorPoint = CGPoint(x: 0.5, y: 0.5)
         W = size.width; H = size.height
-        beachBallTexture = Self.makeBeachBallTexture(diameter: 38)
+        let red   = UIColor(red: 0.92, green: 0.15, blue: 0.15, alpha: 1)
+        let blue  = UIColor(red: 0.10, green: 0.35, blue: 0.92, alpha: 1)
+        let white = UIColor(red: 0.96, green: 0.96, blue: 0.94, alpha: 1)
+        playerBallTexture = Self.makeBeachBallTexture(diameter: 38, stripes: [red, white, red, white, red, white])
+        aiBallTexture     = Self.makeBeachBallTexture(diameter: 38, stripes: [blue, white, blue, white, blue, white])
         computeLayout()
         setupGameWorld()
         setupBoard()
         setupUI()
+        setupReadyIndicator()
         pushCloseButton(to: view)
         warmUpSounds()
         boardDriftVx = 18.0 * (Bool.random() ? 1 : -1)
@@ -133,12 +155,15 @@ final class BeachBallCornholeScene: SKScene {
         boardHalfW  = W * 0.265
         boardHalfH  = boardHalfW * 1.20
         holeRelY    = boardHalfH * 0.30
-        holeRadius  = boardHalfW * 0.25
+        holeRadius  = boardHalfW * 0.50
 
         let distToHole = abs((boardY + holeRelY) - throwLineY)
         let flightFrames = 2.0 * vzInitial / gravity
         let idealSwipe   = H * 0.38
         powerScale = distToHole / (flightFrames * idealSwipe)
+
+        targetRange = boardHalfW * 1.20   // slightly wider than the board
+        targetSpeed = W * 0.68            // world units per second
     }
 
     // Hole world-space position (moves with board drift)
@@ -306,14 +331,13 @@ final class BeachBallCornholeScene: SKScene {
         addChrome(y: topBarY, h: topH)
         addChrome(y: botBarY, h: botH)
 
-        // Timer
-        let tl = makeLabel(text: "2:00", size: min(14, W / 22),
-                           color: SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 1))
-        tl.horizontalAlignmentMode = .center
-        tl.position = CGPoint(x: 0, y: topBarY)
-        tl.zPosition = 600
-        addChild(tl)
-        timerLabel = tl
+        // Game title in top bar
+        let titleLbl = makeLabel(text: "BEACH BALL", size: min(11, W / 28),
+                                 color: SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 1))
+        titleLbl.horizontalAlignmentMode = .center
+        titleLbl.position = CGPoint(x: 0, y: topBarY)
+        titleLbl.zPosition = 600
+        addChild(titleLbl)
 
         // Score chip
         let chipW: CGFloat = min(W * 0.64, 240)
@@ -349,6 +373,25 @@ final class BeachBallCornholeScene: SKScene {
         aLabel.zPosition = 602
         addChild(aLabel)
         aiScoreLabel = aLabel
+
+        // Timer — sits directly below the score chip
+        let timerBgH: CGFloat = 28
+        let timerY = chipY - chipH / 2 - timerBgH / 2 - 4
+
+        let timerBg = SKSpriteNode(
+            color: SKColor(red: 0.02, green: 0.06, blue: 0.16, alpha: 0.85),
+            size: CGSize(width: chipW * 0.52, height: timerBgH))
+        timerBg.position = CGPoint(x: 0, y: timerY)
+        timerBg.zPosition = 600
+        addChild(timerBg)
+
+        let tl = makeLabel(text: "1:30", size: min(13, W / 24),
+                           color: SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 1))
+        tl.horizontalAlignmentMode = .center
+        tl.position = CGPoint(x: 0, y: timerY)
+        tl.zPosition = 602
+        addChild(tl)
+        timerLabel = tl
 
         // Cooldown bar (shows when player can throw again)
         let barW = min(W * 0.52, 170)
@@ -453,7 +496,7 @@ final class BeachBallCornholeScene: SKScene {
 
     // MARK: - Beachball Texture
 
-    static func makeBeachBallTexture(diameter: CGFloat) -> SKTexture {
+    static func makeBeachBallTexture(diameter: CGFloat, stripes: [UIColor]) -> SKTexture {
         let sz = CGSize(width: diameter, height: diameter)
         let fmt = UIGraphicsImageRendererFormat(); fmt.scale = 1
         let img = UIGraphicsImageRenderer(size: sz, format: fmt).image { ctx in
@@ -466,15 +509,6 @@ final class BeachBallCornholeScene: SKScene {
                                                           height: diameter - 3))
             c.addPath(circlePath.cgPath); c.clip()
 
-            // Classic beachball stripe colors
-            let stripes: [UIColor] = [
-                UIColor(red: 0.92, green: 0.15, blue: 0.15, alpha: 1),   // red
-                UIColor(red: 0.95, green: 0.84, blue: 0.08, alpha: 1),   // yellow
-                UIColor(red: 0.08, green: 0.38, blue: 0.92, alpha: 1),   // blue
-                UIColor(red: 0.12, green: 0.70, blue: 0.22, alpha: 1),   // green
-                UIColor(red: 0.94, green: 0.94, blue: 0.92, alpha: 1),   // white
-                UIColor(red: 0.92, green: 0.15, blue: 0.15, alpha: 1),   // red (wrap)
-            ]
             let sliceAngle = (2.0 * .pi) / CGFloat(stripes.count)
             for (i, color) in stripes.enumerated() {
                 c.setFillColor(color.cgColor)
@@ -511,6 +545,47 @@ final class BeachBallCornholeScene: SKScene {
         return tex
     }
 
+    // MARK: - Ready Indicator
+
+    private func setupReadyIndicator() {
+        let indicator = SKSpriteNode(texture: playerBallTexture,
+                                     size: CGSize(width: 38, height: 38))
+        indicator.position = CGPoint(x: targetX, y: throwLineY + 22)
+        indicator.zPosition = 15
+        indicator.alpha = 1.0
+        gameWorldNode.addChild(indicator)
+        readyIndicator = indicator
+    }
+
+    private func hideReadyIndicator() {
+        readyIndicator?.run(.fadeOut(withDuration: 0.08))
+    }
+
+    private func showReadyIndicator() {
+        guard let ind = readyIndicator else { return }
+        ind.removeAllActions()
+        ind.alpha = 1.0
+        ind.run(.sequence([
+            .group([
+                .scale(to: 1.15, duration: 0.14),
+                .fadeIn(withDuration: 0.10),
+            ]),
+            .scale(to: 1.0, duration: 0.08),
+        ]))
+    }
+
+    private func updateThrowTarget(dt: CGFloat) {
+        let step = targetSpeed * dt
+        if targetMovingRight {
+            targetX += step
+            if targetX >= targetRange { targetX = targetRange; targetMovingRight = false }
+        } else {
+            targetX -= step
+            if targetX <= -targetRange { targetX = -targetRange; targetMovingRight = true }
+        }
+        readyIndicator?.position.x = targetX
+    }
+
     // MARK: - Update
 
     override func update(_ currentTime: TimeInterval) {
@@ -544,6 +619,9 @@ final class BeachBallCornholeScene: SKScene {
             aiThrowDelay   = Double.random(in: 0.1...0.8)
             aiStartX       = CGFloat.random(in: -boardHalfW * 0.45...boardHalfW * 0.45)
         }
+
+        // Throw-target oscillation — only moves when player is ready to throw
+        if playerCooldown <= 0 { updateThrowTarget(dt: CGFloat(realDt)) }
 
         // Board drift
         updateBoardDrift(dt: CGFloat(realDt))
@@ -586,7 +664,9 @@ final class BeachBallCornholeScene: SKScene {
         ball.by += ball.vy
         ball.bz += ball.vz
 
-        ball.rot += ball.rotV
+        ball.rot    += ball.rotV
+        ball.spinPhX += ball.spinFrX
+        ball.spinPhY += ball.spinFrY
         ball.node.zRotation = ball.rot
 
         if ball.bz <= 0 {
@@ -601,6 +681,7 @@ final class BeachBallCornholeScene: SKScene {
 
         let heightScale = 1.0 + ball.bz * 0.008
         ball.node.setScale(heightScale)
+
         ball.shadow.alpha   = max(0.04, 0.26 - ball.bz * 0.004)
         ball.shadow.setScale(max(0.38, 1.0 - ball.bz * 0.004))
         ball.node.zPosition = 20 + ball.bz * 0.1 - ball.by * 0.02
@@ -621,6 +702,9 @@ final class BeachBallCornholeScene: SKScene {
             ball.vx *= 0.88
             ball.vy *= 0.86
             ball.rotV *= 0.75
+            // Bounce jolts the spin axes — reverse one or both frequencies randomly
+            if Bool.random() { ball.spinFrX *= -1 }
+            if Bool.random() { ball.spinFrY *= -1 }
             ball.boardBounces += 1
 
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
@@ -819,23 +903,37 @@ final class BeachBallCornholeScene: SKScene {
         guard let bar = cooldownBar, let bg = cooldownBarBg else { return }
         let pct = CGFloat(max(0, min(1, 1.0 - playerCooldown / throwCooldown)))
         bar.size.width = bg.size.width * pct
-        bar.color = pct >= 1.0
+        let isReady = pct >= 1.0
+        bar.color = isReady
             ? SKColor(red: 0.12, green: 0.72, blue: 0.45, alpha: 1)   // green = ready
             : SKColor(red: 0.70, green: 0.42, blue: 0.10, alpha: 1)   // amber = cooling
+
+        // Pop the ready indicator in the moment the cooldown completes
+        if isReady && !wasReady { showReadyIndicator() }
+        wasReady = isReady
     }
 
     // MARK: - Throwing
 
     private func throwBall(owner: BallOwner, startX: CGFloat, startY: CGFloat,
                            vx: CGFloat, vy: CGFloat) {
-        let ball = BeachBall(owner: owner, startX: startX, startY: startY,
-                             texture: beachBallTexture)
+        let tex = owner == .player ? playerBallTexture! : aiBallTexture!
+        let ball = BeachBall(owner: owner, startX: startX, startY: startY, texture: tex)
         ball.vx = vx
         ball.vy = vy
         ball.vz = vzInitial
 
         let speed = sqrt(vx * vx + vy * vy)
         ball.rotV = (Bool.random() ? 1 : -1) * (0.05 + speed * 0.018)
+
+        // 3D spin illusion: lateral speed → around-vertical-axis squish (xScale)
+        //                   forward speed → around-horizontal-axis squish (yScale)
+        ball.spinFrX = (Bool.random() ? 1 : -1) * (0.03 + abs(vx) * 0.022)
+        ball.spinFrY = (Bool.random() ? 1 : -1) * (0.03 + abs(vy) * 0.016)
+        ball.spinAmX = CGFloat.random(in: 0.10...0.18)
+        ball.spinAmY = CGFloat.random(in: 0.08...0.15)
+        ball.spinPhX = CGFloat.random(in: 0...(2 * .pi))
+        ball.spinPhY = CGFloat.random(in: 0...(2 * .pi))
 
         gameWorldNode.addChild(ball.node)
         gameWorldNode.addChild(ball.shadow)
@@ -921,7 +1019,9 @@ final class BeachBallCornholeScene: SKScene {
         guard sqrt(dx * dx + dy * dy) > 4 else { return }
 
         playerCooldown = throwCooldown
-        throwBall(owner: .player, startX: start.x, startY: throwLineY,
+        wasReady = false
+        hideReadyIndicator()
+        throwBall(owner: .player, startX: targetX, startY: throwLineY,
                   vx: dx * powerScale, vy: dy * powerScale)
 
         // React — AI schedules a reactive throw if it hasn't already
@@ -1069,8 +1169,10 @@ final class BeachBallCornholeScene: SKScene {
     private func restartGame() {
         messageNode?.removeFromParent(); messageNode = nil
         playerScore = 0; aiScore = 0
-        timeRemaining = 120.0; gameOver = false
+        timeRemaining = 90.0; gameOver = false
         playerCooldown = 0; aiCooldown = 0
+        wasReady = true
+        showReadyIndicator()
         aiPendingThrow = false; lastUpdateTime = 0
         playerScoreLabel?.text = "YOU: 0"
         aiScoreLabel?.text     = "BOT: 0"
