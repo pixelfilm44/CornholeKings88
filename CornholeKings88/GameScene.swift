@@ -111,8 +111,8 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     private var heartsContainer: SKNode?
     private var heartLabels: [SKLabelNode] = []
 
-    // Player health
-    private var playerHearts = 3
+    // Player health — mirrors HeartsManager.shared.currentHearts
+    private var playerHearts = 5
     /// Identity-based set of dogs currently overlapping the player.
     /// Maintained via didBegin / didEnd so we know whether a damage tick should fire.
     private var dogsTouchingPlayer: Set<ObjectIdentifier> = []
@@ -132,9 +132,19 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
 
         MusicPlayer.shared.play(named: "CornholeKingsTheme")
 
+        // Keep HUD in sync with HeartsManager on every presentation (handles return from bike race)
+        HeartsManager.shared.onChanged = { [weak self] in
+            self?.resyncHeartsDisplay()
+        }
+
         // Prevent re-adding nodes that already have parents when returning from the mini-game
-        guard !hasSetup else { return }
+        guard !hasSetup else {
+            // Resync in case hearts changed while a modal mini-game (bike race) was up
+            resyncHeartsDisplay()
+            return
+        }
         hasSetup = true
+        playerHearts = HeartsManager.shared.currentHearts
 
         backgroundColor = ironColor
         setupScene()
@@ -192,16 +202,18 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         let hudY = size.height / 2 - topSafeAreaInset - baseTopChromeHeight / 2
         let hudPadding: CGFloat = 12
 
-        // Hearts on the left.
+        // Hearts on the left — all 5 slots always present; filled vs. empty reflects current health.
         let hearts = SKNode()
         hearts.position = CGPoint(x: -size.width / 2 + hudPadding, y: hudY)
         hearts.zPosition = 10_001
         heartLabels.removeAll()
-        for i in 0..<3 {
-            let heart = SKLabelNode(text: "♥")
+        let fullColor  = SKColor(red: 0.85, green: 0.18, blue: 0.18, alpha: 1.0)
+        let emptyColor = SKColor(white: 0.40, alpha: 0.45)
+        for i in 0..<HeartsManager.shared.maxHearts {
+            let heart = SKLabelNode(text: i < playerHearts ? "♥" : "♡")
             heart.fontName = "AvenirNext-Heavy"
             heart.fontSize = 22
-            heart.fontColor = SKColor(red: 0.85, green: 0.18, blue: 0.18, alpha: 1.0)
+            heart.fontColor = i < playerHearts ? fullColor : emptyColor
             heart.verticalAlignmentMode = .center
             heart.horizontalAlignmentMode = .left
             heart.position = CGPoint(x: CGFloat(i) * 18, y: 0)
@@ -742,32 +754,20 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         let mini = CornholeMiniGameScene(size: self.size)
         mini.scaleMode          = self.scaleMode
         mini.previousScene      = self
-        mini.availableHoneyBags = inventory.counts[.honeyBag, default: 0]
-        mini.availableBombBags  = inventory.counts[.bombBag,  default: 0]
-        mini.availableMagicBags = inventory.counts[.magicBag, default: 0]
-        mini.availableFireBags  = inventory.counts[.fireBag,  default: 0]
+        mini.availableHoneyBags  = inventory.counts[.honeyBag,  default: 0]
+        mini.availableBombBags   = inventory.counts[.bombBag,   default: 0]
+        mini.availableMagicBags  = inventory.counts[.magicBag,  default: 0]
+        mini.availableFireBags   = inventory.counts[.fireBag,   default: 0]
+        mini.availableGoldenBags = inventory.counts[.goldenBag, default: 0]
         mini.onComplete = { [weak self, weak mini] _ in
-            if let used = mini?.honeyBagsUsed, used > 0 {
-                self?.inventory.consume(.honeyBag, count: used)
-            }
-            if let used = mini?.bombBagsUsed, used > 0 {
-                self?.inventory.consume(.bombBag, count: used)
-            }
-            if let used = mini?.magicBagsUsed, used > 0 {
-                self?.inventory.consume(.magicBag, count: used)
-            }
-            if let used = mini?.fireBagsUsed, used > 0 {
-                self?.inventory.consume(.fireBag, count: used)
-            }
-            if let earned = mini?.bombBagsEarned, earned > 0 {
-                self?.inventory.collect(.bombBag, count: earned)
-            }
-            if let earned = mini?.magicBagsEarned, earned > 0 {
-                self?.inventory.collect(.magicBag, count: earned)
-            }
-            if let earned = mini?.fireBagsEarned, earned > 0 {
-                self?.inventory.collect(.fireBag, count: earned)
-            }
+            if let used = mini?.honeyBagsUsed,  used > 0 { self?.inventory.consume(.honeyBag,  count: used) }
+            if let used = mini?.bombBagsUsed,   used > 0 { self?.inventory.consume(.bombBag,   count: used) }
+            if let used = mini?.magicBagsUsed,  used > 0 { self?.inventory.consume(.magicBag,  count: used) }
+            if let used = mini?.fireBagsUsed,   used > 0 { self?.inventory.consume(.fireBag,   count: used) }
+            if let used = mini?.goldenBagsUsed, used > 0 { self?.inventory.consume(.goldenBag, count: used) }
+            if let earned = mini?.bombBagsEarned,  earned > 0 { self?.inventory.collect(.bombBag,  count: earned) }
+            if let earned = mini?.magicBagsEarned, earned > 0 { self?.inventory.collect(.magicBag, count: earned) }
+            if let earned = mini?.fireBagsEarned,  earned > 0 { self?.inventory.collect(.fireBag,  count: earned) }
             self?.isTransitioning = false
         }
 
@@ -840,13 +840,14 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         view.presentScene(beach, transition: transition)
     }
 
-    /// Walks playerHearts down to `remaining`, removing heart labels from the HUD one by one.
+    /// Walks playerHearts down to `remaining`, animating each lost heart in the HUD.
     private func syncHeartsFromBeeHive(to remaining: Int) {
         let target = max(0, remaining)
         while playerHearts > target {
             playerHearts -= 1
             updateHeartsDisplay()
         }
+        HeartsManager.shared.set(playerHearts)
         if playerHearts <= 0 { triggerGameOver() }
     }
 
@@ -1307,6 +1308,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         guard !isGameOver, let p = player, !p.isInTree, playerHearts > 0 else { return }
         damageCooldown = damageCooldownDuration
         playerHearts -= 1
+        HeartsManager.shared.lose()
         updateHeartsDisplay()
 
         HapticsManager.shared.heavyImpact()
@@ -1351,22 +1353,40 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     }
 
     private func updateHeartsDisplay() {
-        // After decrement, playerHearts is exactly the index of the heart that
-        // was just lost. Pop it, fade it out, then remove it from the HUD.
+        // After decrement, playerHearts is the index that just became empty.
         let lostIdx = playerHearts
         guard lostIdx >= 0 && lostIdx < heartLabels.count else { return }
         let lost = heartLabels[lostIdx]
-        guard lost.parent != nil else { return }   // already removed
 
         lost.removeAction(forKey: "heartLost")
         lost.run(.sequence([
             .scale(to: 1.55, duration: 0.08),
             .group([
-                .scale(to: 0.0, duration: 0.18),
-                .fadeOut(withDuration: 0.18),
+                .scale(to: 1.0, duration: 0.18),
+                .run { [weak lost] in
+                    lost?.text = "♡"
+                    lost?.fontColor = SKColor(white: 0.40, alpha: 0.45)
+                },
             ]),
-            .removeFromParent(),
         ]), withKey: "heartLost")
+    }
+
+    /// Instantly redraws all heart slots to match HeartsManager — used when returning
+    /// from the bike race or any other modal that may have changed the count off-screen.
+    private func resyncHeartsDisplay() {
+        playerHearts = HeartsManager.shared.currentHearts
+        let fullColor  = SKColor(red: 0.85, green: 0.18, blue: 0.18, alpha: 1.0)
+        let emptyColor = SKColor(white: 0.40, alpha: 0.45)
+        for (i, label) in heartLabels.enumerated() {
+            label.removeAllActions()
+            label.setScale(1.0)
+            label.alpha = 1.0
+            if i < playerHearts {
+                label.text = "♥"; label.fontColor = fullColor
+            } else {
+                label.text = "♡"; label.fontColor = emptyColor
+            }
+        }
     }
 
     private func triggerGameOver() {
@@ -1407,6 +1427,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
             .wait(forDuration: 2.8),
             .run { [weak self] in
                 guard let self, let view = self.view else { return }
+                HeartsManager.shared.refill()   // new run starts with full hearts
                 let fresh = GameScene(size: self.size)
                 fresh.scaleMode = self.scaleMode
                 view.presentScene(fresh, transition: .fade(withDuration: 0.50))

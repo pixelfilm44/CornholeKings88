@@ -42,6 +42,12 @@ final class CornholeMiniGameScene: SKScene {
     private var fireBagSelected = false
     /// Fire bags earned this match; read by GameScene after onComplete.
     private(set) var fireBagsEarned: Int = 0
+    /// Golden bags from inventory injected by GameScene before presenting.
+    var availableGoldenBags: Int = 0
+    /// How many golden bags the player actually used this match (consumed from inventory).
+    private(set) var goldenBagsUsed: Int = 0
+    /// Whether the player has opted in to throwing a golden bag on the next throw.
+    private var goldenBagSelected = false
 
     // MARK: - Types
 
@@ -75,6 +81,8 @@ final class CornholeMiniGameScene: SKScene {
         var isFire = false
         /// Prevents the fire effect from triggering more than once per bag.
         var hasTriggeredFire = false
+        /// Golden bags score 2 pts on board and 6 pts in hole. Fully immune to all magic bag effects.
+        var isGolden = false
         /// Bags marked destroyed are removed from scoring but kept in activeBags until the round ends.
         var isDestroyed = false
 
@@ -82,17 +90,22 @@ final class CornholeMiniGameScene: SKScene {
         let shadow: SKSpriteNode
 
         init(owner: BagOwner, startX: CGFloat, startY: CGFloat,
-             isHoney: Bool = false, isBomb: Bool = false, isMagic: Bool = false, isFire: Bool = false) {
-            self.owner   = owner
+             isHoney: Bool = false, isBomb: Bool = false, isMagic: Bool = false,
+             isFire: Bool = false, isGolden: Bool = false) {
+            self.owner    = owner
             self.bx = startX; self.by = startY; self.bz = 3
             self.vx = 0; self.vy = 0; self.vz = 0
-            self.isHoney = isHoney
-            self.isBomb  = isBomb
-            self.isMagic = isMagic
-            self.isFire  = isFire
+            self.isHoney  = isHoney
+            self.isBomb   = isBomb
+            self.isMagic  = isMagic
+            self.isFire   = isFire
+            self.isGolden = isGolden
 
+            let goldenColor = SKColor(red: 1.00, green: 0.84, blue: 0.00, alpha: 1)
             let playerColor: SKColor
-            if isBomb {
+            if isGolden {
+                playerColor = goldenColor
+            } else if isBomb {
                 playerColor = SKColor(red: 0.08, green: 0.06, blue: 0.06, alpha: 1)
             } else if isMagic {
                 playerColor = SKColor(red: 0.12, green: 0.82, blue: 0.35, alpha: 1)
@@ -104,7 +117,9 @@ final class CornholeMiniGameScene: SKScene {
                 playerColor = SKColor(red: 0.90, green: 0.25, blue: 0.25, alpha: 1)
             }
             let aiColor: SKColor
-            if isBomb {
+            if isGolden {
+                aiColor = goldenColor
+            } else if isBomb {
                 aiColor = SKColor(red: 0.12, green: 0.04, blue: 0.18, alpha: 1)
             } else if isMagic {
                 aiColor = SKColor(red: 0.18, green: 0.90, blue: 0.42, alpha: 1)
@@ -118,7 +133,7 @@ final class CornholeMiniGameScene: SKScene {
             bagTex.filteringMode = .nearest
             node = SKSpriteNode(texture: bagTex, size: CGSize(width: 50, height: 50))
             node.color            = owner == .player ? playerColor : aiColor
-            node.colorBlendFactor = (isBomb || isMagic || isFire) ? 0.88 : 0.65
+            node.colorBlendFactor = (isBomb || isMagic || isFire || isGolden) ? 0.88 : 0.65
             node.zPosition        = 20
 
             // Skull marker on bomb bags
@@ -160,6 +175,23 @@ final class CornholeMiniGameScene: SKScene {
                 node.run(SKAction.repeatForever(SKAction.sequence([
                     SKAction.fadeAlpha(to: 0.70, duration: 0.18),
                     SKAction.fadeAlpha(to: 1.00, duration: 0.18),
+                ])))
+            }
+            // Star marker on golden bags
+            if isGolden {
+                let star = SKLabelNode(text: "★")
+                star.fontSize                = 15
+                star.fontColor               = SKColor(white: 1.0, alpha: 0.90)
+                star.verticalAlignmentMode   = .center
+                star.horizontalAlignmentMode = .center
+                star.position  = .zero
+                star.zPosition = 1
+                node.addChild(star)
+                // Shimmer pulse so golden bags stand out clearly
+                node.run(SKAction.repeatForever(SKAction.sequence([
+                    SKAction.colorize(with: SKColor(red: 1.0, green: 1.0, blue: 0.6, alpha: 1),
+                                      colorBlendFactor: 0.50, duration: 0.30),
+                    SKAction.colorize(withColorBlendFactor: 0.88, duration: 0.30),
                 ])))
             }
 
@@ -263,8 +295,7 @@ final class CornholeMiniGameScene: SKScene {
     private var touchStart: CGPoint?
     private var aimingLine: SKShapeNode?
 
-    // Tutorial / confirm state
-    private var tutorialActive   = false
+    // Quit-confirm state (tutorial state is owned by TutorialOverlay itself)
     private var confirmingQuit   = false
     private var confirmPanel:  SKNode?
 
@@ -589,6 +620,13 @@ final class CornholeMiniGameScene: SKScene {
         ])))
 
         setupSatchelButton()
+
+        // Tutorial help button — top-left chrome, away from the UIKit close
+        // button (top-right) and the score chip (centered).
+        let help = TutorialHelpButton.make()
+        help.position = CGPoint(x: -size.width / 2 + 26, y: topBarY)
+        addChild(help)
+
         addCrtOverlay()
     }
 
@@ -697,20 +735,22 @@ final class CornholeMiniGameScene: SKScene {
 
     /// Returns the special bag types the player currently has available for cornhole.
     private var satchelItems: [(type: ItemType, count: Int)] {
-        [(type: .honeyBag, count: availableHoneyBags),
-         (type: .bombBag,  count: availableBombBags),
-         (type: .magicBag, count: availableMagicBags),
-         (type: .fireBag,  count: availableFireBags)]
+        [(type: .honeyBag,  count: availableHoneyBags),
+         (type: .bombBag,   count: availableBombBags),
+         (type: .magicBag,  count: availableMagicBags),
+         (type: .fireBag,   count: availableFireBags),
+         (type: .goldenBag, count: availableGoldenBags)]
             .filter { $0.count > 0 }
     }
 
     private func isItemSelected(_ type: ItemType) -> Bool {
         switch type {
-        case .honeyBag: return honeyBagSelected
-        case .bombBag:  return bombBagSelected
-        case .magicBag: return magicBagSelected
-        case .fireBag:  return fireBagSelected
-        default:        return false
+        case .honeyBag:  return honeyBagSelected
+        case .bombBag:   return bombBagSelected
+        case .magicBag:  return magicBagSelected
+        case .fireBag:   return fireBagSelected
+        case .goldenBag: return goldenBagSelected
+        default:         return false
         }
     }
 
@@ -780,6 +820,7 @@ final class CornholeMiniGameScene: SKScene {
             bombBagSelected   = false
             magicBagSelected  = false
             fireBagSelected   = false
+            goldenBagSelected = false
             closeSatchelPanel()
             btn.isHidden = true
             return
@@ -793,13 +834,15 @@ final class CornholeMiniGameScene: SKScene {
         // Selected indicator dot: coloured when something is armed, clear otherwise
         let dot = btn.childNode(withName: "satchelSelectedDot") as? SKSpriteNode
         if honeyBagSelected {
-            dot?.color = SKColor(red: 0.95, green: 0.72, blue: 0.10, alpha: 1.0)  // gold
+            dot?.color = SKColor(red: 0.95, green: 0.72, blue: 0.10, alpha: 1.0)  // amber
         } else if bombBagSelected {
             dot?.color = SKColor(red: 0.90, green: 0.20, blue: 0.10, alpha: 1.0)  // red
         } else if magicBagSelected {
             dot?.color = SKColor(red: 0.12, green: 0.82, blue: 0.35, alpha: 1.0)  // green
         } else if fireBagSelected {
             dot?.color = SKColor(red: 0.95, green: 0.30, blue: 0.05, alpha: 1.0)  // orange-red
+        } else if goldenBagSelected {
+            dot?.color = SKColor(red: 1.00, green: 0.84, blue: 0.00, alpha: 1.0)  // bright gold
         } else {
             dot?.color = .clear
         }
@@ -982,10 +1025,11 @@ final class CornholeMiniGameScene: SKScene {
     private func refreshSatchelPanelRows() {
         guard let panel = satchelPanel else { return }
         let allItems: [(type: ItemType, count: Int)] = [
-            (.honeyBag, availableHoneyBags),
-            (.bombBag,  availableBombBags),
-            (.magicBag, availableMagicBags),
-            (.fireBag,  availableFireBags),
+            (.honeyBag,  availableHoneyBags),
+            (.bombBag,   availableBombBags),
+            (.magicBag,  availableMagicBags),
+            (.fireBag,   availableFireBags),
+            (.goldenBag, availableGoldenBags),
         ]
         for item in allItems {
             let isSelected = isItemSelected(item.type)
@@ -1002,6 +1046,9 @@ final class CornholeMiniGameScene: SKScene {
             case .fireBag:
                 checkColor = SKColor(red: 0.95, green: 0.30, blue: 0.05, alpha: 1)
                 selBg      = SKColor(red: 0.28, green: 0.06, blue: 0.01, alpha: 0.90)
+            case .goldenBag:
+                checkColor = SKColor(red: 1.00, green: 0.84, blue: 0.00, alpha: 1)
+                selBg      = SKColor(red: 0.28, green: 0.22, blue: 0.01, alpha: 0.90)
             default:
                 checkColor = SKColor(red: 0.95, green: 0.72, blue: 0.10, alpha: 1)
                 selBg      = SKColor(red: 0.28, green: 0.18, blue: 0.04, alpha: 0.90)
@@ -1030,9 +1077,10 @@ final class CornholeMiniGameScene: SKScene {
                 honeyBagSelected = false
                 availableHoneyBags += 1
             } else if availableHoneyBags > 0 {
-                if bombBagSelected  { bombBagSelected  = false; availableBombBags  += 1 }
-                if magicBagSelected { magicBagSelected = false; availableMagicBags += 1 }
-                if fireBagSelected  { fireBagSelected  = false; availableFireBags  += 1 }
+                if bombBagSelected   { bombBagSelected   = false; availableBombBags   += 1 }
+                if magicBagSelected  { magicBagSelected  = false; availableMagicBags  += 1 }
+                if fireBagSelected   { fireBagSelected   = false; availableFireBags   += 1 }
+                if goldenBagSelected { goldenBagSelected = false; availableGoldenBags += 1 }
                 honeyBagSelected = true
                 availableHoneyBags -= 1
             }
@@ -1044,6 +1092,7 @@ final class CornholeMiniGameScene: SKScene {
                 if honeyBagSelected  { honeyBagSelected  = false; availableHoneyBags  += 1 }
                 if magicBagSelected  { magicBagSelected  = false; availableMagicBags  += 1 }
                 if fireBagSelected   { fireBagSelected   = false; availableFireBags   += 1 }
+                if goldenBagSelected { goldenBagSelected = false; availableGoldenBags += 1 }
                 bombBagSelected = true
                 availableBombBags -= 1
             }
@@ -1052,9 +1101,10 @@ final class CornholeMiniGameScene: SKScene {
                 magicBagSelected = false
                 availableMagicBags += 1
             } else if availableMagicBags > 0 {
-                if honeyBagSelected { honeyBagSelected = false; availableHoneyBags += 1 }
-                if bombBagSelected  { bombBagSelected  = false; availableBombBags  += 1 }
-                if fireBagSelected  { fireBagSelected  = false; availableFireBags  += 1 }
+                if honeyBagSelected  { honeyBagSelected  = false; availableHoneyBags  += 1 }
+                if bombBagSelected   { bombBagSelected   = false; availableBombBags   += 1 }
+                if fireBagSelected   { fireBagSelected   = false; availableFireBags   += 1 }
+                if goldenBagSelected { goldenBagSelected = false; availableGoldenBags += 1 }
                 magicBagSelected = true
                 availableMagicBags -= 1
             }
@@ -1063,11 +1113,24 @@ final class CornholeMiniGameScene: SKScene {
                 fireBagSelected = false
                 availableFireBags += 1
             } else if availableFireBags > 0 {
+                if honeyBagSelected  { honeyBagSelected  = false; availableHoneyBags  += 1 }
+                if bombBagSelected   { bombBagSelected   = false; availableBombBags   += 1 }
+                if magicBagSelected  { magicBagSelected  = false; availableMagicBags  += 1 }
+                if goldenBagSelected { goldenBagSelected = false; availableGoldenBags += 1 }
+                fireBagSelected = true
+                availableFireBags -= 1
+            }
+        case .goldenBag:
+            if goldenBagSelected {
+                goldenBagSelected = false
+                availableGoldenBags += 1
+            } else if availableGoldenBags > 0 {
                 if honeyBagSelected { honeyBagSelected = false; availableHoneyBags += 1 }
                 if bombBagSelected  { bombBagSelected  = false; availableBombBags  += 1 }
                 if magicBagSelected { magicBagSelected = false; availableMagicBags += 1 }
-                fireBagSelected = true
-                availableFireBags -= 1
+                if fireBagSelected  { fireBagSelected  = false; availableFireBags  += 1 }
+                goldenBagSelected = true
+                availableGoldenBags -= 1
             }
         default:
             break
@@ -1201,7 +1264,10 @@ final class CornholeMiniGameScene: SKScene {
             guard !bag.isDestroyed else { continue }
             let isInHole  = bag.hasScored
             let isOnBoard = !isInHole && checkIsOnBoard(bag)
-            let pts       = isInHole ? 3 : (isOnBoard ? 1 : 0)
+            let pts: Int
+            if isInHole        { pts = bag.isGolden ? 6 : 3 }
+            else if isOnBoard  { pts = bag.isGolden ? 2 : 1 }
+            else               { pts = 0 }
             if bag.owner == .player { roundPlayer += pts }
             else                    { roundAI     += pts }
         }
@@ -1311,9 +1377,10 @@ final class CornholeMiniGameScene: SKScene {
                 let relVel = dvx * nx + dvy * ny
                 guard relVel < 0 else { continue }
 
-                // Magic bag hits opponent bag — destroy the opponent bag, magic bag continues
-                let aMagicVsB = a.isMagic && b.owner != a.owner
-                let bMagicVsA = b.isMagic && a.owner != b.owner
+                // Magic bag hits opponent bag — destroy the opponent bag, magic bag continues.
+                // Golden bags are fully immune to magic bag effects.
+                let aMagicVsB = a.isMagic && b.owner != a.owner && !b.isGolden
+                let bMagicVsA = b.isMagic && a.owner != b.owner && !a.isGolden
                 if aMagicVsB || bMagicVsA {
                     if aMagicVsB { destroyBag(b); showMagicPoof(at: CGPoint(x: b.bx, y: b.by)) }
                     if bMagicVsA { destroyBag(a); showMagicPoof(at: CGPoint(x: a.bx, y: a.by)) }
@@ -1583,10 +1650,11 @@ final class CornholeMiniGameScene: SKScene {
     // MARK: - Magic Bag
 
     /// Magic bag scores in hole: destroys all opponent bags already in the hole this round.
+    /// Golden bags in the hole are immune and cannot be removed by this effect.
     private func triggerMagicHole(by owner: BagOwner) {
         let opponent: BagOwner = owner == .player ? .ai : .player
         var destroyed = 0
-        for bag in activeBags where bag.owner == opponent && !bag.isDestroyed && bag.hasScored {
+        for bag in activeBags where bag.owner == opponent && !bag.isDestroyed && bag.hasScored && !bag.isGolden {
             destroyBag(bag)
             destroyed += 1
         }
@@ -1818,11 +1886,13 @@ final class CornholeMiniGameScene: SKScene {
     // MARK: - Throwing
 
     private func throwBag(owner: BagOwner, startX: CGFloat, vx: CGFloat, vy: CGFloat, aiBomb: Bool = false) {
-        // availableHoneyBags / availableBombBags / availableMagicBags / availableFireBags already decremented on arm.
-        let useHoney = owner == .player && honeyBagSelected
-        let useBomb  = (owner == .player && bombBagSelected) || aiBomb
-        let useMagic = owner == .player && magicBagSelected
-        let useFire  = owner == .player && fireBagSelected
+        // availableHoneyBags / availableBombBags / availableMagicBags / availableFireBags / availableGoldenBags
+        // already decremented on arm.
+        let useHoney  = owner == .player && honeyBagSelected
+        let useBomb   = (owner == .player && bombBagSelected) || aiBomb
+        let useMagic  = owner == .player && magicBagSelected
+        let useFire   = owner == .player && fireBagSelected
+        let useGolden = owner == .player && goldenBagSelected
         if useHoney {
             honeyBagsUsed += 1
             honeyBagSelected = false
@@ -1843,8 +1913,14 @@ final class CornholeMiniGameScene: SKScene {
             fireBagSelected = false
             updateSatchelButton(); refreshSatchelPanelRows()
         }
+        if useGolden {
+            goldenBagsUsed += 1
+            goldenBagSelected = false
+            updateSatchelButton(); refreshSatchelPanelRows()
+        }
         let bag = MiniGameBag(owner: owner, startX: startX, startY: throwLineY,
-                              isHoney: useHoney, isBomb: useBomb, isMagic: useMagic, isFire: useFire)
+                              isHoney: useHoney, isBomb: useBomb, isMagic: useMagic,
+                              isFire: useFire, isGolden: useGolden)
         bag.vx = vx
         bag.vy = vy
         bag.vz = vzInitial
@@ -1976,8 +2052,14 @@ final class CornholeMiniGameScene: SKScene {
         guard let touch = touches.first else { return }
         let loc = touch.location(in: self)
 
-        // Tutorial overlay consumes all input until dismissed
-        if tutorialActive { handleButtonTap(at: loc); return }
+        // Tutorial overlay consumes all input — any tap advances it.
+        if let overlay = TutorialOverlay.active(in: self) {
+            overlay.advance(); return
+        }
+        // HUD help button re-presents the tutorial without restarting the round.
+        for n in nodes(at: loc) where TutorialHelpButton.wasTapped(n) {
+            presentTutorial(autoTriggered: false); return
+        }
 
         // Quit-confirm modal consumes all input until resolved
         if confirmingQuit { handleButtonTap(at: loc); return }
@@ -2083,9 +2165,6 @@ final class CornholeMiniGameScene: SKScene {
                     return true
                 case "cancelQuitBtn":
                     hideConfirmPanel()
-                    return true
-                case "tutorialDismissBtn":
-                    hideTutorial()
                     return true
                 case "playAgainBtn":
                     playerScore = 0
@@ -2712,69 +2791,30 @@ final class CornholeMiniGameScene: SKScene {
     // MARK: - First-time Tutorial
 
     private func showFirstTimeTutorial() {
-        tutorialActive = true
-        print("🎓 Cornhole tutorial overlay added (zPosition 2000)")
-
-        let panelW = size.width  * 0.84
-        let panelH = size.height * 0.60
-        let fs     = max(5, size.width * 0.040)
-
-        let overlay = SKNode()
-        overlay.zPosition = 2000
-        overlay.name      = "tutorialOverlay"
-
-        let dim = SKSpriteNode(color: SKColor(white: 0, alpha: 0.78),
-                               size: CGSize(width: size.width * 2, height: size.height * 2))
-        overlay.addChild(dim)
-
-        let panel = SKSpriteNode(color: SKColor(red: 0.07, green: 0.05, blue: 0.03, alpha: 0.97),
-                                 size: CGSize(width: panelW, height: panelH))
-        overlay.addChild(panel)
-
-        let border = SKShapeNode(rectOf: CGSize(width: panelW + 3, height: panelH + 3))
-        border.strokeColor = SKColor(red: 0.60, green: 0.42, blue: 0.15, alpha: 1)
-        border.fillColor   = .clear
-        border.lineWidth   = 3
-        overlay.addChild(border)
-
-        let title = makeLabel(text: "CORNHOLE!", size: fs * 1.1,
-                              color: SKColor(red: 0.90, green: 0.42, blue: 0.42, alpha: 1))
-        title.position = CGPoint(x: 0, y: panelH * 0.34)
-        overlay.addChild(title)
-
-        let instructions: [(String, CGFloat)] = [
-            ("Swipe to aim \u{2192} release to throw", panelH * 0.18),
-            ("Distance = power",                        panelH * 0.06),
-            ("Hole = 3 pts \u{00B7} Board = 1 pt",     -panelH * 0.06),
-            ("First to 11 wins!",                       -panelH * 0.18),
-        ]
-        for (text, y) in instructions {
-            let lbl = makeLabel(text: text, size: fs * 0.72,
-                                color: SKColor(white: 0.82, alpha: 1))
-            lbl.position = CGPoint(x: 0, y: y)
-            overlay.addChild(lbl)
-        }
-
-        let gotIt = makeButton(label: "GOT IT!",
-                               fg: .white,
-                               bg: SKColor(red: 0.18, green: 0.45, blue: 0.18, alpha: 1),
-                               size: CGSize(width: panelW * 0.55, height: fs * 1.9))
-        gotIt.position = CGPoint(x: 0, y: -panelH * 0.36)
-        gotIt.name     = "tutorialDismissBtn"
-        overlay.addChild(gotIt)
-
-        overlay.alpha = 0
-        addChild(overlay)
-        overlay.run(.fadeIn(withDuration: 0.25))
+        presentTutorial(autoTriggered: true)
     }
 
-    private func hideTutorial() {
-        tutorialActive = false
-        childNode(withName: "tutorialOverlay")?.run(.sequence([
-            .fadeOut(withDuration: 0.20),
-            .removeFromParent(),
-        ]))
-        startRound()
+    /// Presents the cornhole tutorial via the shared `TutorialOverlay`. On
+    /// auto-trigger (first play, before the first round starts) we kick off
+    /// `startRound()` after completion; on replay (HUD `?` button) we do nothing
+    /// since the round is already in progress.
+    private func presentTutorial(autoTriggered: Bool) {
+        let steps: [TutorialStep] = [
+            .card(title: "CORNHOLE",
+                  body:  "FIRST PLAYER TO 11 POINTS WINS THE MATCH."),
+            .card(title: "AIMING",
+                  body:  "DRAG FROM THE BAG TO AIM. LONGER DRAGS THROW HARDER. RELEASE TO TOSS."),
+            .card(title: "SCORING",
+                  body:  "BAG IN THE HOLE = 3 POINTS. BAG ON THE BOARD = 1 POINT. CANCELLATION RULES APPLY EACH ROUND."),
+        ]
+        let overlay = TutorialOverlay(steps: steps, sceneSize: size) { [weak self] in
+            guard let self = self else { return }
+            if autoTriggered {
+                TutorialManager.shared.markSeen(TutorialManager.cornhole)
+                self.startRound()
+            }
+        }
+        addChild(overlay)
     }
 
     // MARK: - Quit Confirmation
@@ -3108,7 +3148,11 @@ final class CornholeMiniGameScene: SKScene {
                 self.applySpiritSettings()
             }
             self.addOpponentPortrait()
-            self.showFirstTimeTutorial()
+            if TutorialManager.shared.hasSeen(TutorialManager.cornhole) {
+                self.startRound()
+            } else {
+                self.showFirstTimeTutorial()
+            }
         }
         addChild(picker)
     }

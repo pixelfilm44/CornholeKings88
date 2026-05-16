@@ -114,6 +114,9 @@ final class BridgePiranhaScene: SKScene {
         setupUI()
         pushCloseButton(to: view)
         piranhaIdleDelay = Double.random(in: 5.0...9.0)
+        if !TutorialManager.shared.hasSeen(TutorialManager.piranha) {
+            presentTutorial(autoTriggered: true)
+        }
     }
 
     override func willMove(from view: SKView) {
@@ -314,12 +317,17 @@ final class BridgePiranhaScene: SKScene {
         border.zPosition = 501
         addChild(border)
 
+        // Tutorial help button — top-left of the top bar.
+        let help = TutorialHelpButton.make()
+        help.position = CGPoint(x: -W / 2 + 24, y: topY)
+        addChild(help)
+
         let bagsLbl = makeLabel(
             text: "BAGS:12",
             size: min(10, W / 32),
             color: SKColor(red: 0.95, green: 0.76, blue: 0.22, alpha: 1))
         bagsLbl.horizontalAlignmentMode = .left
-        bagsLbl.position  = CGPoint(x: -W / 2 + 16, y: topY)
+        bagsLbl.position  = CGPoint(x: -W / 2 + 48, y: topY)
         bagsLbl.zPosition = 502
         addChild(bagsLbl)
         bagsLabel = bagsLbl
@@ -334,20 +342,25 @@ final class BridgePiranhaScene: SKScene {
         addChild(progLbl)
         progressLabel = progLbl
 
-        // "TAP TO THROW" hint — auto-fades
-        let hint = makeLabel(
-            text: "TAP TO THROW",
-            size: min(8, W / 40),
-            color: SKColor(white: 0.85, alpha: 0.75))
-        hint.position  = CGPoint(x: 0, y: throwLineY - 30)
-        hint.zPosition = 35
-        hint.name      = "throwHint"
-        gameWorldNode.addChild(hint)
-        hint.run(.sequence([
-            .wait(forDuration: 2.5),
-            .fadeOut(withDuration: 0.8),
-            .removeFromParent(),
-        ]))
+    }
+
+    // MARK: - Tutorial
+
+    private func presentTutorial(autoTriggered: Bool) {
+        let steps: [TutorialStep] = [
+            .card(title: "PIRANHA BRIDGE",
+                  body:  "DROP BAGS ONTO THE PILINGS TO BUILD A BRIDGE ACROSS THE RIVER. BUILD ALL PLANKS TO ESCAPE."),
+            .card(title: "AIMING",
+                  body:  "DRAG FROM THE BOTTOM TO AIM. DISTANCE SETS POWER. RELEASE TO THROW."),
+            .card(title: "PIRANHA TROUBLE",
+                  body:  "PIRANHAS WILL SNATCH BAGS THAT MISS. YOU HAVE A LIMITED NUMBER OF BAGS — MAKE EACH ONE COUNT."),
+        ]
+        let overlay = TutorialOverlay(steps: steps, sceneSize: size) {
+            if autoTriggered {
+                TutorialManager.shared.markSeen(TutorialManager.piranha)
+            }
+        }
+        addChild(overlay)
     }
 
     private func pushCloseButton(to view: SKView) {
@@ -873,6 +886,15 @@ final class BridgePiranhaScene: SKScene {
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         guard let touch = touches.first else { return }
         let loc = touch.location(in: self)
+
+        // Tutorial overlay — any tap advances it.
+        if let overlay = TutorialOverlay.active(in: self) {
+            overlay.advance(); return
+        }
+        // HUD help button re-presents the tutorial.
+        for n in nodes(at: loc) where TutorialHelpButton.wasTapped(n) {
+            presentTutorial(autoTriggered: false); return
+        }
 
         if gameOver {
             let tapped = nodes(at: loc).compactMap { $0.name }.contains("continueBtn")

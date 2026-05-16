@@ -627,7 +627,11 @@ final class MiniGamePickerScene: SKScene {
             push(to: s)
 
         case "bike":
-            onBikeRace?()
+            let bikeVC = BikeDodgeViewController()
+            bikeVC.modalPresentationStyle = .fullScreen
+            DispatchQueue.main.async { [weak self] in
+                self?.view?.window?.rootViewController?.present(bikeVC, animated: true)
+            }
 
         case "cornhole":
             let s = CornholeMiniGameScene(size: ppSize)
@@ -635,10 +639,11 @@ final class MiniGamePickerScene: SKScene {
             let inv = InventoryManager()
             // TODO: remove before ship — grants 3 fire bags for testing
             if inv.counts[.fireBag, default: 0] == 0 { inv.collect(.fireBag, count: 3) }
-            s.availableHoneyBags = inv.counts[.honeyBag, default: 0]
-            s.availableBombBags  = inv.counts[.bombBag,  default: 0]
-            s.availableMagicBags = inv.counts[.magicBag, default: 0]
-            s.availableFireBags  = inv.counts[.fireBag,  default: 0]
+            s.availableHoneyBags  = inv.counts[.honeyBag,  default: 0]
+            s.availableBombBags   = inv.counts[.bombBag,   default: 0]
+            s.availableMagicBags  = inv.counts[.magicBag,  default: 0]
+            s.availableFireBags   = inv.counts[.fireBag,   default: 0]
+            s.availableGoldenBags = inv.counts[.goldenBag, default: 0]
             s.onComplete = { _ in }
             push(to: s)
 

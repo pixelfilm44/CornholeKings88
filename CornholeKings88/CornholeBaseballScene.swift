@@ -84,8 +84,7 @@ final class CornholeBaseballScene: SKScene {
     private var aiSwingFrame = 0
     private var aiFrameCount = 0
 
-    // Tutorial state
-    private var tutorialActive = false
+    // Phase-transition state (tutorial state is owned by TutorialOverlay itself)
     private var phaseTransitionActive = false
 
     // Tracks which half is active for HUD display — stays stable through .tracking/.gameOver
@@ -155,11 +154,20 @@ final class CornholeBaseballScene: SKScene {
         setupFielders()
         injectHUD(into: view)
         addCrtOverlay()
+        addHelpButton()
 
-        // Always show on mini-game open. Player can dismiss instantly with "GOT IT!".
-        // TODO: re-introduce one-time gating once rendering is confirmed.
-        showFirstTimeTutorial()
-        print("🎓 Baseball tutorial requested in didMove")
+        if TutorialManager.shared.hasSeen(TutorialManager.baseball) {
+            startUserBatting(showModal: true)
+        } else {
+            presentTutorial(autoTriggered: true)
+        }
+    }
+
+    private func addHelpButton() {
+        // Top-left of the SwiftUI HUD area; close button is UIKit at top-right.
+        let help = TutorialHelpButton.make()
+        help.position = CGPoint(x: -size.width / 2 + 28, y: size.height / 2 - 34)
+        addChild(help)
     }
 
     override func willMove(from view: SKView) {
@@ -1184,8 +1192,16 @@ final class CornholeBaseballScene: SKScene {
         guard let touch = touches.first else { return }
         let loc = touch.location(in: self)
 
-        // Tutorial or phase-transition modal consumes all input
-        if tutorialActive || phaseTransitionActive { handleButtonTap(at: loc); return }
+        // Tutorial overlay — any tap advances it.
+        if let overlay = TutorialOverlay.active(in: self) {
+            overlay.advance(); return
+        }
+        // HUD help button re-presents the tutorial.
+        for n in nodes(at: loc) where TutorialHelpButton.wasTapped(n) {
+            presentTutorial(autoTriggered: false); return
+        }
+        // Phase-transition modal consumes all input.
+        if phaseTransitionActive { handleButtonTap(at: loc); return }
 
         if handleButtonTap(at: loc) { return }
 
@@ -1257,7 +1273,6 @@ final class CornholeBaseballScene: SKScene {
             var n: SKNode? = node
             while let cur = n {
                 switch cur.name {
-                case "tutorialDismissBtn": hideTutorial();                            return true
                 case "closeButton":        dismissScene(playerWon: false);            return true
                 case "playAgainBtn":       resetGame();                               return true
                 case "exitBtn":            dismissScene(playerWon: userAvg >= aiAvg); return true
@@ -1580,70 +1595,26 @@ final class CornholeBaseballScene: SKScene {
 
     // MARK: - First-time Tutorial
 
-    private func showFirstTimeTutorial() {
-        tutorialActive = true
-        print("🎓 Baseball tutorial overlay added (zPosition 2000)")
-
-        let panelW = size.width  * 0.84
-        let panelH = size.height * 0.62
-        let fs     = max(6, size.width * 0.048)
-
-        let overlay = SKNode()
-        overlay.zPosition = 2000
-        overlay.name      = "tutorialOverlay"
-
-        let dim = SKSpriteNode(color: SKColor(white: 0, alpha: 0.80),
-                               size: CGSize(width: size.width * 2, height: size.height * 2))
-        overlay.addChild(dim)
-
-        let panel = SKSpriteNode(color: SKColor(red: 0.07, green: 0.05, blue: 0.03, alpha: 0.97),
-                                 size: CGSize(width: panelW, height: panelH))
-        overlay.addChild(panel)
-
-        let border = SKShapeNode(rectOf: CGSize(width: panelW + 3, height: panelH + 3))
-        border.strokeColor = SKColor(red: 0.60, green: 0.42, blue: 0.15, alpha: 1)
-        border.fillColor   = .clear
-        border.lineWidth   = 3
-        overlay.addChild(border)
-
-        let title = makeLabel("BEANBAG BASEBALL", size: fs * 0.95,
-                              color: SKColor(red: 0.90, green: 0.42, blue: 0.42, alpha: 1))
-        title.position = CGPoint(x: 0, y: panelH * 0.34)
-        overlay.addChild(title)
-
-        let instructions: [(String, CGFloat)] = [
-            ("BATTING: Hold then release",    panelH * 0.18),
-            ("PITCHING: Swipe up to throw",   panelH * 0.06),
-            ("FIELDING: Tap to sprint!",       -panelH * 0.06),
-            ("Higher avg distance wins",       -panelH * 0.18),
+    /// Presents the baseball tutorial via the shared `TutorialOverlay`. On
+    /// auto-trigger (first play) we start the batting half after completion;
+    /// on replay (HUD `?` button) we just resume — the game is already running.
+    private func presentTutorial(autoTriggered: Bool) {
+        let steps: [TutorialStep] = [
+            .card(title: "BEANBAG BASEBALL",
+                  body:  "BAT AND PITCH AGAINST THE BOT. HIGHEST AVERAGE HIT DISTANCE AFTER 3 INNINGS WINS."),
+            .card(title: "BATTING",
+                  body:  "HOLD ANYWHERE TO CHARGE YOUR SWING. RELEASE WHEN THE PITCH CROSSES THE STRIKE ZONE."),
+            .card(title: "PITCHING & FIELDING",
+                  body:  "WHEN PITCHING, SWIPE UP TO THROW. WHEN FIELDING, TAP A FIELDER TO SPRINT THEM AT THE BAG."),
         ]
-        for (text, y) in instructions {
-            let lbl = makeLabel(text, size: fs * 0.68,
-                                color: SKColor(white: 0.82, alpha: 1))
-            lbl.position = CGPoint(x: 0, y: y)
-            overlay.addChild(lbl)
+        let overlay = TutorialOverlay(steps: steps, sceneSize: size) { [weak self] in
+            guard let self = self else { return }
+            if autoTriggered {
+                TutorialManager.shared.markSeen(TutorialManager.baseball)
+                self.startUserBatting(showModal: false)
+            }
         }
-
-        let gotIt = makeButton("GOT IT!",
-                               fg: .white,
-                               bg: SKColor(red: 0.18, green: 0.44, blue: 0.18, alpha: 1),
-                               size: CGSize(width: panelW * 0.55, height: fs * 1.9))
-        gotIt.position = CGPoint(x: 0, y: -panelH * 0.37)
-        gotIt.name     = "tutorialDismissBtn"
-        overlay.addChild(gotIt)
-
-        overlay.alpha = 0
         addChild(overlay)
-        overlay.run(.fadeIn(withDuration: 0.25))
-    }
-
-    private func hideTutorial() {
-        tutorialActive = false
-        childNode(withName: "tutorialOverlay")?.run(.sequence([
-            .fadeOut(withDuration: 0.20),
-            .removeFromParent(),
-        ]))
-        startUserBatting(showModal: false)
     }
 
     // MARK: - Dismiss

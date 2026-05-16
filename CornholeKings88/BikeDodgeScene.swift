@@ -20,11 +20,22 @@ private struct RacerData {
     var crashTimer: CGFloat = 0
     var isBoosting: Bool = false
     var boostTimer: CGFloat = 0
+    var isJumping: Bool = false
+    var jumpTimer: CGFloat = 0
     var finished: Bool = false
     var finishRank: Int = 0
     // AI only
     var targetLaneX: CGFloat = 0
     var errorCooldown: CGFloat = 0
+}
+
+private struct JumpTruckData {
+    var x: CGFloat
+    var screenY: CGFloat
+    var forwardSpeed: CGFloat
+    var node: SKNode
+    var isActive: Bool = true
+    var hasLaunched: Bool = false
 }
 
 private struct CarData {
@@ -107,9 +118,17 @@ final class BikeDodgeScene: SKScene {
     private var roadBG2: SKSpriteNode!
 
     // MARK: - Entities
-    private var cars:    [CarData]     = []
-    private var bags:    [BeanBagData] = []
-    private var pickups: [PickupData]  = []
+    private var cars:       [CarData]       = []
+    private var bags:       [BeanBagData]   = []
+    private var pickups:    [PickupData]    = []
+    private var jumpTrucks: [JumpTruckData] = []
+
+    // MARK: - Jump truck config
+    private var jumpTruckTimer:    CGFloat = 0
+    private var jumpTruckInterval: CGFloat = 20.0   // first truck after ~20s
+    private var jumpTrucksSpawned: Int     = 0
+    private let maxJumpTrucks:     Int     = 2
+    private let jumpDuration:      CGFloat = 1.6
 
     // MARK: - Spawn timers
     private var carTimer:  CGFloat = 1.5,  carInterval:  CGFloat = 2.5
@@ -201,7 +220,9 @@ final class BikeDodgeScene: SKScene {
         let pinkC  = UIColor(red: 0.95, green: 0.30, blue: 0.60, alpha: 1)
         let greenC = UIColor(red: 0.20, green: 0.85, blue: 0.35, alpha: 1)
 
-        pr.x = laneCenter[1]; pr.speed = baseSpeed; pr.hearts = 3
+        pr.x = laneCenter[1]; pr.speed = baseSpeed
+        pr.hearts    = HeartsManager.shared.currentHearts
+        pr.maxHearts = HeartsManager.shared.maxHearts
         pk.x = laneCenter[0]; pk.speed = baseSpeed; pk.targetLaneX = laneCenter[0]
         gr.x = laneCenter[2]; gr.speed = baseSpeed; gr.targetLaneX = laneCenter[2]
 
@@ -320,6 +341,12 @@ final class BikeDodgeScene: SKScene {
         timeLabel.zPosition = 50
         addChild(timeLabel)
 
+        // Tutorial help button — top-left of the HUD panel, clear of the
+        // distance label (which starts at -W/2 + 62).
+        let help = TutorialHelpButton.make()
+        help.position = CGPoint(x: -W / 2 + 28, y: hudY)
+        addChild(help)
+
         refreshHUD()
     }
 
@@ -386,6 +413,34 @@ final class BikeDodgeScene: SKScene {
 
         addChild(ov); overlayNode = ov
         gState = .menu
+
+        // Auto-show the tutorial the first time the player ever opens this scene.
+        if !TutorialManager.shared.hasSeen(TutorialManager.bike) {
+            presentBikeTutorial(autoTriggered: true)
+        }
+    }
+
+    // MARK: - Tutorial
+    private func presentBikeTutorial(autoTriggered: Bool) {
+        let steeringY = -H / 2 + H * 0.18   // pointer near the bottom steer-zone area
+        let topInset  = self.view?.safeAreaInsets.top ?? 0
+        let heartsY   = H / 2 - topInset - 22  // hearts label position in HUD
+        let steps: [TutorialStep] = [
+            .card(title: "BEANBAG BIKE",
+                  body:  "RACE 5 MILES! FINISH 1ST OUT OF 3 RIDERS TO WIN THE PRIZE."),
+            .hint(at: CGPoint(x: 0, y: steeringY),
+                  title: "STEERING",
+                  body:  "HOLD THE LEFT OR RIGHT HALF OF THE SCREEN TO STEER YOUR BIKE."),
+            .hint(at: CGPoint(x: 0, y: heartsY),
+                  title: "HEARTS",
+                  body:  "AVOID CARS AND BEANBAGS! EACH CRASH COSTS A HEART. RUN OUT AND YOUR RACE IS OVER."),
+        ]
+        let overlay = TutorialOverlay(steps: steps, sceneSize: size) {
+            if autoTriggered {
+                TutorialManager.shared.markSeen(TutorialManager.bike)
+            }
+        }
+        addChild(overlay)
     }
 
     // MARK: - Countdown
@@ -429,6 +484,7 @@ final class BikeDodgeScene: SKScene {
         updateAISteering(dt: dt)
         applyBumping()
         updateCarPositions(dt: dt)
+        updateJumpTrucks(dt: dt)
         updateBagPositions(dt: dt)
         updatePickupPositions(dt: dt)
         updateInvincibility(dt: dt)
@@ -437,7 +493,11 @@ final class BikeDodgeScene: SKScene {
         spawnStep(dt: dt)
         checkCollisions()
         syncBikePositions()
-        if pr.distanceRemaining <= 0.5 && !finishLineSpawned { spawnFinishLine() }
+        // Spawn when the finish line is exactly H*1.2 pts of road scroll away from
+        // the player — uses distPerPx (not distToPixScale) so the line arrives at the
+        // player's screen position precisely when distanceRemaining reaches 0.
+        let finishLineTriggerDist = H * 1.2 * distPerPx
+        if pr.distanceRemaining <= finishLineTriggerDist && !finishLineSpawned { spawnFinishLine() }
         updateFinishLine(dt: dt)
         refreshHUD()
         updateMinimap()
@@ -456,7 +516,8 @@ final class BikeDodgeScene: SKScene {
         let playerAccel = accel * accelMult
 
         if !pr.isCrashing {
-            let cap = pr.isBoosting ? (maxSpeed + streakBonus) * boostMult : maxSpeed + streakBonus
+            let jumpCap: CGFloat = pr.isJumping ? (maxSpeed + streakBonus) * 1.8 : maxSpeed + streakBonus
+            let cap = pr.isBoosting ? (maxSpeed + streakBonus) * boostMult : jumpCap
             pr.speed = min(cap, pr.speed + playerAccel * dt)
             pr.distanceRemaining = max(0, pr.distanceRemaining - pr.speed * distPerPx * dt)
         }
@@ -484,6 +545,7 @@ final class BikeDodgeScene: SKScene {
 
     // MARK: - Player steering
     private func updatePlayerSteering(dt: CGFloat) {
+        guard !pr.isJumping else { return }
         if steerLeft  { pr.xVelocity -= steerAccel * dt }
         if steerRight { pr.xVelocity += steerAccel * dt }
         if !steerLeft && !steerRight { pr.xVelocity *= max(0, 1 - 6 * dt) }
@@ -565,7 +627,7 @@ final class BikeDodgeScene: SKScene {
         playerSprite.position = CGPoint(x: pr.x, y: playerScreenY)
         pinkSprite.position   = CGPoint(x: pk.x, y: screenYFor(pk))
         greenSprite.position  = CGPoint(x: gr.x, y: screenYFor(gr))
-        playerSprite.zRotation = (-pr.xVelocity / maxSteerVel) * 0.20
+        if !pr.isJumping { playerSprite.zRotation = (-pr.xVelocity / maxSteerVel) * 0.20 }
         if let n = playerBoostNode { n.position = CGPoint(x: pr.x, y: playerScreenY - playerSprite.size.height/2 - 8) }
         if let n = pinkBoostNode   { n.position = CGPoint(x: pk.x, y: screenYFor(pk) - pinkSprite.size.height/2 - 8) }
         if let n = greenBoostNode  { n.position = CGPoint(x: gr.x, y: screenYFor(gr) - greenSprite.size.height/2 - 8) }
@@ -600,6 +662,16 @@ final class BikeDodgeScene: SKScene {
             spawnBeanBag()
             // Past 45% distance a second bag can fly in the same tick.
             if p > 0.45 && Float.random(in: 0...1) < Float((p - 0.45) * 2.0) { spawnBeanBag() }
+        }
+
+        // Jump truck — up to 2 per race, first appears after 20% progress
+        if jumpTrucksSpawned < maxJumpTrucks && p > 0.20 {
+            jumpTruckTimer += dt
+            if jumpTruckTimer >= jumpTruckInterval {
+                jumpTruckTimer = 0
+                jumpTruckInterval = CGFloat.random(in: 22.0...30.0)
+                spawnJumpTruck()
+            }
         }
     }
 
@@ -779,7 +851,7 @@ final class BikeDodgeScene: SKScene {
     private func checkVsCars() {
         for c in cars where c.isActive {
             let cr = CGRect(x: c.x - 14, y: c.screenY - 22, width: 28, height: 44)
-            if !pr.isCrashing && !pr.isInvincible && bikeRect(x:pr.x,y:playerScreenY).intersects(cr) {
+            if !pr.isCrashing && !pr.isInvincible && !pr.isJumping && bikeRect(x:pr.x,y:playerScreenY).intersects(cr) {
                 triggerCarCrash(player: true); return
             }
             let pkY = screenYFor(pk)
@@ -798,7 +870,7 @@ final class BikeDodgeScene: SKScene {
         for i in bags.indices {
             guard bags[i].isActive else { continue }
             let br = CGRect(x:bags[i].x-sz/2, y:bags[i].y-sz/2, width:sz, height:sz)
-            if !pr.isInvincible && bikeRect(x:pr.x,y:playerScreenY).intersects(br) {
+            if !pr.isInvincible && !pr.isJumping && bikeRect(x:pr.x,y:playerScreenY).intersects(br) {
                 bags[i].node.removeFromParent(); bags[i].isActive = false
                 damageBag(player: true); continue
             }
@@ -843,6 +915,7 @@ final class BikeDodgeScene: SKScene {
             pr.isCrashing = true; pr.crashTimer = 2.0; pr.speed = baseSpeed
             timeSinceLastCrash = 0
             pr.hearts = max(0, pr.hearts - 1)
+            HeartsManager.shared.lose()
             pr.isInvincible = true; pr.invTimer = 1.5
             if pr.hearts <= 0 { showGameOver() }
         } else if isGreen {
@@ -956,6 +1029,7 @@ final class BikeDodgeScene: SKScene {
             guard !pr.isInvincible else { return }
             triggerBagHitHaptics()
             pr.hearts = max(0, pr.hearts - 1)
+            HeartsManager.shared.lose()
             pr.isInvincible = true; pr.invTimer = 1.5
             if pr.hearts <= 0 { showGameOver() }
         } else if isGreen {
@@ -973,7 +1047,9 @@ final class BikeDodgeScene: SKScene {
         pickups[idx].isActive = false
         if player {
             switch pu.kind {
-            case .heart: pr.hearts = min(pr.maxHearts, pr.hearts + 1)
+            case .heart:
+                pr.hearts = min(pr.maxHearts, pr.hearts + 1)
+                HeartsManager.shared.gain()
             case .boost:
                 triggerBoostHaptics()
                 pr.isBoosting = true; pr.boostTimer = 3.5
@@ -1115,10 +1191,204 @@ final class BikeDodgeScene: SKScene {
         tick(racer: &gr, boostNode: &greenBoostNode)
     }
 
+    // MARK: - Jump Truck
+    private func spawnJumpTruck() {
+        let lane   = Int.random(in: 0..<3)
+        let cx     = laneCenter[lane]
+        let spY    = H / 2 + 80
+        let speed  = CGFloat.random(in: 35...55)   // slow — player will catch up
+        let n = makeJumpTruckNode()
+        n.position  = CGPoint(x: cx, y: spY)
+        n.zPosition = 9
+        addChild(n)
+        jumpTrucks.append(JumpTruckData(x: cx, screenY: spY, forwardSpeed: speed, node: n))
+        jumpTrucksSpawned += 1
+    }
+
+    private func makeJumpTruckNode() -> SKNode {
+        let tw: CGFloat = 44, th: CGFloat = 76
+        let fmt = UIGraphicsImageRendererFormat(); fmt.scale = 1
+        let img = UIGraphicsImageRenderer(size: CGSize(width: tw, height: th), format: fmt).image { ctx in
+            let c = ctx.cgContext
+
+            // Cab (top/front of truck — orange-yellow)
+            c.setFillColor(UIColor(red: 0.95, green: 0.55, blue: 0.05, alpha: 1).cgColor)
+            c.fill(CGRect(x: 4, y: 2, width: tw - 8, height: 32))
+
+            // Windshield
+            c.setFillColor(UIColor(red: 0.55, green: 0.80, blue: 0.95, alpha: 0.85).cgColor)
+            c.fill(CGRect(x: 8, y: 6, width: tw - 16, height: 14))
+
+            // Headlights (front)
+            c.setFillColor(UIColor(red: 1.0, green: 0.98, blue: 0.7, alpha: 1).cgColor)
+            c.fill(CGRect(x: 5, y: th - 7, width: 7, height: 4))
+            c.fill(CGRect(x: tw - 12, y: th - 7, width: 7, height: 4))
+
+            // Truck tires (4 corners)
+            c.setFillColor(UIColor(white: 0.13, alpha: 1).cgColor)
+            for r in [CGRect(x: 0, y: 3, width: 7, height: 12),
+                      CGRect(x: tw - 7, y: 3, width: 7, height: 12),
+                      CGRect(x: 0, y: th - 15, width: 7, height: 12),
+                      CGRect(x: tw - 7, y: th - 15, width: 7, height: 12)] {
+                c.fill(r)
+            }
+
+            // Flatbed / ramp body (bottom portion — darker)
+            c.setFillColor(UIColor(red: 0.55, green: 0.35, blue: 0.08, alpha: 1).cgColor)
+            c.fill(CGRect(x: 4, y: 36, width: tw - 8, height: 28))
+
+            // Ramp face at the very back (bottom) — bright yellow wedge shape
+            c.setFillColor(UIColor(red: 1.0, green: 0.88, blue: 0.05, alpha: 1).cgColor)
+            c.move(to: CGPoint(x: 4,      y: 36))
+            c.addLine(to: CGPoint(x: tw - 4, y: 36))
+            c.addLine(to: CGPoint(x: tw - 4, y: 62))
+            c.addLine(to: CGPoint(x: 4,      y: 72))
+            c.closePath(); c.fillPath()
+
+            // Ramp stripe
+            c.setFillColor(UIColor(white: 0.2, alpha: 0.6).cgColor)
+            c.fill(CGRect(x: 4, y: 50, width: tw - 8, height: 3))
+            c.fill(CGRect(x: 4, y: 58, width: tw - 8, height: 3))
+
+            // "JUMP" label area — black bar
+            c.setFillColor(UIColor.black.cgColor)
+            c.fill(CGRect(x: 8, y: 20, width: tw - 16, height: 10))
+        }
+        let tex = SKTexture(image: img); tex.filteringMode = .nearest
+        let sprite = SKSpriteNode(texture: tex, size: CGSize(width: tw, height: th))
+
+        // Pulsing gold glow ring to make it obvious
+        let glow = SKShapeNode(rectOf: CGSize(width: tw + 10, height: th + 10), cornerRadius: 4)
+        glow.fillColor   = .clear
+        glow.strokeColor = SKColor(red: 1.0, green: 0.84, blue: 0.0, alpha: 0.85)
+        glow.lineWidth   = 3
+        glow.run(.repeatForever(.sequence([
+            .fadeAlpha(to: 0.25, duration: 0.4),
+            .fadeAlpha(to: 1.00, duration: 0.4),
+        ])))
+        sprite.addChild(glow)
+
+        // "JUMP TRUCK" label
+        let lbl = SKLabelNode(fontNamed: "PressStart2P-Regular")
+        lbl.text      = "JUMP"
+        lbl.fontSize  = 6
+        lbl.fontColor = SKColor(red: 1.0, green: 0.84, blue: 0.0, alpha: 1)
+        lbl.position  = CGPoint(x: 0, y: -6)
+        sprite.addChild(lbl)
+
+        return sprite
+    }
+
+    private func updateJumpTrucks(dt: CGFloat) {
+        for i in jumpTrucks.indices {
+            guard jumpTrucks[i].isActive else { continue }
+            // Scroll down relative to player speed
+            jumpTrucks[i].screenY -= max(0, pr.speed - jumpTrucks[i].forwardSpeed) * dt
+            jumpTrucks[i].node.position.y = jumpTrucks[i].screenY
+
+            // Remove when scrolled off-screen
+            if jumpTrucks[i].screenY < -H / 2 - 100 {
+                jumpTrucks[i].node.removeFromParent()
+                jumpTrucks[i].isActive = false
+                continue
+            }
+
+            // Check if player is in position to use the ramp
+            guard !jumpTrucks[i].hasLaunched && !pr.isCrashing && !pr.isJumping else { continue }
+            let aheadDist = jumpTrucks[i].screenY - playerScreenY
+            let lateralOk = abs(jumpTrucks[i].x - pr.x) < laneWidth * 0.55
+            if aheadDist > 0 && aheadDist < 70 && lateralOk {
+                jumpTrucks[i].hasLaunched = true
+                triggerPlayerJump(truckX: jumpTrucks[i].x)
+            }
+        }
+        jumpTrucks.removeAll { !$0.isActive }
+    }
+
+    private func triggerPlayerJump(truckX: CGFloat) {
+        // Snap player into the truck's lane
+        pr.x = truckX
+        pr.xVelocity = 0
+
+        pr.isJumping  = true
+        pr.jumpTimer  = 0
+        // Immediate speed kick
+        pr.speed = max(pr.speed, maxSpeed * 1.6)
+
+        // Scale-up-and-down arc: bigger = closer to camera = going up, then back down
+        playerSprite.removeAction(forKey: "jump")
+        playerSprite.zPosition = 15   // above traffic during jump
+        playerSprite.run(.sequence([
+            // Rising — scale up quickly
+            .scale(to: 2.4, duration: 0.45),
+            // At peak — brief hold with slight wobble
+            .group([
+                .scale(to: 2.2, duration: 0.20),
+                .rotate(byAngle: .pi * 0.08, duration: 0.20),
+            ]),
+            .group([
+                .scale(to: 2.4, duration: 0.15),
+                .rotate(byAngle: -.pi * 0.08, duration: 0.15),
+            ]),
+            // Descent — scale back down to land
+            .group([
+                .scale(to: 1.0, duration: 0.60),
+                .rotate(toAngle: 0, duration: 0.60),
+            ]),
+            // Land — brief squish then settle
+            .scale(to: 0.85, duration: 0.08),
+            .scale(to: 1.00, duration: 0.12),
+            .run { [weak self] in
+                self?.playerSprite.zPosition = 10
+                self?.pr.isJumping  = false
+                self?.pr.jumpTimer  = 0
+                // Light landing shake
+                self?.landingShake()
+            }
+        ]), withKey: "jump")
+
+        // Gold flash on jump launch
+        let flash = SKSpriteNode(color: SKColor(red: 1.0, green: 0.84, blue: 0.0, alpha: 0.45),
+                                 size: CGSize(width: W, height: H))
+        flash.position = .zero; flash.zPosition = 200; addChild(flash)
+        flash.run(.sequence([.fadeAlpha(to: 0, duration: 0.30), .removeFromParent()]))
+
+        // "JUMP!" popup label
+        let jlbl = label("JUMP!", font: "PressStart2P-Regular",
+                          size: min(26, W / 13),
+                          color: SKColor(red: 1.0, green: 0.84, blue: 0.0, alpha: 1),
+                          at: CGPoint(x: 0, y: playerScreenY + 60))
+        jlbl.zPosition = 110; addChild(jlbl)
+        jlbl.run(.sequence([
+            .group([
+                .moveBy(x: 0, y: 30, duration: 0.6),
+                .sequence([.scale(to: 1.2, duration: 0.15), .scale(to: 1.0, duration: 0.25)]),
+            ]),
+            .wait(forDuration: 0.3),
+            .fadeOut(withDuration: 0.25),
+            .removeFromParent(),
+        ]))
+
+        let haptic = UIImpactFeedbackGenerator(style: .heavy)
+        haptic.prepare(); haptic.impactOccurred(intensity: 1.0)
+    }
+
+    private func landingShake() {
+        guard let view = self.view else { return }
+        let animY = CAKeyframeAnimation(keyPath: "transform.translation.y")
+        animY.values = [-6, 6, -4, 4, -2, 2, 0]
+        animY.timingFunction = CAMediaTimingFunction(name: .easeOut)
+        animY.duration = 0.25
+        view.layer.add(animY, forKey: "landingShake")
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred(intensity: 0.7)
+    }
+
     // MARK: - Finish line
     private func spawnFinishLine() {
         finishLineSpawned = true
-        let startY = playerScreenY + pr.distanceRemaining * distToPixScale
+        // Place the finish line H*1.2 pts above the player — matches the trigger
+        // distance so the line scrolls into the player exactly when the race ends.
+        let startY = playerScreenY + H * 1.2
 
         let container = SKNode()
         container.position = CGPoint(x: 0, y: startY)
@@ -1196,27 +1466,41 @@ final class BikeDodgeScene: SKScene {
     private func showVictory() {
         guard gState == .racing else { return }
         gState = .victory
+        InventoryManager().collect(.goldenBag, count: 3)
         let m = Int(elapsed)/60, s = Int(elapsed)%60
+        let timeStr = String(format: "TIME  %d:%02d", m, s)
         let ov = buildEndOverlay(title: "1ST PLACE!",
-                                 subtitle: String(format:"TIME  %d:%02d",m,s),
-                                 titleColor: SKColor(red:0.95,green:0.85,blue:0.10,alpha:1))
+                                 subtitle: timeStr,
+                                 titleColor: SKColor(red:0.95,green:0.85,blue:0.10,alpha:1),
+                                 reward: "YOU EARNED 3 GOLDEN BAGS!")
         onComplete?(true); addChild(ov); overlayNode = ov
     }
 
-    private func buildEndOverlay(title: String, subtitle: String, titleColor: SKColor) -> SKNode {
+    private func buildEndOverlay(title: String, subtitle: String, titleColor: SKColor,
+                                 reward: String? = nil) -> SKNode {
         let ov = buildOverlayContainer()
         let bg = SKShapeNode(rect: CGRect(x:-W/2,y:-H/2,width:W,height:H))
         bg.fillColor = SKColor(white:0,alpha:0.75); bg.strokeColor = .clear; ov.addChild(bg)
         ov.addChild(label(title, font:"PressStart2P-Regular", size:min(22,W/16), color:titleColor, at:CGPoint(x:0,y:80)))
         ov.addChild(label(subtitle, font:"PressStart2P-Regular", size:min(9,W/38), color:.white, at:CGPoint(x:0,y:40)))
 
-        let replay = label("▶ PLAY AGAIN", font:"PressStart2P-Regular", size:min(13,W/26), color:.white, at:CGPoint(x:0,y:-20))
+        if let reward = reward {
+            let rewardLbl = label(reward, font:"PressStart2P-Regular", size:min(8,W/44),
+                                  color:SKColor(red:1.0,green:0.84,blue:0.0,alpha:1), at:CGPoint(x:0,y:10))
+            rewardLbl.run(.repeatForever(.sequence([
+                .fadeAlpha(to:0.55,duration:0.6), .fadeAlpha(to:1.0,duration:0.6)
+            ])))
+            ov.addChild(rewardLbl)
+        }
+
+        let replayY: CGFloat = reward != nil ? -20 : -20
+        let replay = label("▶ PLAY AGAIN", font:"PressStart2P-Regular", size:min(13,W/26), color:.white, at:CGPoint(x:0,y:replayY - 18))
         replay.name = "replayBtn"
         replay.run(.repeatForever(.sequence([.scale(to:1.05,duration:0.5),.scale(to:0.95,duration:0.5)])))
         ov.addChild(replay)
 
         let menuLbl = label("MAIN MENU", font:"PressStart2P-Regular", size:min(10,W/34),
-                            color:SKColor(white:0.65,alpha:1), at:CGPoint(x:0,y:-58))
+                            color:SKColor(white:0.65,alpha:1), at:CGPoint(x:0,y:replayY - 56))
         menuLbl.name = "menuBtn"
         ov.addChild(menuLbl)
         return ov
@@ -1228,10 +1512,12 @@ final class BikeDodgeScene: SKScene {
 
     // MARK: - Reset
     private func resetGame() {
-        cars.forEach    { $0.node.removeFromParent() }
-        bags.forEach    { $0.node.removeFromParent() }
-        pickups.forEach { $0.node.removeFromParent() }
-        cars.removeAll(); bags.removeAll(); pickups.removeAll()
+        cars.forEach       { $0.node.removeFromParent() }
+        bags.forEach       { $0.node.removeFromParent() }
+        pickups.forEach    { $0.node.removeFromParent() }
+        jumpTrucks.forEach { $0.node.removeFromParent() }
+        cars.removeAll(); bags.removeAll(); pickups.removeAll(); jumpTrucks.removeAll()
+        jumpTruckTimer = 0; jumpTruckInterval = 20.0; jumpTrucksSpawned = 0
         playerBoostNode?.removeFromParent(); playerBoostNode = nil
         pinkBoostNode?.removeFromParent();   pinkBoostNode   = nil
         greenBoostNode?.removeFromParent();  greenBoostNode  = nil
@@ -1241,12 +1527,16 @@ final class BikeDodgeScene: SKScene {
 
         pr = RacerData(kind: .player); pk = RacerData(kind: .pink); gr = RacerData(kind: .green)
         pr.x = laneCenter[1]; pr.speed = baseSpeed
+        pr.hearts    = HeartsManager.shared.currentHearts
+        pr.maxHearts = HeartsManager.shared.maxHearts
         pk.x = laneCenter[0]; pk.speed = baseSpeed; pk.targetLaneX = laneCenter[0]
         gr.x = laneCenter[2]; gr.speed = baseSpeed; gr.targetLaneX = laneCenter[2]
 
         for sp in [playerSprite, pinkSprite, greenSprite] {
-            sp?.setScale(1); sp?.zRotation = 0; sp?.alpha = 1; sp?.removeAction(forKey: "crash")
+            sp?.setScale(1); sp?.zRotation = 0; sp?.alpha = 1
+            sp?.removeAction(forKey: "crash"); sp?.removeAction(forKey: "jump")
         }
+        pr.isJumping = false; pr.jumpTimer = 0
         elapsed = 0; finishCount = 0; timeSinceLastCrash = 0
         carTimer = 1.5; pkTimer = 4.0; bagTimer = 2.0
         steerLeft = false; steerRight = false
@@ -1348,6 +1638,16 @@ final class BikeDodgeScene: SKScene {
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         for t in touches {
             let loc = t.location(in: self)
+
+            // Tutorial overlay takes precedence — any tap advances it.
+            if let overlay = TutorialOverlay.active(in: self) {
+                overlay.advance(); return
+            }
+            // HUD help button (any state outside the overlay) re-presents the tutorial.
+            for n in nodes(at: loc) where TutorialHelpButton.wasTapped(n) {
+                presentBikeTutorial(autoTriggered: false); return
+            }
+
             switch gState {
             case .menu: startCountdown(); return
             case .countdown: return

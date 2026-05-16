@@ -102,8 +102,7 @@ final class BeeHiveScene: SKScene {
     private var touchStart: CGPoint?
     private var aimingLine: SKShapeNode?
 
-    // MARK: - Tutorial / confirm-quit state
-    private var tutorialActive  = false
+    // MARK: - Confirm-quit state (tutorial owned by TutorialOverlay)
     private var confirmingQuit  = false
     private var confirmPanel:    SKNode?
 
@@ -131,7 +130,11 @@ final class BeeHiveScene: SKScene {
         setupGameWorld()
         setupUI()
         pushCloseButton(to: view)
-        showFirstTimeTutorial()
+        if TutorialManager.shared.hasSeen(TutorialManager.beehive) {
+            startGame()
+        } else {
+            presentTutorial(autoTriggered: true)
+        }
         addCrtOverlay()
     }
 
@@ -437,12 +440,12 @@ final class BeeHiveScene: SKScene {
         }
 
         // Bottom chrome hint
-        let hint = makeLabel(text: "SWIPE TO THROW", size: 7,
-                             color: SKColor(red: 0.78, green: 0.57, blue: 0.16, alpha: 1))
-        hint.horizontalAlignmentMode = .center
-        hint.position  = CGPoint(x: 0, y: -size.height / 2 + bottomH / 2)
-        hint.zPosition = 600
-        addChild(hint)
+        // Tutorial help button — bottom chrome, left side. Replaces the old
+        // "SWIPE TO THROW" hint (the tutorial now explains controls).
+        let help = TutorialHelpButton.make()
+        help.position = CGPoint(x: -size.width / 2 + 24,
+                                y: -size.height / 2 + bottomH / 2)
+        addChild(help)
     }
 
     private func pushCloseButton(to view: SKView) {
@@ -664,8 +667,8 @@ final class BeeHiveScene: SKScene {
         guard !isGameOver else { return }
         let dt: CGFloat = 1.0 / 60.0
 
-        // Elapsed timer (counts up, updates once per second)
-        if !tutorialActive {
+        // Pause the elapsed timer while the tutorial overlay is up.
+        if TutorialOverlay.active(in: self) == nil {
             elapsedFraction += dt
             if elapsedFraction >= 1.0 {
                 elapsedFraction -= 1.0
@@ -903,7 +906,15 @@ final class BeeHiveScene: SKScene {
         guard let touch = touches.first else { return }
         let loc = touch.location(in: self)
 
-        if tutorialActive || confirmingQuit || isGameOver { handleButtonTap(at: loc); return }
+        // Tutorial overlay — any tap advances it.
+        if let overlay = TutorialOverlay.active(in: self) {
+            overlay.advance(); return
+        }
+        // HUD help button re-presents the tutorial.
+        for n in nodes(at: loc) where TutorialHelpButton.wasTapped(n) {
+            presentTutorial(autoTriggered: false); return
+        }
+        if confirmingQuit || isGameOver { handleButtonTap(at: loc); return }
         if handleButtonTap(at: loc) { return }
 
         touchStart = loc
@@ -968,9 +979,6 @@ final class BeeHiveScene: SKScene {
                     return true
                 case "cancelQuitBtn":
                     hideConfirmPanel()
-                    return true
-                case "tutorialDismissBtn":
-                    hideTutorial()
                     return true
                 case "playAgainBtn":
                     restartGame()
@@ -1160,71 +1168,23 @@ final class BeeHiveScene: SKScene {
 
     // MARK: - First-time tutorial
 
-    private func showFirstTimeTutorial() {
-        tutorialActive = true
-
-        let panelW = size.width  * 0.84
-        let panelH = size.height * 0.58
-        let fs     = max(5, size.width * 0.038)
-
-        let overlay = SKNode()
-        overlay.zPosition = 2000
-        overlay.name      = "tutorialOverlay"
-
-        let dim = SKSpriteNode(color: SKColor(white: 0, alpha: 0.78),
-                               size: CGSize(width: size.width * 2, height: size.height * 2))
-        overlay.addChild(dim)
-
-        let panel = SKSpriteNode(
-            color: SKColor(red: 0.07, green: 0.05, blue: 0.03, alpha: 0.97),
-            size: CGSize(width: panelW, height: panelH))
-        overlay.addChild(panel)
-
-        let border = SKShapeNode(rectOf: CGSize(width: panelW + 3, height: panelH + 3))
-        border.strokeColor = SKColor(red: 0.60, green: 0.42, blue: 0.15, alpha: 1)
-        border.fillColor   = .clear
-        border.lineWidth   = 3
-        overlay.addChild(border)
-
-        let title = makeLabel(text: "BEEHIVE BATTLE!",
-                              size: fs * 1.0,
-                              color: SKColor(red: 0.95, green: 0.75, blue: 0.15, alpha: 1))
-        title.position = CGPoint(x: 0, y: panelH * 0.34)
-        overlay.addChild(title)
-
-        let lines: [(String, CGFloat)] = [
-            ("Bees fly down from the hive",  panelH * 0.18),
-            ("Swipe up to throw a bag",       panelH * 0.05),
-            ("Hit 10 bees to earn honey!",   -panelH * 0.08),
-            ("Don't get stung!",             -panelH * 0.21),
+    private func presentTutorial(autoTriggered: Bool) {
+        let steps: [TutorialStep] = [
+            .card(title: "BEEHIVE BATTLE",
+                  body:  "BEES SWARM DOWN FROM THE HIVE. HIT 10 BEES TO WIN AND EARN HONEY BAGS."),
+            .card(title: "THROWING",
+                  body:  "SWIPE UP TOWARD A BEE TO TOSS A BAG. THE FASTER THE SWIPE, THE HARDER THE THROW."),
+            .card(title: "STAY ALIVE",
+                  body:  "BEES THAT REACH YOU DEAL A STING — LOSE ALL YOUR HEARTS AND THE GAME IS OVER."),
         ]
-        for (text, y) in lines {
-            let lbl = makeLabel(text: text, size: fs * 0.68,
-                                color: SKColor(white: 0.82, alpha: 1))
-            lbl.position = CGPoint(x: 0, y: y)
-            overlay.addChild(lbl)
+        let overlay = TutorialOverlay(steps: steps, sceneSize: size) { [weak self] in
+            guard let self = self else { return }
+            if autoTriggered {
+                TutorialManager.shared.markSeen(TutorialManager.beehive)
+                self.startGame()
+            }
         }
-
-        let gotIt = makeButton(label: "GOT IT!",
-                               fg: .white,
-                               bg: SKColor(red: 0.18, green: 0.45, blue: 0.18, alpha: 1),
-                               size: CGSize(width: panelW * 0.55, height: fs * 1.9))
-        gotIt.position = CGPoint(x: 0, y: -panelH * 0.37)
-        gotIt.name     = "tutorialDismissBtn"
-        overlay.addChild(gotIt)
-
-        overlay.alpha = 0
         addChild(overlay)
-        overlay.run(.fadeIn(withDuration: 0.25))
-    }
-
-    private func hideTutorial() {
-        tutorialActive = false
-        childNode(withName: "tutorialOverlay")?.run(.sequence([
-            .fadeOut(withDuration: 0.20),
-            .removeFromParent(),
-        ]))
-        startGame()
     }
 
     // MARK: - Quit confirmation

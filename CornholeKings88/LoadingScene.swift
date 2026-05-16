@@ -25,6 +25,8 @@ final class LoadingScene: SKScene {
     private var dotsCount = 0
 
     override func didMove(to view: SKView) {
+        // Cold app launch — restore hearts to full for the new session.
+        HeartsManager.shared.refill()
         anchorPoint = CGPoint(x: 0.5, y: 0.5)
         backgroundColor = .black
 

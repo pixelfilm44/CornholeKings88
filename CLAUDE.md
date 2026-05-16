@@ -170,6 +170,44 @@ Items scattered in the world can be walked over to collect them. The system has 
 
 **To add more item types:** add a case to `ItemType`, give it a `color`/`displayName`/`hudSymbol`, and drop `CollectibleNode(type: .newType)` nodes in `spawnCollectibles(in:)`.
 
+### Hearts System
+
+`HeartsManager.shared` (singleton, `HeartsManager.swift`) owns a single universal heart count across the world map and every mini-game. Persisted to `UserDefaults` key `"universalHearts_v1"`; max is `5`.
+
+- API: `currentHearts`, `lose()`, `gain()`, `set(_:)`, `refill()`, plus an `onChanged` closure for HUD sync while a modal mini-game (bike race) is up.
+- **Hearts drain in:** BikeDodgeScene (crashes / bag hits) and GameScene (enemy bite). Score-based games (cornhole, baseball, beachball, beehive) don't drain the universal count.
+- **Hearts refill on:** cold app launch (`LoadingScene.didMove`), world-map game over (`GameScene.triggerGameOver`), and in-game pickups (`PickupData.heart` in bike race).
+- `GameScene` registers `HeartsManager.shared.onChanged` in `didMove(to:)` so its HUD redraws when the bike-race modal updates the count off-screen, then calls `resyncHeartsDisplay()` on any return path.
+
+### Tutorial System
+
+Centralized framework that every mini-game uses for consistent first-play onboarding.
+
+- **`TutorialManager.swift`** — singleton tracking which tutorials have been seen (`UserDefaults`). Static keys per game: `.bike`, `.cornhole`, `.baseball`, `.beehive`, `.beachball`, `.piranha`. API: `hasSeen(_:)`, `markSeen(_:)`, `reset(_:)`.
+- **`TutorialOverlay.swift`** — full-screen `SKNode` overlay with shared styling (wood-iron panel, gold trim, `PressStart2P` font, pulsing prompt). Pass a `[TutorialStep]` and an `onComplete`; tap-to-advance, no skip. Step kinds:
+  - `.card(title:body:)` — centered modal.
+  - `.hint(at:title:body:)` — panel offset from a target point with a pulsing arrow.
+  - Auto text-wrapping; step counter (`1 / 3`); blocks underlying input via host-scene routing (see below).
+- **`TutorialHelpButton`** (in `TutorialOverlay.swift`) — reusable `?` button factory. Each mini-game's HUD adds one; `wasTapped(_:)` walks up the parent chain so taps on the icon or its background both register.
+
+**Host-routed input pattern** — `SKNode` has no frame, so `isUserInteractionEnabled = true` alone won't intercept touches. Every host scene's `touchesBegan` runs these two checks first:
+
+```swift
+if let overlay = TutorialOverlay.active(in: self) { overlay.advance(); return }
+for n in nodes(at: loc) where TutorialHelpButton.wasTapped(n) {
+    presentTutorial(autoTriggered: false); return
+}
+```
+
+**Auto-trigger contract** — each scene's `didMove` (or post-picker entry point for cornhole) checks `TutorialManager.shared.hasSeen(...)` and either starts the game or calls `presentTutorial(autoTriggered: true)`. On completion the scene marks the key seen and kicks off the normal start path (`startGame()`, `startRound()`, `startCountdown()`, `startUserBatting(showModal: false)`, etc.). Replays via the HUD `?` button pass `autoTriggered: false` so no game-state side effects fire.
+
+**To add a tutorial to a new mini-game:**
+1. Add a `static let foo = "tutorial.foo.v1"` key to `TutorialManager`.
+2. Implement `private func presentTutorial(autoTriggered: Bool)` on the scene with 3 steps (goal + controls + key mechanic).
+3. Gate the start path on `TutorialManager.shared.hasSeen(.foo)` in `didMove`.
+4. Add the help button to the HUD with `TutorialHelpButton.make()`.
+5. Add the routing block above to `touchesBegan`.
+
 ### Key Constants
 
 | Symbol | File | Value | Meaning |

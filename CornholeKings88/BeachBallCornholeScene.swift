@@ -142,7 +142,30 @@ final class BeachBallCornholeScene: SKScene {
         boardDriftVx = 18.0 * (Bool.random() ? 1 : -1)
         driftVarianceTimer = Double.random(in: 1.5...3.0)
         readyIndicator?.alpha = 0
-        startCountdown()
+        if TutorialManager.shared.hasSeen(TutorialManager.beachball) {
+            startCountdown()
+        } else {
+            presentTutorial(autoTriggered: true)
+        }
+    }
+
+    private func presentTutorial(autoTriggered: Bool) {
+        let steps: [TutorialStep] = [
+            .card(title: "BEACH BALL",
+                  body:  "TWO-MINUTE BLITZ. MOST CORNHOLES WHEN THE TIMER HITS ZERO WINS."),
+            .card(title: "THROW WHEN READY",
+                  body:  "SWIPE TOWARD THE BOARD TO THROW. THE COOLDOWN BAR FILLS BEFORE EACH NEW THROW."),
+            .card(title: "DRIFTING BOARD",
+                  body:  "THE BOARD FLOATS LEFT AND RIGHT IN THE POOL. ONLY CORNHOLES COUNT — BANK SHOTS DON'T SCORE."),
+        ]
+        let overlay = TutorialOverlay(steps: steps, sceneSize: size) { [weak self] in
+            guard let self = self else { return }
+            if autoTriggered {
+                TutorialManager.shared.markSeen(TutorialManager.beachball)
+                self.startCountdown()
+            }
+        }
+        addChild(overlay)
     }
 
     override func willMove(from view: SKView) {
@@ -475,6 +498,11 @@ final class BeachBallCornholeScene: SKScene {
         readyLbl.position = CGPoint(x: 0, y: botBarY - 6)
         readyLbl.zPosition = 600
         addChild(readyLbl)
+
+        // Tutorial help button — top-right (close button is at top-LEFT here).
+        let help = TutorialHelpButton.make()
+        help.position = CGPoint(x: W / 2 - 28, y: topBarY)
+        addChild(help)
 
         addCrtOverlay()
     }
@@ -1026,6 +1054,15 @@ final class BeachBallCornholeScene: SKScene {
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         guard let touch = touches.first else { return }
         let loc = touch.location(in: self)
+
+        // Tutorial overlay — any tap advances it.
+        if let overlay = TutorialOverlay.active(in: self) {
+            overlay.advance(); return
+        }
+        // HUD help button re-presents the tutorial.
+        for n in nodes(at: loc) where TutorialHelpButton.wasTapped(n) {
+            presentTutorial(autoTriggered: false); return
+        }
 
         if confirmingQuit { handleButtonTap(at: loc); return }
         if gameOver       { handleButtonTap(at: loc); return }
