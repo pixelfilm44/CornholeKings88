@@ -408,6 +408,11 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
             guard let self else { return }
             self.inventoryHUD?.refresh(counts: self.inventory.counts)
         }
+
+        // TODO: remove before ship — grants 3 fire bags for testing
+        if inventory.counts[.fireBag, default: 0] == 0 {
+            inventory.collect(.fireBag, count: 3)
+        }
     }
 
     // MARK: - Map / player setup
@@ -740,6 +745,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         mini.availableHoneyBags = inventory.counts[.honeyBag, default: 0]
         mini.availableBombBags  = inventory.counts[.bombBag,  default: 0]
         mini.availableMagicBags = inventory.counts[.magicBag, default: 0]
+        mini.availableFireBags  = inventory.counts[.fireBag,  default: 0]
         mini.onComplete = { [weak self, weak mini] _ in
             if let used = mini?.honeyBagsUsed, used > 0 {
                 self?.inventory.consume(.honeyBag, count: used)
@@ -750,11 +756,17 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
             if let used = mini?.magicBagsUsed, used > 0 {
                 self?.inventory.consume(.magicBag, count: used)
             }
+            if let used = mini?.fireBagsUsed, used > 0 {
+                self?.inventory.consume(.fireBag, count: used)
+            }
             if let earned = mini?.bombBagsEarned, earned > 0 {
                 self?.inventory.collect(.bombBag, count: earned)
             }
             if let earned = mini?.magicBagsEarned, earned > 0 {
                 self?.inventory.collect(.magicBag, count: earned)
+            }
+            if let earned = mini?.fireBagsEarned, earned > 0 {
+                self?.inventory.collect(.fireBag, count: earned)
             }
             self?.isTransitioning = false
         }

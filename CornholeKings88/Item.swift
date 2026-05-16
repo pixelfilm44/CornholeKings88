@@ -13,6 +13,9 @@ enum ItemType: String, CaseIterable {
     /// Won by beating the Tree Spirit. On board collision destroys the opponent bag hit;
     /// when scored in the hole, destroys all opponent bags already in the hole this round.
     case magicBag
+    /// Burns all bags on the board this round when it lands on the surface (thrower scores 1 pt,
+    /// all other board bags destroyed); when scored in the hole, burns all other cornholes this round.
+    case fireBag
 
     var color: SKColor {
         switch self {
@@ -22,6 +25,7 @@ enum ItemType: String, CaseIterable {
         case .honeyBag: return SKColor(red: 0.95, green: 0.72, blue: 0.10, alpha: 1.0)
         case .bombBag:  return SKColor(red: 0.08, green: 0.06, blue: 0.06, alpha: 1.0)
         case .magicBag: return SKColor(red: 0.12, green: 0.82, blue: 0.35, alpha: 1.0)
+        case .fireBag:  return SKColor(red: 0.95, green: 0.30, blue: 0.05, alpha: 1.0)
         }
     }
 
@@ -33,6 +37,7 @@ enum ItemType: String, CaseIterable {
         case .honeyBag: return "HONEY BAG"
         case .bombBag:  return "BOMB BAG"
         case .magicBag: return "MAGIC BAG"
+        case .fireBag:  return "FIRE BAG"
         }
     }
 
@@ -44,6 +49,7 @@ enum ItemType: String, CaseIterable {
         case .honeyBag: return "H"
         case .bombBag:  return "B"
         case .magicBag: return "M"
+        case .fireBag:  return "F"
         }
     }
 }

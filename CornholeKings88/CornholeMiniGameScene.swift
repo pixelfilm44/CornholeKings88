@@ -34,6 +34,14 @@ final class CornholeMiniGameScene: SKScene {
     private var magicBagSelected = false
     /// Magic bags earned this match (awarded on Tree Spirit win); read by GameScene after onComplete.
     private(set) var magicBagsEarned: Int = 0
+    /// Fire bags from inventory injected by GameScene before presenting.
+    var availableFireBags: Int = 0
+    /// How many fire bags the player actually used this match (consumed from inventory).
+    private(set) var fireBagsUsed: Int = 0
+    /// Whether the player has opted in to throwing a fire bag on the next throw.
+    private var fireBagSelected = false
+    /// Fire bags earned this match; read by GameScene after onComplete.
+    private(set) var fireBagsEarned: Int = 0
 
     // MARK: - Types
 
@@ -63,6 +71,10 @@ final class CornholeMiniGameScene: SKScene {
         /// Magic bags destroy the specific opponent bag they physically collide with on the board;
         /// scoring in the hole destroys all opponent bags already in the hole this round.
         var isMagic = false
+        /// Fire bags burn all board bags when they land (thrower keeps 1 pt); burn all hole bags when scored.
+        var isFire = false
+        /// Prevents the fire effect from triggering more than once per bag.
+        var hasTriggeredFire = false
         /// Bags marked destroyed are removed from scoring but kept in activeBags until the round ends.
         var isDestroyed = false
 
@@ -70,19 +82,22 @@ final class CornholeMiniGameScene: SKScene {
         let shadow: SKSpriteNode
 
         init(owner: BagOwner, startX: CGFloat, startY: CGFloat,
-             isHoney: Bool = false, isBomb: Bool = false, isMagic: Bool = false) {
+             isHoney: Bool = false, isBomb: Bool = false, isMagic: Bool = false, isFire: Bool = false) {
             self.owner   = owner
             self.bx = startX; self.by = startY; self.bz = 3
             self.vx = 0; self.vy = 0; self.vz = 0
             self.isHoney = isHoney
             self.isBomb  = isBomb
             self.isMagic = isMagic
+            self.isFire  = isFire
 
             let playerColor: SKColor
             if isBomb {
                 playerColor = SKColor(red: 0.08, green: 0.06, blue: 0.06, alpha: 1)
             } else if isMagic {
                 playerColor = SKColor(red: 0.12, green: 0.82, blue: 0.35, alpha: 1)
+            } else if isFire {
+                playerColor = SKColor(red: 0.95, green: 0.30, blue: 0.05, alpha: 1)
             } else if isHoney {
                 playerColor = SKColor(red: 0.95, green: 0.72, blue: 0.10, alpha: 1)
             } else {
@@ -93,6 +108,8 @@ final class CornholeMiniGameScene: SKScene {
                 aiColor = SKColor(red: 0.12, green: 0.04, blue: 0.18, alpha: 1)
             } else if isMagic {
                 aiColor = SKColor(red: 0.18, green: 0.90, blue: 0.42, alpha: 1)
+            } else if isFire {
+                aiColor = SKColor(red: 0.90, green: 0.22, blue: 0.02, alpha: 1)
             } else {
                 aiColor = SKColor(red: 0.25, green: 0.48, blue: 0.90, alpha: 1)
             }
@@ -101,7 +118,7 @@ final class CornholeMiniGameScene: SKScene {
             bagTex.filteringMode = .nearest
             node = SKSpriteNode(texture: bagTex, size: CGSize(width: 50, height: 50))
             node.color            = owner == .player ? playerColor : aiColor
-            node.colorBlendFactor = (isBomb || isMagic) ? 0.88 : 0.65
+            node.colorBlendFactor = (isBomb || isMagic || isFire) ? 0.88 : 0.65
             node.zPosition        = 20
 
             // Skull marker on bomb bags
@@ -128,6 +145,21 @@ final class CornholeMiniGameScene: SKScene {
                 node.run(SKAction.repeatForever(SKAction.sequence([
                     SKAction.fadeAlpha(to: 0.65, duration: 0.35),
                     SKAction.fadeAlpha(to: 1.00, duration: 0.35),
+                ])))
+            }
+            // Flame marker on fire bags
+            if isFire {
+                let flame = SKLabelNode(text: "🔥")
+                flame.fontSize                = 13
+                flame.verticalAlignmentMode   = .center
+                flame.horizontalAlignmentMode = .center
+                flame.position  = .zero
+                flame.zPosition = 1
+                node.addChild(flame)
+                // Flicker so fire bags are obvious in flight
+                node.run(SKAction.repeatForever(SKAction.sequence([
+                    SKAction.fadeAlpha(to: 0.70, duration: 0.18),
+                    SKAction.fadeAlpha(to: 1.00, duration: 0.18),
                 ])))
             }
 
@@ -169,6 +201,11 @@ final class CornholeMiniGameScene: SKScene {
     private var aiScore          = 0
     private var lastThrower: BagOwner = .ai
     private var hasCalculatedScore = false
+
+    // Fire bag round state — reset each round
+    private var boardOnFire = false   // board burns subsequent bags that land on it
+    private var holeFire    = false   // subsequent cornholes this round are destroyed
+    private var fireBoardOverlay: SKSpriteNode?
 
     // Moving throw-target oscillation
     private var targetX: CGFloat = 0
@@ -662,7 +699,8 @@ final class CornholeMiniGameScene: SKScene {
     private var satchelItems: [(type: ItemType, count: Int)] {
         [(type: .honeyBag, count: availableHoneyBags),
          (type: .bombBag,  count: availableBombBags),
-         (type: .magicBag, count: availableMagicBags)]
+         (type: .magicBag, count: availableMagicBags),
+         (type: .fireBag,  count: availableFireBags)]
             .filter { $0.count > 0 }
     }
 
@@ -671,6 +709,7 @@ final class CornholeMiniGameScene: SKScene {
         case .honeyBag: return honeyBagSelected
         case .bombBag:  return bombBagSelected
         case .magicBag: return magicBagSelected
+        case .fireBag:  return fireBagSelected
         default:        return false
         }
     }
@@ -740,6 +779,7 @@ final class CornholeMiniGameScene: SKScene {
             honeyBagSelected  = false
             bombBagSelected   = false
             magicBagSelected  = false
+            fireBagSelected   = false
             closeSatchelPanel()
             btn.isHidden = true
             return
@@ -758,6 +798,8 @@ final class CornholeMiniGameScene: SKScene {
             dot?.color = SKColor(red: 0.90, green: 0.20, blue: 0.10, alpha: 1.0)  // red
         } else if magicBagSelected {
             dot?.color = SKColor(red: 0.12, green: 0.82, blue: 0.35, alpha: 1.0)  // green
+        } else if fireBagSelected {
+            dot?.color = SKColor(red: 0.95, green: 0.30, blue: 0.05, alpha: 1.0)  // orange-red
         } else {
             dot?.color = .clear
         }
@@ -871,6 +913,9 @@ final class CornholeMiniGameScene: SKScene {
             case .magicBag:
                 selColor   = SKColor(red: 0.04, green: 0.28, blue: 0.10, alpha: 0.90)
                 checkColor = SKColor(red: 0.12, green: 0.82, blue: 0.35, alpha: 1)
+            case .fireBag:
+                selColor   = SKColor(red: 0.28, green: 0.06, blue: 0.01, alpha: 0.90)
+                checkColor = SKColor(red: 0.95, green: 0.30, blue: 0.05, alpha: 1)
             default:
                 selColor   = SKColor(red: 0.28, green: 0.18, blue: 0.04, alpha: 0.90)
                 checkColor = SKColor(red: 0.95, green: 0.72, blue: 0.10, alpha: 1)
@@ -940,6 +985,7 @@ final class CornholeMiniGameScene: SKScene {
             (.honeyBag, availableHoneyBags),
             (.bombBag,  availableBombBags),
             (.magicBag, availableMagicBags),
+            (.fireBag,  availableFireBags),
         ]
         for item in allItems {
             let isSelected = isItemSelected(item.type)
@@ -953,6 +999,9 @@ final class CornholeMiniGameScene: SKScene {
             case .magicBag:
                 checkColor = SKColor(red: 0.12, green: 0.82, blue: 0.35, alpha: 1)
                 selBg      = SKColor(red: 0.04, green: 0.28, blue: 0.10, alpha: 0.90)
+            case .fireBag:
+                checkColor = SKColor(red: 0.95, green: 0.30, blue: 0.05, alpha: 1)
+                selBg      = SKColor(red: 0.28, green: 0.06, blue: 0.01, alpha: 0.90)
             default:
                 checkColor = SKColor(red: 0.95, green: 0.72, blue: 0.10, alpha: 1)
                 selBg      = SKColor(red: 0.28, green: 0.18, blue: 0.04, alpha: 0.90)
@@ -983,6 +1032,7 @@ final class CornholeMiniGameScene: SKScene {
             } else if availableHoneyBags > 0 {
                 if bombBagSelected  { bombBagSelected  = false; availableBombBags  += 1 }
                 if magicBagSelected { magicBagSelected = false; availableMagicBags += 1 }
+                if fireBagSelected  { fireBagSelected  = false; availableFireBags  += 1 }
                 honeyBagSelected = true
                 availableHoneyBags -= 1
             }
@@ -993,6 +1043,7 @@ final class CornholeMiniGameScene: SKScene {
             } else if availableBombBags > 0 {
                 if honeyBagSelected  { honeyBagSelected  = false; availableHoneyBags  += 1 }
                 if magicBagSelected  { magicBagSelected  = false; availableMagicBags  += 1 }
+                if fireBagSelected   { fireBagSelected   = false; availableFireBags   += 1 }
                 bombBagSelected = true
                 availableBombBags -= 1
             }
@@ -1003,8 +1054,20 @@ final class CornholeMiniGameScene: SKScene {
             } else if availableMagicBags > 0 {
                 if honeyBagSelected { honeyBagSelected = false; availableHoneyBags += 1 }
                 if bombBagSelected  { bombBagSelected  = false; availableBombBags  += 1 }
+                if fireBagSelected  { fireBagSelected  = false; availableFireBags  += 1 }
                 magicBagSelected = true
                 availableMagicBags -= 1
+            }
+        case .fireBag:
+            if fireBagSelected {
+                fireBagSelected = false
+                availableFireBags += 1
+            } else if availableFireBags > 0 {
+                if honeyBagSelected { honeyBagSelected = false; availableHoneyBags += 1 }
+                if bombBagSelected  { bombBagSelected  = false; availableBombBags  += 1 }
+                if magicBagSelected { magicBagSelected = false; availableMagicBags += 1 }
+                fireBagSelected = true
+                availableFireBags -= 1
             }
         default:
             break
@@ -1052,6 +1115,13 @@ final class CornholeMiniGameScene: SKScene {
         honeyBagSelected    = false
         bombBagSelected     = false
         magicBagSelected    = false
+        fireBagSelected     = false
+        boardOnFire         = false
+        holeFire            = false
+        fireBoardOverlay?.removeFromParent()
+        fireBoardOverlay    = nil
+        gameWorldNode.childNode(withName: "fireBoardLabel")?.removeFromParent()
+        gameWorldNode.childNode(withName: "fireBoardEmitter")?.removeFromParent()
         updateSatchelButton()
         refreshSatchelPanelRows()
 
@@ -1304,6 +1374,11 @@ final class CornholeMiniGameScene: SKScene {
                     run(SKAction.playSoundFileNamed("hit.mp3", waitForCompletion: false))
                 }
 
+                // Non-fire bags landing on a burning board are immediately destroyed
+                if boardOnFire && !bag.isFire && !bag.isDestroyed {
+                    destroyBag(bag)
+                }
+
                 if bag.isHoney {
                     // Honey bags stick on contact — no bounce, no slide, rain-immune
                     bag.vx = 0; bag.vy = 0; bag.vz = 0; bag.rotV = 0
@@ -1351,10 +1426,23 @@ final class CornholeMiniGameScene: SKScene {
                     if bag.isMagic {
                         triggerMagicHole(by: bag.owner)
                     }
+                    // Fire bag in hole: burn all other cornholes this round (3 pts kept by thrower)
+                    if bag.isFire && !bag.hasTriggeredFire {
+                        bag.hasTriggeredFire = true
+                        triggerFireHole(by: bag.owner)
+                    }
+                    // Non-fire bag scoring in a hole-fire round is destroyed immediately
+                    if holeFire && !bag.isFire && !bag.isDestroyed {
+                        destroyBag(bag)
+                    }
                 } else if bag.isBomb && !bag.hasBombed && bag.isGrounded && checkIsOnBoard(bag) {
                     // Bomb rests on board surface: destroy opponent bags on the board
                     bag.hasBombed = true
                     triggerBombBoard(at: CGPoint(x: bag.bx, y: bag.by), by: bag.owner)
+                } else if bag.isFire && !bag.hasTriggeredFire && bag.isGrounded && checkIsOnBoard(bag) {
+                    // Fire bag rests on board: burn all other board bags this round
+                    bag.hasTriggeredFire = true
+                    triggerFireBoard(at: CGPoint(x: bag.bx, y: bag.by), by: bag.owner)
                 }
             } else {
                 // Lands off-board — stop dead and shrink to show depth vs. board level
@@ -1554,13 +1642,187 @@ final class CornholeMiniGameScene: SKScene {
         ]))
     }
 
+    // MARK: - Fire Bag
+
+    /// Fire bag lands on board: this bag scores 1 pt; all other board bags this round are destroyed.
+    private func triggerFireBoard(at pos: CGPoint, by owner: BagOwner) {
+        boardOnFire = true
+        showFireBoardOverlay()
+        var destroyed = 0
+        for bag in activeBags where !bag.isFire && !bag.isDestroyed
+                                  && bag.isGrounded && !bag.hasScored && checkIsOnBoard(bag) {
+            destroyBag(bag)
+            destroyed += 1
+        }
+        showFireEffect(at: pos)
+        let msg = destroyed > 0
+            ? "FIRE! \(destroyed) BAG\(destroyed == 1 ? "" : "S") BURNED!"
+            : "FIRE! BOARD ABLAZE!"
+        showFireMessage(msg, at: CGPoint(x: 0, y: size.height * 0.14))
+    }
+
+    /// Fire bag scores in hole: this bag keeps its 3 pts; all other cornholes this round are destroyed.
+    private func triggerFireHole(by owner: BagOwner) {
+        holeFire = true
+        var destroyed = 0
+        for bag in activeBags where !bag.isFire && !bag.isDestroyed && bag.hasScored {
+            destroyBag(bag)
+            destroyed += 1
+        }
+        showFireEffect(at: CGPoint(x: holeCenter.x, y: holeCenter.y))
+        let msg = destroyed > 0
+            ? "FIRE! \(destroyed) CORNHOLE\(destroyed == 1 ? "" : "S") BURNED!"
+            : "FIRE! HOLE ABLAZE!"
+        showFireMessage(msg, at: CGPoint(x: 0, y: size.height * 0.14))
+    }
+
+    /// Orange-red particle burst — used for both board and hole fire triggers.
+    private func showFireEffect(at pos: CGPoint) {
+        let container = SKNode()
+        container.position  = pos
+        container.zPosition = 300
+        addChild(container)
+
+        let colors: [SKColor] = [
+            SKColor(red: 1.0,  green: 0.90, blue: 0.10, alpha: 1),   // yellow
+            SKColor(red: 1.0,  green: 0.45, blue: 0.05, alpha: 1),   // orange
+            SKColor(red: 0.95, green: 0.15, blue: 0.05, alpha: 1),   // red
+        ]
+        for _ in 0..<14 {
+            let p = SKSpriteNode(color: colors.randomElement()!,
+                                 size: CGSize(width: CGFloat.random(in: 4...7),
+                                              height: CGFloat.random(in: 4...7)))
+            p.position = .zero
+            container.addChild(p)
+            let angle = CGFloat.random(in: 0...(2 * .pi))
+            let speed = CGFloat.random(in: 40...90)
+            p.run(SKAction.sequence([
+                SKAction.group([
+                    SKAction.moveBy(x: cos(angle) * speed, y: sin(angle) * speed, duration: 0.42),
+                    SKAction.fadeOut(withDuration: 0.42),
+                ]),
+                SKAction.removeFromParent(),
+            ]))
+        }
+        container.run(SKAction.sequence([
+            SKAction.wait(forDuration: 0.50),
+            SKAction.removeFromParent(),
+        ]))
+    }
+
+    /// Floating orange-red message label.
+    private func showFireMessage(_ text: String, at pos: CGPoint) {
+        let lbl = makeLabel(text: text,
+                            size: max(6, size.width * 0.046),
+                            color: SKColor(red: 1.0, green: 0.38, blue: 0.05, alpha: 1))
+        lbl.position  = pos
+        lbl.zPosition = 800
+        lbl.alpha     = 0
+        lbl.setScale(0.6)
+        addChild(lbl)
+        lbl.run(SKAction.sequence([
+            SKAction.group([
+                SKAction.scale(to: 1.0, duration: 0.16),
+                SKAction.fadeIn(withDuration: 0.16),
+            ]),
+            SKAction.wait(forDuration: 1.1),
+            SKAction.fadeOut(withDuration: 0.28),
+            SKAction.removeFromParent(),
+        ]))
+    }
+
+    /// Semi-transparent fire overlay drawn over the board while it's ablaze.
+    private func showFireBoardOverlay() {
+        guard fireBoardOverlay == nil else { return }
+
+        // Base red-orange wash over the entire board
+        let overlay = SKSpriteNode(color: SKColor(red: 1.0, green: 0.22, blue: 0.01, alpha: 0.55),
+                                   size: CGSize(width: boardHalfW * 2, height: boardHalfH * 2))
+        overlay.name      = "fireBoardOverlay"
+        overlay.position  = CGPoint(x: 0, y: boardY)
+        overlay.zPosition = 19
+        overlay.alpha     = 0
+        gameWorldNode.addChild(overlay)
+        fireBoardOverlay  = overlay
+
+        overlay.run(SKAction.sequence([
+            SKAction.fadeIn(withDuration: 0.20),
+            SKAction.repeatForever(SKAction.sequence([
+                SKAction.fadeAlpha(to: 0.32, duration: 0.22),
+                SKAction.fadeAlpha(to: 0.62, duration: 0.22),
+            ])),
+        ]))
+
+        // Continuous ember particles rising from the board surface
+        let emitter = SKNode()
+        emitter.name      = "fireBoardEmitter"
+        emitter.position  = CGPoint(x: 0, y: boardY - boardHalfH)
+        emitter.zPosition = 21
+        gameWorldNode.addChild(emitter)
+
+        let emberColors: [SKColor] = [
+            SKColor(red: 1.0,  green: 0.88, blue: 0.10, alpha: 1),
+            SKColor(red: 1.0,  green: 0.45, blue: 0.05, alpha: 1),
+            SKColor(red: 0.95, green: 0.12, blue: 0.02, alpha: 1),
+        ]
+        let spawnEmbers = SKAction.repeatForever(SKAction.sequence([
+            SKAction.run { [weak self, weak emitter] in
+                guard let self, let emitter else { return }
+                for _ in 0..<3 {
+                    let p = SKSpriteNode(
+                        color: emberColors.randomElement()!,
+                        size: CGSize(width: CGFloat.random(in: 3...6),
+                                     height: CGFloat.random(in: 3...6)))
+                    p.position = CGPoint(x: CGFloat.random(in: -self.boardHalfW...self.boardHalfW),
+                                         y: 0)
+                    p.zPosition = 1
+                    p.alpha = 0
+                    emitter.addChild(p)
+                    let rise  = CGFloat.random(in: 28...70)
+                    let drift = CGFloat.random(in: -18...18)
+                    p.run(SKAction.sequence([
+                        SKAction.group([
+                            SKAction.fadeIn(withDuration: 0.08),
+                            SKAction.moveBy(x: drift, y: rise, duration: 0.55),
+                            SKAction.sequence([
+                                SKAction.wait(forDuration: 0.20),
+                                SKAction.fadeOut(withDuration: 0.35),
+                            ]),
+                        ]),
+                        SKAction.removeFromParent(),
+                    ]))
+                }
+            },
+            SKAction.wait(forDuration: 0.08),
+        ]))
+        emitter.run(spawnEmbers, withKey: "embers")
+
+        // "BOARD ON FIRE!" label pinned above the board
+        let fireLbl = makeLabel(text: "🔥 BOARD ON FIRE! 🔥",
+                                size: max(6, size.width * 0.042),
+                                color: SKColor(red: 1.0, green: 0.38, blue: 0.05, alpha: 1))
+        fireLbl.name      = "fireBoardLabel"
+        fireLbl.position  = CGPoint(x: 0, y: boardY + boardHalfH + 18)
+        fireLbl.zPosition = 22
+        fireLbl.alpha     = 0
+        gameWorldNode.addChild(fireLbl)
+        fireLbl.run(SKAction.sequence([
+            SKAction.fadeIn(withDuration: 0.20),
+            SKAction.repeatForever(SKAction.sequence([
+                SKAction.fadeAlpha(to: 0.55, duration: 0.30),
+                SKAction.fadeAlpha(to: 1.00, duration: 0.30),
+            ])),
+        ]))
+    }
+
     // MARK: - Throwing
 
     private func throwBag(owner: BagOwner, startX: CGFloat, vx: CGFloat, vy: CGFloat, aiBomb: Bool = false) {
-        // availableHoneyBags / availableBombBags / availableMagicBags already decremented on arm.
+        // availableHoneyBags / availableBombBags / availableMagicBags / availableFireBags already decremented on arm.
         let useHoney = owner == .player && honeyBagSelected
         let useBomb  = (owner == .player && bombBagSelected) || aiBomb
         let useMagic = owner == .player && magicBagSelected
+        let useFire  = owner == .player && fireBagSelected
         if useHoney {
             honeyBagsUsed += 1
             honeyBagSelected = false
@@ -1576,8 +1838,13 @@ final class CornholeMiniGameScene: SKScene {
             magicBagSelected = false
             updateSatchelButton(); refreshSatchelPanelRows()
         }
+        if useFire {
+            fireBagsUsed += 1
+            fireBagSelected = false
+            updateSatchelButton(); refreshSatchelPanelRows()
+        }
         let bag = MiniGameBag(owner: owner, startX: startX, startY: throwLineY,
-                              isHoney: useHoney, isBomb: useBomb, isMagic: useMagic)
+                              isHoney: useHoney, isBomb: useBomb, isMagic: useMagic, isFire: useFire)
         bag.vx = vx
         bag.vy = vy
         bag.vz = vzInitial
@@ -1790,7 +2057,7 @@ final class CornholeMiniGameScene: SKScene {
             while let current = n {
                 switch current.name {
                 case "satchelButton":
-                    if fireActions, gameState == .playerTurn, !satchelOpen {
+                    if fireActions, !satchelOpen {
                         openSatchelPanel()
                     }
                     return true
@@ -1801,10 +2068,10 @@ final class CornholeMiniGameScene: SKScene {
                     return true  // swallow — panel stays open
                 case let name where name?.hasPrefix("satchelItem_") == true:
                     if fireActions,
-                       gameState == .playerTurn,
                        let name = name,
                        let type = ItemType(rawValue: String(name.dropFirst("satchelItem_".count))) {
                         selectSatchelItem(type)
+                        closeSatchelPanel()
                     }
                     return true
                 case "closeButton":
@@ -1906,12 +2173,23 @@ final class CornholeMiniGameScene: SKScene {
         targetLbl.position = CGPoint(x: 0, y: -panelH * 0.08)
         panel.addChild(targetLbl)
 
+        // Spirit loss hint
+        if !playerWon && selectedOpponent == .spirit {
+            let hintLbl = makeLabel(
+                text: "SPECIAL BAGS MAY HELP\nAGAINST SUCH A FOE...",
+                size: max(5, fs * 0.52),
+                color: SKColor(red: 0.12, green: 0.82, blue: 0.35, alpha: 1))
+            hintLbl.numberOfLines = 2
+            hintLbl.position = CGPoint(x: 0, y: -panelH * 0.18)
+            panel.addChild(hintLbl)
+        }
+
         // Play Again
         let playBtn = makeButton(label: "PLAY AGAIN",
                                  fg: .white,
                                  bg: SKColor(red: 0.18, green: 0.45, blue: 0.18, alpha: 1),
                                  size: CGSize(width: panelW * 0.60, height: fs * 1.8))
-        playBtn.position = CGPoint(x: 0, y: -panelH * 0.25)
+        playBtn.position = CGPoint(x: 0, y: -panelH * 0.30)
         playBtn.name = "playAgainBtn"
         panel.addChild(playBtn)
 
@@ -1920,7 +2198,7 @@ final class CornholeMiniGameScene: SKScene {
                                  fg: .white,
                                  bg: SKColor(red: 0.42, green: 0.10, blue: 0.10, alpha: 1),
                                  size: CGSize(width: panelW * 0.40, height: fs * 1.8))
-        exitBtn.position = CGPoint(x: 0, y: -panelH * 0.38)
+        exitBtn.position = CGPoint(x: 0, y: -panelH * 0.43)
         exitBtn.name = "exitBtn"
         panel.addChild(exitBtn)
 
@@ -1974,9 +2252,13 @@ final class CornholeMiniGameScene: SKScene {
     private func updateTurnIndicator() {
         switch gameState {
         case .playerTurn:
-            turnIndicator?.color = honeyBagSelected
-                ? SKColor(red: 0.95, green: 0.72, blue: 0.10, alpha: 1)  // golden — honey bag armed
-                : SKColor(red: 0.90, green: 0.30, blue: 0.30, alpha: 1)
+            if fireBagSelected {
+                turnIndicator?.color = SKColor(red: 0.95, green: 0.30, blue: 0.05, alpha: 1)  // orange — fire bag armed
+            } else if honeyBagSelected {
+                turnIndicator?.color = SKColor(red: 0.95, green: 0.72, blue: 0.10, alpha: 1)  // golden — honey bag armed
+            } else {
+                turnIndicator?.color = SKColor(red: 0.90, green: 0.30, blue: 0.30, alpha: 1)
+            }
             turnIndicator?.isHidden = false
         case .aiTurn:
             turnIndicator?.color = SKColor(red: 0.30, green: 0.50, blue: 0.90, alpha: 1)

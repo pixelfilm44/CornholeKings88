@@ -632,7 +632,14 @@ final class MiniGamePickerScene: SKScene {
         case "cornhole":
             let s = CornholeMiniGameScene(size: ppSize)
             s.previousScene = self; s.scaleMode = .resizeFill
-            s.availableHoneyBags = 0; s.availableBombBags = 0; s.availableMagicBags = 0; s.onComplete = { _ in }
+            let inv = InventoryManager()
+            // TODO: remove before ship — grants 3 fire bags for testing
+            if inv.counts[.fireBag, default: 0] == 0 { inv.collect(.fireBag, count: 3) }
+            s.availableHoneyBags = inv.counts[.honeyBag, default: 0]
+            s.availableBombBags  = inv.counts[.bombBag,  default: 0]
+            s.availableMagicBags = inv.counts[.magicBag, default: 0]
+            s.availableFireBags  = inv.counts[.fireBag,  default: 0]
+            s.onComplete = { _ in }
             push(to: s)
 
         case "baseball":

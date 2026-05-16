@@ -146,7 +146,7 @@ Navigation: `◄ BACK` strip at top (push-down transition back to `MainMenuScene
 
 Items scattered in the world can be walked over to collect them. The system has four files:
 
-- **`Item.swift`** — `ItemType` enum (`coin`, `bag`, `star`, `honeyBag`, `bombBag`, `magicBag`) with `color`, `displayName`, and `hudSymbol`.
+- **`Item.swift`** — `ItemType` enum (`coin`, `bag`, `star`, `honeyBag`, `bombBag`, `magicBag`, `fireBag`) with `color`, `displayName`, and `hudSymbol`.
 - **`InventoryManager.swift`** — holds `[ItemType: Int]` counts; fires an `onChanged` closure when any item is collected. `GameScene` owns the instance.
 - **`CollectibleNode.swift`** — `SKNode` subclass placed in the map's `mapNode`. Draws an 8×8 colored tile + glow ring, bobs gently, and pops/fades out on contact. Physics body is a sensor (`collisionBitMask = 0`, `contactTestBitMask = PlayerNode.categoryBit`). Uses `collectibleBit = 0x1 << 2`.
 - **`InventoryHUDNode.swift`** — `SKNode` attached to `cameraNode`. Renders a horizontal row of dark pill slots (colored icon + `×N` count label) in the bottom chrome, vertically centered between the top of the D-pad cross and the stage bottom border. Call `refresh(counts:)` to redraw.
@@ -160,8 +160,13 @@ Items scattered in the world can be walked over to collect them. The system has 
 - **`honeyBag`** — immune to wind and bot knockback; sticks on board contact.
 - **`bombBag`** — landing on the board destroys all opponent board bags; landing in the hole destroys all opponent hole bags. Billy can also throw bomb bags (~25% chance). Awarded (3) by beating Billy the Bully.
 - **`magicBag`** — physically intercepts opponent board bags on collision (opponent bag destroyed, magic bag keeps moving). Scoring in the hole destroys all opponent bags already scored in the hole this round. Awarded (3) by beating the Tree Spirit.
+- **`fireBag`** — landing on the board burns all other board bags instantly (thrower keeps 1 pt, all others score 0); subsequent bags landing on the board that round are also destroyed. Sets `boardOnFire = true` until round reset. Landing in the hole burns all other cornholes scored that round by either player (thrower keeps 3 pts, all others score 0). Sets `holeFire = true`. Visuals: pulsing red-orange board overlay + rising ember particles + blinking "🔥 BOARD ON FIRE! 🔥" label. Reward source TBD.
 
-`GameScene` passes `availableBombBags` / `availableMagicBags` into `CornholeMiniGameScene` before presenting it, then deducts `bombBagsUsed` / `magicBagsUsed` and adds `bombBagsEarned` / `magicBagsEarned` in the `onComplete` closure.
+`GameScene` passes `availableBombBags` / `availableMagicBags` / `availableFireBags` into `CornholeMiniGameScene` before presenting it, then deducts used counts and adds earned counts in the `onComplete` closure. `MiniGamePickerScene` reads the same `InventoryManager` (via a local instance) when launching cornhole directly from the picker.
+
+**Fire bag round state** — reset at the start of each round in `startRound()`: `boardOnFire`, `holeFire`, `fireBoardOverlay`, `fireBoardEmitter` node (named `"fireBoardEmitter"`), and `fireBoardLabel` node (named `"fireBoardLabel"`).
+
+**Losing to the Tree Spirit** — the game-over panel shows a green hint: *"SPECIAL BAGS MAY HELP AGAINST SUCH A FOE..."* to guide the player toward using magic/fire bags.
 
 **To add more item types:** add a case to `ItemType`, give it a `color`/`displayName`/`hudSymbol`, and drop `CollectibleNode(type: .newType)` nodes in `spawnCollectibles(in:)`.
 
