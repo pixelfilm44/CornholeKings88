@@ -1155,7 +1155,8 @@ final class BeeHiveScene: SKScene {
         isGameOver      = false
         gameResult      = false
         spawnPending    = false
-        playerHearts    = 3
+        HeartsManager.shared.refill()
+        playerHearts    = HeartsManager.shared.currentHearts
         remainingHearts = playerHearts
         elapsedSeconds  = 0
         elapsedFraction = 0

@@ -656,7 +656,12 @@ final class MiniGamePickerScene: SKScene {
         case "beehive":
             let s = BeeHiveScene(size: ppSize)
             s.previousScene = self; s.scaleMode = .resizeFill
-            s.startingHearts = 3; s.onComplete = { _ in }
+            if HeartsManager.shared.currentHearts <= 0 { HeartsManager.shared.refill() }
+            s.startingHearts = HeartsManager.shared.currentHearts
+            s.onComplete = { [weak s] _ in
+                guard let s = s else { return }
+                HeartsManager.shared.set(s.remainingHearts)
+            }
             push(to: s)
 
         case "beachball":

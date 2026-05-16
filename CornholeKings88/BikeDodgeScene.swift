@@ -221,6 +221,7 @@ final class BikeDodgeScene: SKScene {
         let greenC = UIColor(red: 0.20, green: 0.85, blue: 0.35, alpha: 1)
 
         pr.x = laneCenter[1]; pr.speed = baseSpeed
+        if HeartsManager.shared.currentHearts <= 0 { HeartsManager.shared.refill() }
         pr.hearts    = HeartsManager.shared.currentHearts
         pr.maxHearts = HeartsManager.shared.maxHearts
         pk.x = laneCenter[0]; pk.speed = baseSpeed; pk.targetLaneX = laneCenter[0]
@@ -1527,6 +1528,7 @@ final class BikeDodgeScene: SKScene {
 
         pr = RacerData(kind: .player); pk = RacerData(kind: .pink); gr = RacerData(kind: .green)
         pr.x = laneCenter[1]; pr.speed = baseSpeed
+        if HeartsManager.shared.currentHearts <= 0 { HeartsManager.shared.refill() }
         pr.hearts    = HeartsManager.shared.currentHearts
         pr.maxHearts = HeartsManager.shared.maxHearts
         pk.x = laneCenter[0]; pk.speed = baseSpeed; pk.targetLaneX = laneCenter[0]

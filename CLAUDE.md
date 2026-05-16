@@ -175,8 +175,9 @@ Items scattered in the world can be walked over to collect them. The system has 
 `HeartsManager.shared` (singleton, `HeartsManager.swift`) owns a single universal heart count across the world map and every mini-game. Persisted to `UserDefaults` key `"universalHearts_v1"`; max is `5`.
 
 - API: `currentHearts`, `lose()`, `gain()`, `set(_:)`, `refill()`, plus an `onChanged` closure for HUD sync while a modal mini-game (bike race) is up.
-- **Hearts drain in:** BikeDodgeScene (crashes / bag hits) and GameScene (enemy bite). Score-based games (cornhole, baseball, beachball, beehive) don't drain the universal count.
-- **Hearts refill on:** cold app launch (`LoadingScene.didMove`), world-map game over (`GameScene.triggerGameOver`), and in-game pickups (`PickupData.heart` in bike race).
+- **Hearts drain in:** BikeDodgeScene (crashes / bag hits), BeeHiveScene (bee stings — synced back to `HeartsManager` via `remainingHearts`), and GameScene (enemy bite). Score-based games (cornhole, baseball, beachball) don't drain the universal count.
+- **Hearts refill on:** cold app launch (`LoadingScene.didMove`), world-map game over (`GameScene.triggerGameOver`), in-game pickups (`PickupData.heart` in bike race), and on **replay-after-loss** in any heart-draining game (`BikeDodgeScene.resetGame`, `BeeHiveScene.restartGame`). A 0-hearts guard on entry into the bike race and beehive (both from world and picker paths) also refills, so players can't enter a heart-draining game with 0 hearts.
+- **Mini-game entry:** heart-draining scenes start with `HeartsManager.shared.currentHearts` (may be less than max if the player took damage earlier in the session). They do not reset to max on entry — only on replay-after-loss.
 - `GameScene` registers `HeartsManager.shared.onChanged` in `didMove(to:)` so its HUD redraws when the bike-race modal updates the count off-screen, then calls `resyncHeartsDisplay()` on any return path.
 
 ### Tutorial System
