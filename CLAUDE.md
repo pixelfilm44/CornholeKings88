@@ -92,6 +92,42 @@ var onComplete: ((Bool) -> Void)?
 
 `CornholeMiniGameScene` calls `CornholeStatsManager.shared.recordCornhole()` each time any bag enters the hole, and `recordWin()`/`recordLoss()` in `dismissScene(playerWon:)` before calling `onComplete`. This covers both in-world cornhole boards and the mini-games picker path.
 
+### Cornhole Opponents
+
+`CornholeMiniGameScene` supports four opponents selected via `OpponentPickerNode` before the game starts:
+
+| Opponent | Enum | Win score | Special rules |
+|----------|------|-----------|---------------|
+| Tom | `.tom` | 11 | Baseline AI, moderate accuracy |
+| Jenny | `.jenny` | 11 | Slightly tighter aim than Tom |
+| Billy the Bully | `.billy` | 21 | Forced thunderstorm every round; adaptive difficulty; can throw bomb bags (~25% chance) |
+| Tree Spirit | `.spirit` | 21 | Drops magic bags vertically from above (50% cornhole / 50% random board position) |
+
+**Billy adaptive difficulty** — `billyNoiseFactor` starts from career cornhole accuracy (`cornholes / (totalGames × 12)`, clamped to `[1.4, 3.8]`). Each round the player wins tightens Billy by `−0.12`; each round Billy wins eases him by `+0.15`. Range stays within `[1.4, 3.8]`.
+
+**Tree Spirit drop mechanic** — `dropMagicBagFromAbove(targetX:targetY:)` places a `MiniGameBag(isMagic: true)` at `bz = 220` with zero `vx/vy`; existing bz-guard in `resolveBagCollisions()` prevents mid-air collisions. The magic bag falls straight down to its target.
+
+**Bag destruction** — `destroyBag(_:)` sets `isDestroyed = true` and plays a scale/fade animation. Destroyed bags are skipped in `calculateRoundScore()` but stay in `activeBags` until round cleanup. `resolveBagCollisions()` skips destroyed bags.
+
+**Rewards** — beating Billy awards 3 bomb bags; beating the Tree Spirit awards 3 magic bags. These are added to `InventoryManager` via `bombBagsEarned` / `magicBagsEarned` in `dismissScene`.
+
+### Opponent Picker Layout
+
+`OpponentPickerNode` renders opponents in one of three layouts based on count:
+- **2 opponents** — side-by-side cards
+- **3 opponents** — 2 regular cards on top row, 1 boss card centered below
+- **4 opponents** — 2×2 grid: top row regular (Tom, Jenny), bottom row boss (Billy, Spirit) with red borders and `★ BOSS ★` badge
+
+### Audio
+
+`CornholeMiniGameScene` warm-up list (fired at scene load, volume 0, to seed AVAudioEngine):
+`hit.mp3`, `hole_score.wav`, `round_end.wav`, `rain_start.wav`, `gopher_pop.wav`, `gopher_steal.wav`, `game_win.wav`, `game_lose.wav`, `storm.mp3`
+
+- **`hit.mp3`** — plays via `SKAction.playSoundFileNamed` each time a bag first touches the board (`bag.hasLanded` transition).
+- **`storm.mp3`** — looping `SKAudioNode` (`stormAudioNode`); fades in (1.2 s) when the storm activates, fades out (1.5 s) and removes itself when the storm deactivates.
+
+`LoadingScene.prewarmAudio()` pre-decodes all audio files (both `.wav` and `.mp3`) via `AVAudioPlayer.prepareToPlay()` and seeds SpriteKit's cache via silent `SKAudioNode` instances. Filenames include their extension so the loader can handle mixed formats.
+
 ### Stats System
 
 **`CornholeStatsManager.swift`** — singleton that persists cornhole game stats to `UserDefaults`:
@@ -110,7 +146,7 @@ Navigation: `◄ BACK` strip at top (push-down transition back to `MainMenuScene
 
 Items scattered in the world can be walked over to collect them. The system has four files:
 
-- **`Item.swift`** — `ItemType` enum (`coin`, `bag`, `star`) with `color`, `displayName`, and `hudSymbol`.
+- **`Item.swift`** — `ItemType` enum (`coin`, `bag`, `star`, `honeyBag`, `bombBag`, `magicBag`) with `color`, `displayName`, and `hudSymbol`.
 - **`InventoryManager.swift`** — holds `[ItemType: Int]` counts; fires an `onChanged` closure when any item is collected. `GameScene` owns the instance.
 - **`CollectibleNode.swift`** — `SKNode` subclass placed in the map's `mapNode`. Draws an 8×8 colored tile + glow ring, bobs gently, and pops/fades out on contact. Physics body is a sensor (`collisionBitMask = 0`, `contactTestBitMask = PlayerNode.categoryBit`). Uses `collectibleBit = 0x1 << 2`.
 - **`InventoryHUDNode.swift`** — `SKNode` attached to `cameraNode`. Renders a horizontal row of dark pill slots (colored icon + `×N` count label) in the bottom chrome, vertically centered between the top of the D-pad cross and the stage bottom border. Call `refresh(counts:)` to redraw.
@@ -119,6 +155,13 @@ Items scattered in the world can be walked over to collect them. The system has 
 1. `setupPlayer()` ORs `CollectibleNode.collectibleBit` into the player's `contactTestBitMask`.
 2. `spawnCollectibles(in:)` drops items around the player's spawn point after the map loads.
 3. `didBegin(_:)` detects the contact, calls `item.collect()`, updates `InventoryManager`, and spawns a floating `+NAME` pickup label via `showPickupText(_:at:)`.
+
+**Special bag items** (earned from boss opponents, usable in any cornhole game):
+- **`honeyBag`** — immune to wind and bot knockback; sticks on board contact.
+- **`bombBag`** — landing on the board destroys all opponent board bags; landing in the hole destroys all opponent hole bags. Billy can also throw bomb bags (~25% chance). Awarded (3) by beating Billy the Bully.
+- **`magicBag`** — physically intercepts opponent board bags on collision (opponent bag destroyed, magic bag keeps moving). Scoring in the hole destroys all opponent bags already scored in the hole this round. Awarded (3) by beating the Tree Spirit.
+
+`GameScene` passes `availableBombBags` / `availableMagicBags` into `CornholeMiniGameScene` before presenting it, then deducts `bombBagsUsed` / `magicBagsUsed` and adds `bombBagsEarned` / `magicBagsEarned` in the `onComplete` closure.
 
 **To add more item types:** add a case to `ItemType`, give it a `color`/`displayName`/`hudSymbol`, and drop `CollectibleNode(type: .newType)` nodes in `spawnCollectibles(in:)`.
 
