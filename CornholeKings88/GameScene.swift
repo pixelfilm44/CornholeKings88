@@ -735,12 +735,26 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         resetBeanbagControl()
 
         let mini = CornholeMiniGameScene(size: self.size)
-        mini.scaleMode         = self.scaleMode
-        mini.previousScene     = self
+        mini.scaleMode          = self.scaleMode
+        mini.previousScene      = self
         mini.availableHoneyBags = inventory.counts[.honeyBag, default: 0]
+        mini.availableBombBags  = inventory.counts[.bombBag,  default: 0]
+        mini.availableMagicBags = inventory.counts[.magicBag, default: 0]
         mini.onComplete = { [weak self, weak mini] _ in
             if let used = mini?.honeyBagsUsed, used > 0 {
                 self?.inventory.consume(.honeyBag, count: used)
+            }
+            if let used = mini?.bombBagsUsed, used > 0 {
+                self?.inventory.consume(.bombBag, count: used)
+            }
+            if let used = mini?.magicBagsUsed, used > 0 {
+                self?.inventory.consume(.magicBag, count: used)
+            }
+            if let earned = mini?.bombBagsEarned, earned > 0 {
+                self?.inventory.collect(.bombBag, count: earned)
+            }
+            if let earned = mini?.magicBagsEarned, earned > 0 {
+                self?.inventory.collect(.magicBag, count: earned)
             }
             self?.isTransitioning = false
         }

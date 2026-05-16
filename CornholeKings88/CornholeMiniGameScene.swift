@@ -18,6 +18,22 @@ final class CornholeMiniGameScene: SKScene {
     private(set) var honeyBagsUsed: Int = 0
     /// Whether the player has opted in to throwing a honey bag on the next throw.
     private var honeyBagSelected = false
+    /// Bomb bags from inventory injected by GameScene before presenting.
+    var availableBombBags: Int = 0
+    /// How many bomb bags the player actually used this match (consumed from inventory).
+    private(set) var bombBagsUsed: Int = 0
+    /// Whether the player has opted in to throwing a bomb bag on the next throw.
+    private var bombBagSelected = false
+    /// Bomb bags earned this match (awarded on Billy win); read by GameScene after onComplete.
+    private(set) var bombBagsEarned: Int = 0
+    /// Magic bags from inventory injected by GameScene before presenting.
+    var availableMagicBags: Int = 0
+    /// How many magic bags the player actually used this match (consumed from inventory).
+    private(set) var magicBagsUsed: Int = 0
+    /// Whether the player has opted in to throwing a magic bag on the next throw.
+    private var magicBagSelected = false
+    /// Magic bags earned this match (awarded on Tree Spirit win); read by GameScene after onComplete.
+    private(set) var magicBagsEarned: Int = 0
 
     // MARK: - Types
 
@@ -40,27 +56,80 @@ final class CornholeMiniGameScene: SKScene {
         var baseScale: CGFloat = 1.0        // 0.75 for off-board bags; multiplied by height scale
         /// Honey bags (won from BeeHive Battle) stick to the board — immune to wind and bag collisions.
         var isHoney = false
+        /// Bomb bags destroy opponent bags on the board or in the hole on landing.
+        var isBomb = false
+        /// Prevents the bomb explosion from firing more than once.
+        var hasBombed = false
+        /// Magic bags destroy the specific opponent bag they physically collide with on the board;
+        /// scoring in the hole destroys all opponent bags already in the hole this round.
+        var isMagic = false
+        /// Bags marked destroyed are removed from scoring but kept in activeBags until the round ends.
+        var isDestroyed = false
 
         let node: SKSpriteNode
         let shadow: SKSpriteNode
 
-        init(owner: BagOwner, startX: CGFloat, startY: CGFloat, isHoney: Bool = false) {
-            self.owner = owner
+        init(owner: BagOwner, startX: CGFloat, startY: CGFloat,
+             isHoney: Bool = false, isBomb: Bool = false, isMagic: Bool = false) {
+            self.owner   = owner
             self.bx = startX; self.by = startY; self.bz = 3
             self.vx = 0; self.vy = 0; self.vz = 0
             self.isHoney = isHoney
+            self.isBomb  = isBomb
+            self.isMagic = isMagic
 
-            let playerColor = isHoney
-                ? SKColor(red: 0.95, green: 0.72, blue: 0.10, alpha: 1)   // golden amber
-                : SKColor(red: 0.90, green: 0.25, blue: 0.25, alpha: 1)
-            let aiColor     = SKColor(red: 0.25, green: 0.48, blue: 0.90, alpha: 1)
+            let playerColor: SKColor
+            if isBomb {
+                playerColor = SKColor(red: 0.08, green: 0.06, blue: 0.06, alpha: 1)
+            } else if isMagic {
+                playerColor = SKColor(red: 0.12, green: 0.82, blue: 0.35, alpha: 1)
+            } else if isHoney {
+                playerColor = SKColor(red: 0.95, green: 0.72, blue: 0.10, alpha: 1)
+            } else {
+                playerColor = SKColor(red: 0.90, green: 0.25, blue: 0.25, alpha: 1)
+            }
+            let aiColor: SKColor
+            if isBomb {
+                aiColor = SKColor(red: 0.12, green: 0.04, blue: 0.18, alpha: 1)
+            } else if isMagic {
+                aiColor = SKColor(red: 0.18, green: 0.90, blue: 0.42, alpha: 1)
+            } else {
+                aiColor = SKColor(red: 0.25, green: 0.48, blue: 0.90, alpha: 1)
+            }
 
             let bagTex = SKTexture(imageNamed: "bag_16bit")
             bagTex.filteringMode = .nearest
             node = SKSpriteNode(texture: bagTex, size: CGSize(width: 50, height: 50))
             node.color            = owner == .player ? playerColor : aiColor
-            node.colorBlendFactor = 0.65
+            node.colorBlendFactor = (isBomb || isMagic) ? 0.88 : 0.65
             node.zPosition        = 20
+
+            // Skull marker on bomb bags
+            if isBomb {
+                let skull = SKLabelNode(text: "☠")
+                skull.fontSize                = 14
+                skull.verticalAlignmentMode   = .center
+                skull.horizontalAlignmentMode = .center
+                skull.position  = .zero
+                skull.zPosition = 1
+                node.addChild(skull)
+            }
+            // Sparkle marker on magic bags
+            if isMagic {
+                let sparkle = SKLabelNode(text: "✦")
+                sparkle.fontSize                = 14
+                sparkle.fontColor               = SKColor(red: 0.90, green: 1.0, blue: 0.70, alpha: 1)
+                sparkle.verticalAlignmentMode   = .center
+                sparkle.horizontalAlignmentMode = .center
+                sparkle.position  = .zero
+                sparkle.zPosition = 1
+                node.addChild(sparkle)
+                // Gentle pulse so magic bags are obvious in flight
+                node.run(SKAction.repeatForever(SKAction.sequence([
+                    SKAction.fadeAlpha(to: 0.65, duration: 0.35),
+                    SKAction.fadeAlpha(to: 1.00, duration: 0.35),
+                ])))
+            }
 
             shadow = SKSpriteNode(color: .black,
                                   size: CGSize(width: 50, height: 35))
@@ -95,7 +164,7 @@ final class CornholeMiniGameScene: SKScene {
     private var playerBagsThrown = 0
     private var aiBagsThrown     = 0
     private let bagsPerPlayer    = 4
-    private let winScore         = 11
+    private var winScore         = 11
     private var playerScore      = 0
     private var aiScore          = 0
     private var lastThrower: BagOwner = .ai
@@ -123,6 +192,7 @@ final class CornholeMiniGameScene: SKScene {
     private var stormDarkOverlay: SKSpriteNode?
     private var stormParticleNode: SKNode?
     private var stormFlashOverlay: SKSpriteNode?
+    private var stormAudioNode:   SKAudioNode?
 
     // Gopher — only one alive at a time; chases the throw-line bag and steals it
     private var activeGopher: GopherNode?
@@ -136,10 +206,21 @@ final class CornholeMiniGameScene: SKScene {
     private var crowFlyingRight = true
 
     // Opponent selection
-    private enum AIOpponent { case tom, jenny }
+    private enum AIOpponent { case tom, jenny, billy, spirit }
     private var selectedOpponent: AIOpponent = .tom
     private var opponentPortrait: SKSpriteNode?
-    private var opponentName: String { selectedOpponent == .tom ? "TOM" : "JENNY" }
+    private var opponentName: String {
+        switch selectedOpponent {
+        case .tom:    return "TOM"
+        case .jenny:  return "JENNY"
+        case .billy:  return "BILLY"
+        case .spirit: return "SPIRIT"
+        }
+    }
+
+    // Billy the Bully — adaptive difficulty state
+    private var billyNoiseFactor: CGFloat  = 2.5  // lower = harder; adapts each round
+    private var billyBombBagsRemaining: Int = 0   // bomb bags Billy can throw this match
 
     // Input
     private var touchStart: CGPoint?
@@ -195,9 +276,9 @@ final class CornholeMiniGameScene: SKScene {
         // Warm up AVAudioEngine (shared with playSoundFileNamed) by playing each
         // sound once at volume 0. Guard against missing files — SKAudioNode crashes
         // hard on a missing file while playSoundFileNamed silently no-ops.
-        let sounds = ["bag_land.wav", "hole_score.wav", "round_end.wav",
+        let sounds = ["hit.mp3",      "hole_score.wav", "round_end.wav",
                       "rain_start.wav", "gopher_pop.wav", "gopher_steal.wav",
-                      "game_win.wav",  "game_lose.wav"]
+                      "game_win.wav",  "game_lose.wav",  "storm.mp3"]
         sounds.forEach { warmUpSound($0) }
     }
 
@@ -579,8 +660,19 @@ final class CornholeMiniGameScene: SKScene {
 
     /// Returns the special bag types the player currently has available for cornhole.
     private var satchelItems: [(type: ItemType, count: Int)] {
-        [(type: .honeyBag, count: availableHoneyBags)]
+        [(type: .honeyBag, count: availableHoneyBags),
+         (type: .bombBag,  count: availableBombBags),
+         (type: .magicBag, count: availableMagicBags)]
             .filter { $0.count > 0 }
+    }
+
+    private func isItemSelected(_ type: ItemType) -> Bool {
+        switch type {
+        case .honeyBag: return honeyBagSelected
+        case .bombBag:  return bombBagSelected
+        case .magicBag: return magicBagSelected
+        default:        return false
+        }
     }
 
     /// Pixel-art satchel icon button in the lower-right corner above the bottom chrome.
@@ -645,7 +737,9 @@ final class CornholeMiniGameScene: SKScene {
         guard let btn = satchelButton else { return }
 
         if satchelItems.isEmpty {
-            honeyBagSelected = false
+            honeyBagSelected  = false
+            bombBagSelected   = false
+            magicBagSelected  = false
             closeSatchelPanel()
             btn.isHidden = true
             return
@@ -659,7 +753,11 @@ final class CornholeMiniGameScene: SKScene {
         // Selected indicator dot: coloured when something is armed, clear otherwise
         let dot = btn.childNode(withName: "satchelSelectedDot") as? SKSpriteNode
         if honeyBagSelected {
-            dot?.color = SKColor(red: 0.95, green: 0.72, blue: 0.10, alpha: 1.0)
+            dot?.color = SKColor(red: 0.95, green: 0.72, blue: 0.10, alpha: 1.0)  // gold
+        } else if bombBagSelected {
+            dot?.color = SKColor(red: 0.90, green: 0.20, blue: 0.10, alpha: 1.0)  // red
+        } else if magicBagSelected {
+            dot?.color = SKColor(red: 0.12, green: 0.82, blue: 0.35, alpha: 1.0)  // green
         } else {
             dot?.color = .clear
         }
@@ -763,11 +861,22 @@ final class CornholeMiniGameScene: SKScene {
             row.zPosition = 2
             panel.addChild(row)
 
-            let isSelected = (item.type == .honeyBag && honeyBagSelected)
+            let isSelected = isItemSelected(item.type)
+            let selColor: SKColor
+            let checkColor: SKColor
+            switch item.type {
+            case .bombBag:
+                selColor   = SKColor(red: 0.28, green: 0.04, blue: 0.04, alpha: 0.90)
+                checkColor = SKColor(red: 0.90, green: 0.20, blue: 0.10, alpha: 1)
+            case .magicBag:
+                selColor   = SKColor(red: 0.04, green: 0.28, blue: 0.10, alpha: 0.90)
+                checkColor = SKColor(red: 0.12, green: 0.82, blue: 0.35, alpha: 1)
+            default:
+                selColor   = SKColor(red: 0.28, green: 0.18, blue: 0.04, alpha: 0.90)
+                checkColor = SKColor(red: 0.95, green: 0.72, blue: 0.10, alpha: 1)
+            }
             let rowBg = SKSpriteNode(
-                color: isSelected
-                    ? SKColor(red: 0.28, green: 0.18, blue: 0.04, alpha: 0.90)
-                    : SKColor(white: 1, alpha: 0.04),
+                color: isSelected ? selColor : SKColor(white: 1, alpha: 0.04),
                 size: CGSize(width: panelW - 8, height: rowH - 6))
             rowBg.name      = "satchelRowBg_\(item.type.rawValue)"
             rowBg.zPosition = 0
@@ -776,12 +885,8 @@ final class CornholeMiniGameScene: SKScene {
             // Selection circle
             let check = SKShapeNode(circleOfRadius: 6)
             check.name        = "satchelCheck_\(item.type.rawValue)"
-            check.strokeColor = isSelected
-                ? SKColor(red: 0.95, green: 0.72, blue: 0.10, alpha: 1)
-                : SKColor(white: 0.45, alpha: 1)
-            check.fillColor   = isSelected
-                ? SKColor(red: 0.95, green: 0.72, blue: 0.10, alpha: 0.30)
-                : .clear
+            check.strokeColor = isSelected ? checkColor : SKColor(white: 0.45, alpha: 1)
+            check.fillColor   = isSelected ? checkColor.withAlphaComponent(0.30) : .clear
             check.lineWidth   = 1.5
             check.position    = CGPoint(x: -panelW / 2 + 16, y: 0)
             check.zPosition   = 1
@@ -831,24 +936,34 @@ final class CornholeMiniGameScene: SKScene {
     /// Updates row visuals and counts in-place to reflect the current selection and inventory state.
     private func refreshSatchelPanelRows() {
         guard let panel = satchelPanel else { return }
-        // Rebuild satchelItems from current counts so the loop sees up-to-date values
-        let allItems: [(type: ItemType, count: Int)] = [(type: .honeyBag, count: availableHoneyBags)]
+        let allItems: [(type: ItemType, count: Int)] = [
+            (.honeyBag, availableHoneyBags),
+            (.bombBag,  availableBombBags),
+            (.magicBag, availableMagicBags),
+        ]
         for item in allItems {
-            let isSelected = (item.type == .honeyBag && honeyBagSelected)
+            let isSelected = isItemSelected(item.type)
             let key = item.type.rawValue
+            let checkColor: SKColor
+            let selBg: SKColor
+            switch item.type {
+            case .bombBag:
+                checkColor = SKColor(red: 0.90, green: 0.20, blue: 0.10, alpha: 1)
+                selBg      = SKColor(red: 0.28, green: 0.04, blue: 0.04, alpha: 0.90)
+            case .magicBag:
+                checkColor = SKColor(red: 0.12, green: 0.82, blue: 0.35, alpha: 1)
+                selBg      = SKColor(red: 0.04, green: 0.28, blue: 0.10, alpha: 0.90)
+            default:
+                checkColor = SKColor(red: 0.95, green: 0.72, blue: 0.10, alpha: 1)
+                selBg      = SKColor(red: 0.28, green: 0.18, blue: 0.04, alpha: 0.90)
+            }
 
             if let rowBg = panel.childNode(withName: "//satchelRowBg_\(key)") as? SKSpriteNode {
-                rowBg.color = isSelected
-                    ? SKColor(red: 0.28, green: 0.18, blue: 0.04, alpha: 0.90)
-                    : SKColor(white: 1, alpha: 0.04)
+                rowBg.color = isSelected ? selBg : SKColor(white: 1, alpha: 0.04)
             }
             if let check = panel.childNode(withName: "//satchelCheck_\(key)") as? SKShapeNode {
-                check.strokeColor = isSelected
-                    ? SKColor(red: 0.95, green: 0.72, blue: 0.10, alpha: 1)
-                    : SKColor(white: 0.45, alpha: 1)
-                check.fillColor = isSelected
-                    ? SKColor(red: 0.95, green: 0.72, blue: 0.10, alpha: 0.30)
-                    : .clear
+                check.strokeColor = isSelected ? checkColor : SKColor(white: 0.45, alpha: 1)
+                check.fillColor   = isSelected ? checkColor.withAlphaComponent(0.30) : .clear
             }
             if let lbl = panel.childNode(withName: "//satchelLbl_\(key)") as? SKLabelNode {
                 lbl.fontColor = isSelected ? SKColor(white: 1.0, alpha: 1) : SKColor(white: 0.80, alpha: 1)
@@ -858,17 +973,38 @@ final class CornholeMiniGameScene: SKScene {
     }
 
     /// Arms or disarms a special bag type. Count decrements immediately on arm; refunds on disarm.
+    /// Only one type can be armed at a time — arming a new type disarms the previous one.
     private func selectSatchelItem(_ type: ItemType) {
         switch type {
         case .honeyBag:
             if honeyBagSelected {
-                // Disarm — refund the bag
                 honeyBagSelected = false
                 availableHoneyBags += 1
             } else if availableHoneyBags > 0 {
-                // Arm — consume one bag now so the count reflects what's left
+                if bombBagSelected  { bombBagSelected  = false; availableBombBags  += 1 }
+                if magicBagSelected { magicBagSelected = false; availableMagicBags += 1 }
                 honeyBagSelected = true
                 availableHoneyBags -= 1
+            }
+        case .bombBag:
+            if bombBagSelected {
+                bombBagSelected = false
+                availableBombBags += 1
+            } else if availableBombBags > 0 {
+                if honeyBagSelected  { honeyBagSelected  = false; availableHoneyBags  += 1 }
+                if magicBagSelected  { magicBagSelected  = false; availableMagicBags  += 1 }
+                bombBagSelected = true
+                availableBombBags -= 1
+            }
+        case .magicBag:
+            if magicBagSelected {
+                magicBagSelected = false
+                availableMagicBags += 1
+            } else if availableMagicBags > 0 {
+                if honeyBagSelected { honeyBagSelected = false; availableHoneyBags += 1 }
+                if bombBagSelected  { bombBagSelected  = false; availableBombBags  += 1 }
+                magicBagSelected = true
+                availableMagicBags -= 1
             }
         default:
             break
@@ -914,6 +1050,8 @@ final class CornholeMiniGameScene: SKScene {
         aiBagsThrown        = 0
         hasCalculatedScore  = false
         honeyBagSelected    = false
+        bombBagSelected     = false
+        magicBagSelected    = false
         updateSatchelButton()
         refreshSatchelPanelRows()
 
@@ -990,6 +1128,7 @@ final class CornholeMiniGameScene: SKScene {
         var roundAI     = 0
 
         for bag in activeBags {
+            guard !bag.isDestroyed else { continue }
             let isInHole  = bag.hasScored
             let isOnBoard = !isInHole && checkIsOnBoard(bag)
             let pts       = isInHole ? 3 : (isOnBoard ? 1 : 0)
@@ -1000,6 +1139,15 @@ final class CornholeMiniGameScene: SKScene {
         let net = roundPlayer - roundAI
         if net > 0 { playerScore += net }
         else if net < 0 { aiScore += abs(net) }
+
+        // Billy adapts: tighten on player round wins, ease slightly on AI wins
+        if selectedOpponent == .billy {
+            if net > 0 {
+                billyNoiseFactor = max(1.4, billyNoiseFactor - 0.12)
+            } else if net < 0 {
+                billyNoiseFactor = min(3.8, billyNoiseFactor + 0.15)
+            }
+        }
 
         updateScoreLabels()
 
@@ -1067,6 +1215,7 @@ final class CornholeMiniGameScene: SKScene {
                 let b = activeBags[j]
 
                 guard !a.hasScored && !b.hasScored else { continue }
+                guard !a.isDestroyed && !b.isDestroyed else { continue }
 
                 // Bags that fell off the board are locked in place — skip
                 guard !a.hasAppliedGroundScale && !b.hasAppliedGroundScale else { continue }
@@ -1091,6 +1240,15 @@ final class CornholeMiniGameScene: SKScene {
                 let dvy = b.vy - a.vy
                 let relVel = dvx * nx + dvy * ny
                 guard relVel < 0 else { continue }
+
+                // Magic bag hits opponent bag — destroy the opponent bag, magic bag continues
+                let aMagicVsB = a.isMagic && b.owner != a.owner
+                let bMagicVsA = b.isMagic && a.owner != b.owner
+                if aMagicVsB || bMagicVsA {
+                    if aMagicVsB { destroyBag(b); showMagicPoof(at: CGPoint(x: b.bx, y: b.by)) }
+                    if bMagicVsA { destroyBag(a); showMagicPoof(at: CGPoint(x: a.bx, y: a.by)) }
+                    continue
+                }
 
                 // Equal-mass impulse
                 let impulse = -(1.0 + restitution) * relVel * 0.5
@@ -1143,8 +1301,7 @@ final class CornholeMiniGameScene: SKScene {
                 if !bag.hasLanded {
                     bag.hasLanded = true
                     UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                    // PLACEHOLDER: add bag_land.wav to Copy Bundle Resources
-                    run(SKAction.playSoundFileNamed("bag_land.wav", waitForCompletion: false))
+                    run(SKAction.playSoundFileNamed("hit.mp3", waitForCompletion: false))
                 }
 
                 if bag.isHoney {
@@ -1185,6 +1342,19 @@ final class CornholeMiniGameScene: SKScene {
                     ])
                     bag.node.run(sink)
                     bag.shadow.run(SKAction.fadeOut(withDuration: 0.15))
+                    // Bomb in hole: destroy opponent bags already scored in the hole
+                    if bag.isBomb && !bag.hasBombed {
+                        bag.hasBombed = true
+                        triggerBombHole(by: bag.owner)
+                    }
+                    // Magic bag in hole: destroy opponent bags already scored in the hole
+                    if bag.isMagic {
+                        triggerMagicHole(by: bag.owner)
+                    }
+                } else if bag.isBomb && !bag.hasBombed && bag.isGrounded && checkIsOnBoard(bag) {
+                    // Bomb rests on board surface: destroy opponent bags on the board
+                    bag.hasBombed = true
+                    triggerBombBoard(at: CGPoint(x: bag.bx, y: bag.by), by: bag.owner)
                 }
             } else {
                 // Lands off-board — stop dead and shrink to show depth vs. board level
@@ -1227,18 +1397,187 @@ final class CornholeMiniGameScene: SKScene {
         bag.by <= boardY + boardHalfH * 0.95
     }
 
+    // MARK: - Bomb Bag
+
+    /// Bomb lands on board surface: destroys all opponent bags resting on the board.
+    private func triggerBombBoard(at pos: CGPoint, by owner: BagOwner) {
+        let opponent: BagOwner = owner == .player ? .ai : .player
+        var destroyed = 0
+        for bag in activeBags where bag.owner == opponent && !bag.isDestroyed
+                                  && bag.isGrounded && !bag.hasScored && checkIsOnBoard(bag) {
+            destroyBag(bag)
+            destroyed += 1
+        }
+        showBombExplosion(at: pos, label: destroyed > 0 ? "BOOM! \(destroyed) BAG\(destroyed == 1 ? "" : "S") GONE!" : "BOOM!")
+    }
+
+    /// Bomb scores in hole: destroys all opponent bags already scored in the hole.
+    private func triggerBombHole(by owner: BagOwner) {
+        let opponent: BagOwner = owner == .player ? .ai : .player
+        var destroyed = 0
+        for bag in activeBags where bag.owner == opponent && !bag.isDestroyed && bag.hasScored {
+            destroyBag(bag)
+            destroyed += 1
+        }
+        showBombExplosion(at: CGPoint(x: holeCenter.x, y: holeCenter.y),
+                          label: destroyed > 0 ? "BOOM! \(destroyed) HOLE BAG\(destroyed == 1 ? "" : "S") GONE!" : "BOOM!")
+    }
+
+    private func destroyBag(_ bag: MiniGameBag) {
+        bag.isDestroyed = true
+        bag.vx = 0; bag.vy = 0; bag.vz = 0
+        let pop = SKAction.sequence([
+            SKAction.group([
+                SKAction.scale(to: 0.1, duration: 0.22),
+                SKAction.fadeOut(withDuration: 0.22),
+            ]),
+            SKAction.removeFromParent(),
+        ])
+        bag.node.run(pop)
+        bag.shadow.run(SKAction.sequence([
+            SKAction.fadeOut(withDuration: 0.15),
+            SKAction.removeFromParent(),
+        ]))
+    }
+
+    private func showBombExplosion(at pos: CGPoint, label: String) {
+        // Pixel particle burst
+        let container = SKNode()
+        container.position  = pos
+        container.zPosition = 300
+        addChild(container)
+
+        let colors: [SKColor] = [
+            SKColor(red: 1.0, green: 0.40, blue: 0.10, alpha: 1),
+            SKColor(red: 1.0, green: 0.80, blue: 0.10, alpha: 1),
+            SKColor(red: 0.20, green: 0.20, blue: 0.20, alpha: 1),
+        ]
+        for _ in 0..<10 {
+            let p = SKSpriteNode(color: colors.randomElement()!,
+                                 size: CGSize(width: 5, height: 5))
+            p.position = .zero
+            container.addChild(p)
+            let angle = CGFloat.random(in: 0...(2 * .pi))
+            let speed = CGFloat.random(in: 35...80)
+            p.run(SKAction.sequence([
+                SKAction.group([
+                    SKAction.moveBy(x: cos(angle) * speed, y: sin(angle) * speed, duration: 0.38),
+                    SKAction.fadeOut(withDuration: 0.38),
+                ]),
+                SKAction.removeFromParent(),
+            ]))
+        }
+        container.run(SKAction.sequence([
+            SKAction.wait(forDuration: 0.45),
+            SKAction.removeFromParent(),
+        ]))
+
+        // BOOM label
+        let boom = makeLabel(text: label,
+                             size: max(6, size.width * 0.048),
+                             color: SKColor(red: 1.0, green: 0.35, blue: 0.10, alpha: 1))
+        boom.position  = CGPoint(x: pos.x, y: pos.y + 22)
+        boom.zPosition = 800
+        boom.alpha     = 0
+        boom.setScale(0.6)
+        addChild(boom)
+        boom.run(SKAction.sequence([
+            SKAction.group([
+                SKAction.scale(to: 1.0, duration: 0.16),
+                SKAction.fadeIn(withDuration: 0.16),
+            ]),
+            SKAction.wait(forDuration: 1.0),
+            SKAction.fadeOut(withDuration: 0.28),
+            SKAction.removeFromParent(),
+        ]))
+    }
+
+    // MARK: - Magic Bag
+
+    /// Magic bag scores in hole: destroys all opponent bags already in the hole this round.
+    private func triggerMagicHole(by owner: BagOwner) {
+        let opponent: BagOwner = owner == .player ? .ai : .player
+        var destroyed = 0
+        for bag in activeBags where bag.owner == opponent && !bag.isDestroyed && bag.hasScored {
+            destroyBag(bag)
+            destroyed += 1
+        }
+        if destroyed > 0 {
+            showMagicPoof(at: CGPoint(x: holeCenter.x, y: holeCenter.y))
+            let lbl = makeLabel(
+                text: "MAGIC! \(destroyed) CORNHOLE\(destroyed == 1 ? "" : "S") STOLEN!",
+                size: max(6, size.width * 0.044),
+                color: SKColor(red: 0.12, green: 0.92, blue: 0.42, alpha: 1))
+            lbl.position  = CGPoint(x: 0, y: size.height * 0.14)
+            lbl.zPosition = 800
+            lbl.alpha     = 0
+            addChild(lbl)
+            lbl.run(SKAction.sequence([
+                SKAction.fadeIn(withDuration: 0.18),
+                SKAction.wait(forDuration: 1.2),
+                SKAction.fadeOut(withDuration: 0.28),
+                SKAction.removeFromParent(),
+            ]))
+        }
+    }
+
+    /// Sparkle-poof visual when a magic bag destroys an opponent bag on contact.
+    private func showMagicPoof(at pos: CGPoint) {
+        let container = SKNode()
+        container.position  = pos
+        container.zPosition = 300
+        addChild(container)
+
+        let colors: [SKColor] = [
+            SKColor(red: 0.12, green: 0.90, blue: 0.40, alpha: 1),
+            SKColor(red: 0.60, green: 1.00, blue: 0.60, alpha: 1),
+            SKColor(red: 1.00, green: 1.00, blue: 0.80, alpha: 1),
+        ]
+        for _ in 0..<8 {
+            let p = SKSpriteNode(color: colors.randomElement()!,
+                                 size: CGSize(width: 4, height: 4))
+            p.position = .zero
+            container.addChild(p)
+            let angle = CGFloat.random(in: 0...(2 * .pi))
+            let speed = CGFloat.random(in: 25...55)
+            p.run(SKAction.sequence([
+                SKAction.group([
+                    SKAction.moveBy(x: cos(angle) * speed, y: sin(angle) * speed, duration: 0.32),
+                    SKAction.fadeOut(withDuration: 0.32),
+                ]),
+                SKAction.removeFromParent(),
+            ]))
+        }
+        container.run(SKAction.sequence([
+            SKAction.wait(forDuration: 0.40),
+            SKAction.removeFromParent(),
+        ]))
+    }
+
     // MARK: - Throwing
 
-    private func throwBag(owner: BagOwner, startX: CGFloat, vx: CGFloat, vy: CGFloat) {
-        // availableHoneyBags was already decremented when the player armed the bag in the satchel.
+    private func throwBag(owner: BagOwner, startX: CGFloat, vx: CGFloat, vy: CGFloat, aiBomb: Bool = false) {
+        // availableHoneyBags / availableBombBags / availableMagicBags already decremented on arm.
         let useHoney = owner == .player && honeyBagSelected
+        let useBomb  = (owner == .player && bombBagSelected) || aiBomb
+        let useMagic = owner == .player && magicBagSelected
         if useHoney {
             honeyBagsUsed += 1
             honeyBagSelected = false
-            updateSatchelButton()
-            refreshSatchelPanelRows()
+            updateSatchelButton(); refreshSatchelPanelRows()
         }
-        let bag = MiniGameBag(owner: owner, startX: startX, startY: throwLineY, isHoney: useHoney)
+        if owner == .player && bombBagSelected {
+            bombBagsUsed += 1
+            bombBagSelected = false
+            updateSatchelButton(); refreshSatchelPanelRows()
+        }
+        if useMagic {
+            magicBagsUsed += 1
+            magicBagSelected = false
+            updateSatchelButton(); refreshSatchelPanelRows()
+        }
+        let bag = MiniGameBag(owner: owner, startX: startX, startY: throwLineY,
+                              isHoney: useHoney, isBomb: useBomb, isMagic: useMagic)
         bag.vx = vx
         bag.vy = vy
         bag.vz = vzInitial
@@ -1308,7 +1647,60 @@ final class CornholeMiniGameScene: SKScene {
         let vx = (aimX - startX) / flightFrames
         let vy = (aimY - throwLineY) / flightFrames
 
+        // Billy — adaptive noise that tightens as the player improves.
+        // May also throw bomb bags to destroy player bags on the board or in the hole.
+        if selectedOpponent == .billy {
+            let billyNoise = holeRadius * billyNoiseFactor
+            aimX = holeCenter.x + CGFloat.random(in: -billyNoise...billyNoise)
+            aimY = holeCenter.y + CGFloat.random(in: -billyNoise * 0.5...billyNoise * 0.5)
+            let billyVx = (aimX - startX) / flightFrames
+            let billyVy = (aimY - throwLineY) / flightFrames
+
+            let throwBomb = billyBombBagsRemaining > 0 && Double.random(in: 0..<1) < 0.20
+            if throwBomb { billyBombBagsRemaining -= 1 }
+            throwBag(owner: .ai, startX: startX, vx: billyVx, vy: billyVy, aiBomb: throwBomb)
+            return
+        }
+
+        // Tree Spirit — drops magic bags straight down from above.
+        // 50% aim near the hole; 50% fall on a random board spot.
+        if selectedOpponent == .spirit {
+            let targetX: CGFloat
+            let targetY: CGFloat
+            if Double.random(in: 0..<1) < 0.50 {
+                let noise = holeRadius * 1.0
+                targetX = holeCenter.x + CGFloat.random(in: -noise...noise)
+                targetY = holeCenter.y + CGFloat.random(in: -noise * 0.4...noise * 0.4)
+            } else {
+                targetX = CGFloat.random(in: -boardHalfW * 0.80 ... boardHalfW * 0.80)
+                targetY = CGFloat.random(in: (boardY - boardHalfH * 0.80) ... (boardY + boardHalfH * 0.80))
+            }
+            dropMagicBagFromAbove(targetX: targetX, targetY: targetY)
+            return
+        }
+
         throwBag(owner: .ai, startX: startX, vx: vx, vy: vy)
+    }
+
+    /// Creates a Spirit magic bag that materialises high above the board and falls straight down.
+    private func dropMagicBagFromAbove(targetX: CGFloat, targetY: CGFloat) {
+        guard gameState == .aiTurn, aiBagsThrown < bagsPerPlayer else { return }
+
+        let bag = MiniGameBag(owner: .ai, startX: targetX, startY: targetY, isMagic: true)
+        bag.bz   = 220          // materialise well above the board
+        bag.vx   = CGFloat.random(in: -0.3...0.3)  // tiny flutter
+        bag.vy   = 0
+        bag.vz   = 0
+        bag.rotV = CGFloat.random(in: -0.04...0.04)
+
+        gameWorldNode.addChild(bag.node)
+        gameWorldNode.addChild(bag.shadow)
+        activeBags.append(bag)
+
+        aiBagsThrown += 1
+        lastThrower   = .ai
+        gameState     = .resolving
+        turnIndicator?.isHidden = true
     }
 
     // MARK: - Input
@@ -1782,12 +2174,30 @@ final class CornholeMiniGameScene: SKScene {
         scheduleNextLightningStrike()
         showStormAnnouncement()
         updateWindLabel()
+
+        guard stormAudioNode == nil,
+              Bundle.main.url(forResource: "storm", withExtension: "mp3") != nil else { return }
+        let audio = SKAudioNode(fileNamed: "storm.mp3")
+        audio.autoplayLooped = true
+        audio.isPositional   = false
+        audio.run(SKAction.changeVolume(to: 0, duration: 0))
+        addChild(audio)
+        audio.run(SKAction.changeVolume(to: 0.70, duration: 1.2))
+        stormAudioNode = audio
     }
 
     private func deactivateStorm() {
         stormActive = false
         removeAction(forKey: "stormFlash")
         removeAction(forKey: "stormStrike")
+
+        if let audio = stormAudioNode {
+            audio.run(SKAction.sequence([
+                SKAction.changeVolume(to: 0, duration: 1.5),
+                SKAction.removeFromParent(),
+            ]))
+            stormAudioNode = nil
+        }
 
         stormDarkOverlay?.run(SKAction.sequence([
             SKAction.fadeOut(withDuration: 0.8),
@@ -2392,25 +2802,80 @@ final class CornholeMiniGameScene: SKScene {
 
     private func showOpponentPicker() {
         let configs: [OpponentConfig] = [
-            OpponentConfig(name: "TOM",   imageName: "tom",
+            OpponentConfig(name: "TOM",    imageName: "tom",
                            traitText: "TOPS YOUR HOLE SHOTS"),
-            OpponentConfig(name: "JENNY", imageName: "jenny",
+            OpponentConfig(name: "JENNY",  imageName: "jenny",
                            traitText: "KNOCKS BAGS OFF BOARD"),
+            OpponentConfig(name: "BILLY",  imageName: "billy",
+                           traitText: "MATCHES YOUR SKILL • TO 21"),
+            OpponentConfig(name: "SPIRIT", imageName: "spirit",
+                           traitText: "DROPS MAGIC BAGS • TO 21"),
         ]
         let picker = OpponentPickerNode(opponents: configs, sceneSize: size)
         picker.zPosition = 3000
         picker.onSelected = { [weak self] index in
             guard let self else { return }
-            self.selectedOpponent = index == 0 ? .tom : .jenny
+            switch index {
+            case 0: self.selectedOpponent = .tom
+            case 1: self.selectedOpponent = .jenny
+            case 2:
+                self.selectedOpponent = .billy
+                self.applyBillySettings()
+            default:
+                self.selectedOpponent = .spirit
+                self.applySpiritSettings()
+            }
             self.addOpponentPortrait()
             self.showFirstTimeTutorial()
         }
         addChild(picker)
     }
 
+    /// Configures Tree Spirit game overrides: score to 21, no forced weather.
+    private func applySpiritSettings() {
+        winScore = 21
+    }
+
+    /// Configures all Billy-specific overrides after opponent selection.
+    private func applyBillySettings() {
+        winScore = 21
+        // Force thunderstorm for the entire match — no random rain
+        rainStartRound  = -1
+        rainEndRound    = Int.max
+        stormStartRound = 1
+        stormEndRound   = Int.max
+        billyNoiseFactor = computeBillyInitialNoise()
+        billyBombBagsRemaining = computeBillyBombCount()
+    }
+
+    /// Computes Billy's initial noise factor from the player's career cornhole accuracy.
+    /// Returns a value in [0.8, 3.5]: 3.5 = beginner, 0.8 = expert.
+    private func computeBillyInitialNoise() -> CGFloat {
+        let stats = CornholeStatsManager.shared
+        let totalGames = stats.wins + stats.losses
+        guard totalGames > 0 else { return 3.2 }
+        // ~12 throw opportunities per game (4 bags × ~3 rounds avg)
+        let rate = CGFloat(stats.cornholes) / (CGFloat(totalGames) * 12.0)
+        let clamped = min(rate, 1.0)
+        return max(1.4, 3.8 - clamped * 2.1)
+    }
+
+    /// Billy starts with more bomb bags when the player is more skilled (higher stakes).
+    private func computeBillyBombCount() -> Int {
+        if billyNoiseFactor > 2.8 { return 1 }
+        if billyNoiseFactor > 1.8 { return 2 }
+        return 3
+    }
+
     private func addOpponentPortrait() {
         opponentPortrait?.removeFromParent()
-        let name = selectedOpponent == .tom ? "tom" : "jenny"
+        let name: String
+        switch selectedOpponent {
+        case .tom:    name = "tom"
+        case .jenny:  name = "jenny"
+        case .billy:  name = "billy"
+        case .spirit: name = "spirit"
+        }
         let tex  = SKTexture(imageNamed: name)
         tex.filteringMode = .nearest
         let bottomH = size.height * 0.09
@@ -2427,6 +2892,8 @@ final class CornholeMiniGameScene: SKScene {
     private func dismissScene(playerWon: Bool) {
         if playerWon { CornholeStatsManager.shared.recordWin() }
         else         { CornholeStatsManager.shared.recordLoss() }
+        if playerWon && selectedOpponent == .billy  { bombBagsEarned  = 3 }
+        if playerWon && selectedOpponent == .spirit { magicBagsEarned = 3 }
         onComplete?(playerWon)
         guard let view = self.view, let prev = previousScene else { return }
         let transition = SKTransition.push(with: .down, duration: 0.38)

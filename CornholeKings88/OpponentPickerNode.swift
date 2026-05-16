@@ -47,7 +47,7 @@ final class OpponentPickerNode: SKNode {
         addChild(dim)
 
         let panelW = sceneSize.width  * 0.84
-        let panelH = sceneSize.height * 0.60
+        let panelH = sceneSize.height * (opponents.count >= 3 ? 0.80 : 0.60)
         let fs     = max(5, sceneSize.width * 0.040)
 
         // Panel background
@@ -66,63 +66,118 @@ final class OpponentPickerNode: SKNode {
         // Title
         let title = makeLabel("CHOOSE OPPONENT", size: fs * 0.82,
                               color: SKColor(red: 0.78, green: 0.57, blue: 0.16, alpha: 1))
-        title.position = CGPoint(x: 0, y: panelH * 0.38)
+        title.position = CGPoint(x: 0, y: panelH * 0.44)
         addChild(title)
 
-        // Two opponent cards, side by side
-        let cardW   = panelW * 0.42
-        let cardH   = panelH * 0.66
-        let xOffset = panelW * 0.26   // center-to-center half-distance
+        if opponents.count >= 4 {
+            // 2×2 grid: top row = regular opponents, bottom row = boss opponents
+            let cardW   = panelW * 0.42
+            let cardH   = panelH * 0.34
+            let xOffset = panelW * 0.26
+            let topY    = panelH * 0.13
+            let bottomY = -panelH * 0.24
 
-        for (i, config) in opponents.enumerated() {
-            let x = i == 0 ? -xOffset : xOffset
-            let card = buildCard(config: config, index: i, w: cardW, h: cardH, fs: fs)
-            card.position = CGPoint(x: x, y: -panelH * 0.06)
-            addChild(card)
+            for i in 0..<2 {
+                let x = i == 0 ? -xOffset : xOffset
+                let card = buildCard(config: opponents[i], index: i, w: cardW, h: cardH, fs: fs, isBoss: false)
+                card.position = CGPoint(x: x, y: topY)
+                addChild(card)
+            }
+            for i in 2..<4 {
+                let x = i == 2 ? -xOffset : xOffset
+                let card = buildCard(config: opponents[i], index: i, w: cardW, h: cardH, fs: fs, isBoss: true)
+                card.position = CGPoint(x: x, y: bottomY)
+                addChild(card)
+            }
+        } else if opponents.count == 3 {
+            // 2+1 layout: first two side-by-side on top row, third centered on bottom row
+            let cardW   = panelW * 0.42
+            let cardH   = panelH * 0.35
+            let xOffset = panelW * 0.26
+            let topY    = panelH * 0.12
+            let bottomY = -panelH * 0.26
+
+            for i in 0..<2 {
+                let x = i == 0 ? -xOffset : xOffset
+                let card = buildCard(config: opponents[i], index: i, w: cardW, h: cardH, fs: fs, isBoss: false)
+                card.position = CGPoint(x: x, y: topY)
+                addChild(card)
+            }
+            let bossCard = buildCard(config: opponents[2], index: 2,
+                                     w: cardW * 1.10, h: cardH * 1.18, fs: fs, isBoss: true)
+            bossCard.position = CGPoint(x: 0, y: bottomY)
+            addChild(bossCard)
+        } else {
+            // Original two-card side-by-side layout
+            let cardW   = panelW * 0.42
+            let cardH   = panelH * 0.66
+            let xOffset = panelW * 0.26
+
+            for (i, config) in opponents.enumerated() {
+                let x = i == 0 ? -xOffset : xOffset
+                let card = buildCard(config: config, index: i, w: cardW, h: cardH, fs: fs, isBoss: false)
+                card.position = CGPoint(x: x, y: -panelH * 0.06)
+                addChild(card)
+            }
         }
     }
 
     private func buildCard(config: OpponentConfig, index: Int,
-                           w: CGFloat, h: CGFloat, fs: CGFloat) -> SKNode {
+                           w: CGFloat, h: CGFloat, fs: CGFloat, isBoss: Bool) -> SKNode {
         let tag = "card_\(index)"
         let card = SKNode()
 
+        let bgColor = isBoss
+            ? SKColor(red: 0.14, green: 0.06, blue: 0.04, alpha: 1)
+            : SKColor(red: 0.12, green: 0.09, blue: 0.06, alpha: 1)
+        let borderColor = isBoss
+            ? SKColor(red: 0.80, green: 0.18, blue: 0.12, alpha: 1)
+            : SKColor(red: 0.40, green: 0.26, blue: 0.10, alpha: 1)
+
         // Card background
-        let bg = SKSpriteNode(
-            color: SKColor(red: 0.12, green: 0.09, blue: 0.06, alpha: 1),
-            size: CGSize(width: w, height: h))
+        let bg = SKSpriteNode(color: bgColor, size: CGSize(width: w, height: h))
         bg.name = tag
         card.addChild(bg)
 
         // Card border
         let border = SKShapeNode(rectOf: CGSize(width: w + 2, height: h + 2))
-        border.strokeColor = SKColor(red: 0.40, green: 0.26, blue: 0.10, alpha: 1)
+        border.strokeColor = borderColor
         border.fillColor   = .clear
-        border.lineWidth   = 2
+        border.lineWidth   = isBoss ? 3 : 2
         border.name = tag
         card.addChild(border)
+
+        // Boss badge
+        if isBoss {
+            let badge = makeLabel("★ BOSS ★", size: max(4, fs * 0.50),
+                                  color: SKColor(red: 1.0, green: 0.28, blue: 0.12, alpha: 1))
+            badge.position = CGPoint(x: 0, y: h * 0.42)
+            badge.name = tag
+            card.addChild(badge)
+        }
 
         // Portrait image
         let tex = SKTexture(imageNamed: config.imageName)
         tex.filteringMode = .nearest
-        let pSize   = min(w * 0.76, h * 0.52)
-        let portrait = SKSpriteNode(texture: tex,
-                                    size: CGSize(width: pSize, height: pSize))
-        portrait.position = CGPoint(x: 0, y: h * 0.10)
+        let pSize    = min(w * 0.72, h * (isBoss ? 0.44 : 0.52))
+        let portrait = SKSpriteNode(texture: tex, size: CGSize(width: pSize, height: pSize))
+        portrait.position = CGPoint(x: 0, y: h * (isBoss ? 0.06 : 0.10))
         portrait.name = tag
         card.addChild(portrait)
 
         // Opponent name
-        let nameLabel = makeLabel(config.name, size: fs * 0.74,
-                                  color: SKColor(red: 0.90, green: 0.42, blue: 0.42, alpha: 1))
-        nameLabel.position = CGPoint(x: 0, y: -h * 0.23)
+        let nameColor = isBoss
+            ? SKColor(red: 1.0, green: 0.36, blue: 0.18, alpha: 1)
+            : SKColor(red: 0.90, green: 0.42, blue: 0.42, alpha: 1)
+        let nameLabel = makeLabel(config.name, size: fs * 0.74, color: nameColor)
+        nameLabel.position = CGPoint(x: 0, y: -h * (isBoss ? 0.28 : 0.23))
         nameLabel.name = tag
         card.addChild(nameLabel)
 
         // Trait description
         let traitLabel = makeLabel(config.traitText, size: max(4, fs * 0.52),
                                    color: SKColor(white: 0.60, alpha: 1))
-        traitLabel.position = CGPoint(x: 0, y: -h * 0.36)
+        traitLabel.position = CGPoint(x: 0, y: -h * (isBoss ? 0.40 : 0.36))
         traitLabel.name = tag
         card.addChild(traitLabel)
 

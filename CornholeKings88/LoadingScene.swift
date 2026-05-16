@@ -174,20 +174,23 @@ final class LoadingScene: SKScene {
         effect.run(.sequence([.wait(forDuration: 0.6), .removeFromParent()]))
     }
 
-    // 5. Pre-decode every WAV via AVAudioPlayer.prepareToPlay() — silent.
+    // 5. Pre-decode every audio file via AVAudioPlayer.prepareToPlay() — silent.
     //    The players are held in a static so the audio data stays warm in memory.
     //    The mini-games call SKAction.playSoundFileNamed; that uses a separate cache,
     //    so we also fire each sound once at zero volume via a muted SKAudioNode to
     //    populate SpriteKit's cache without an audible playback.
     private func prewarmAudio() {
-        let names = [
-            "bag_land", "hole_score", "bat_crack", "bat_whiff",
-            "game_win", "game_lose", "round_end", "strike_call",
-            "out_caught", "phase_change", "rain_start",
-            "dog_bite", "gopher_pop", "gopher_steal",
+        let filenames = [
+            "bag_land.wav", "hole_score.wav", "bat_crack.wav", "bat_whiff.wav",
+            "game_win.wav", "game_lose.wav", "round_end.wav", "strike_call.wav",
+            "out_caught.wav", "phase_change.wav", "rain_start.wav",
+            "dog_bite.wav", "gopher_pop.wav", "gopher_steal.wav",
+            "hit.mp3", "storm.mp3",
         ]
-        for name in names {
-            guard let url = Bundle.main.url(forResource: name, withExtension: "wav") else { continue }
+        for filename in filenames {
+            let name = (filename as NSString).deletingPathExtension
+            let ext  = (filename as NSString).pathExtension
+            guard let url = Bundle.main.url(forResource: name, withExtension: ext) else { continue }
             if let player = try? AVAudioPlayer(contentsOf: url) {
                 player.volume = 0
                 player.prepareToPlay()
