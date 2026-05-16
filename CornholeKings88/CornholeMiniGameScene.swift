@@ -1667,7 +1667,7 @@ final class CornholeMiniGameScene: SKScene {
         if selectedOpponent == .spirit {
             let targetX: CGFloat
             let targetY: CGFloat
-            if Double.random(in: 0..<1) < 0.50 {
+            if Double.random(in: 0..<1) < 0.15 {
                 let noise = holeRadius * 1.0
                 targetX = holeCenter.x + CGFloat.random(in: -noise...noise)
                 targetY = holeCenter.y + CGFloat.random(in: -noise * 0.4...noise * 0.4)
@@ -1980,7 +1980,7 @@ final class CornholeMiniGameScene: SKScene {
             turnIndicator?.isHidden = false
         case .aiTurn:
             turnIndicator?.color = SKColor(red: 0.30, green: 0.50, blue: 0.90, alpha: 1)
-            turnIndicator?.isHidden = false
+            turnIndicator?.isHidden = selectedOpponent == .spirit
         default:
             turnIndicator?.isHidden = true
         }
