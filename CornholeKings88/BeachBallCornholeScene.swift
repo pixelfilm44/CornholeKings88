@@ -717,9 +717,10 @@ final class BeachBallCornholeScene: SKScene {
         ball.by += ball.vy
         ball.bz += ball.vz
 
+        ball.rot    += ball.rotV
         ball.spinPhX += ball.spinFrX
         ball.spinPhY += ball.spinFrY
-        ball.node.zRotation = 0
+        ball.node.zRotation = ball.rot
 
         if ball.bz <= 0 {
             ball.bz = 0
@@ -732,8 +733,7 @@ final class BeachBallCornholeScene: SKScene {
         ball.shadow.position = CGPoint(x: ball.bx + ball.bz * 0.06, y: ball.by)
 
         let heightScale = 1.0 + ball.bz * 0.008
-        ball.node.xScale = cos(ball.spinPhX) * heightScale
-        ball.node.yScale = heightScale
+        ball.node.setScale(heightScale)
 
         ball.shadow.alpha   = max(0.04, 0.26 - ball.bz * 0.004)
         ball.shadow.setScale(max(0.38, 1.0 - ball.bz * 0.004))
@@ -981,7 +981,7 @@ final class BeachBallCornholeScene: SKScene {
 
         // 3D spin illusion: lateral speed → around-vertical-axis squish (xScale)
         //                   forward speed → around-horizontal-axis squish (yScale)
-        ball.spinFrX = (Bool.random() ? 1 : -1) * (0.08 + abs(vx) * 0.022)
+        ball.spinFrX = (Bool.random() ? 1 : -1) * (0.03 + abs(vx) * 0.022)
         ball.spinFrY = (Bool.random() ? 1 : -1) * (0.03 + abs(vy) * 0.016)
         ball.spinAmX = CGFloat.random(in: 0.10...0.18)
         ball.spinAmY = CGFloat.random(in: 0.08...0.15)
