@@ -122,6 +122,16 @@ final class BeachBallCornholeScene: SKScene {
     private var confirmPanel: SKNode?
     private var confirmingQuit = false
 
+    // MARK: - Dolphin Bonus
+    private var dolphinNoseNode: SKNode?
+    private var dolphinNosePos: CGPoint = .zero
+    private var dolphinActive = false
+    private var dolphinJumping = false
+    private var dolphinSpawnTimer: TimeInterval = 7.0  // first appearance after ~7s
+    private var dolphinHideTimer: TimeInterval = 0
+    private let dolphinNoseRadius: CGFloat = 18
+    private var dolphinTexture: SKTexture?
+
     // MARK: - Lifecycle
 
     override func didMove(to view: SKView) {
@@ -715,6 +725,7 @@ final class BeachBallCornholeScene: SKScene {
         }
 
         resolveBallCollisions()
+        updateDolphin(dt: realDt)
     }
 
     // MARK: - Board Drift
@@ -865,6 +876,342 @@ final class BeachBallCornholeScene: SKScene {
         return abs(localX) <= boardHalfW * 0.95 &&
                localY >= -boardHalfH * 0.95 &&
                localY <=  boardHalfH * 0.95
+    }
+
+    // MARK: - Dolphin Bonus
+
+    private func updateDolphin(dt: TimeInterval) {
+        if dolphinJumping { return }
+        if dolphinActive {
+            dolphinHideTimer -= dt
+            if dolphinHideTimer <= 0 {
+                hideDolphinNose()
+                dolphinSpawnTimer = Double.random(in: 8.0...14.0)
+            } else {
+                checkDolphinCollision()
+            }
+        } else {
+            dolphinSpawnTimer -= dt
+            if dolphinSpawnTimer <= 0 { spawnDolphinNose() }
+        }
+    }
+
+    private func spawnDolphinNose() {
+        // Spawn near a screen edge, on whichever side of the board has more clearance.
+        // The board drifts, so picking the side with more room guarantees the snout never
+        // overlaps the board (and always reads as "by the pool wall").
+        let leftRoom  = abs((-W / 2) - (boardDriftX - boardHalfW))
+        let rightRoom = abs(( W / 2) - (boardDriftX + boardHalfW))
+        let side: CGFloat = leftRoom > rightRoom ? -1 : 1
+        let edgeInset = CGFloat.random(in: 22...44)
+        var spawnX = side > 0 ? (W / 2 - edgeInset) : (-W / 2 + edgeInset)
+        // Safety clamp: keep at least 24 px outside the board's horizontal footprint.
+        let boardClear: CGFloat = 24
+        if side > 0 {
+            spawnX = max(spawnX, boardDriftX + boardHalfW + boardClear)
+        } else {
+            spawnX = min(spawnX, boardDriftX - boardHalfW - boardClear)
+        }
+        let pos = CGPoint(x: spawnX,
+                          y: boardY + CGFloat.random(in: -boardHalfH * 0.3...boardHalfH * 0.3))
+        dolphinNosePos = pos
+
+        let nose = SKNode()
+        nose.position = pos
+        nose.zPosition = 18
+
+        let snout = SKSpriteNode(texture: makeDolphinNoseTexture(),
+                                 size: CGSize(width: 36, height: 18))
+        snout.zPosition = 1
+        // Face the board: if nose is to the LEFT of the board (side = -1), the snout should
+        // point RIGHT — flip xScale when side == 1 so the snout faces left toward the board.
+        snout.xScale = (side > 0) ? -1 : 1
+        nose.addChild(snout)
+
+        // Tiny water ripple under the snout
+        for i in 0..<2 {
+            let ring = SKShapeNode(ellipseOf: CGSize(width: 30, height: 10))
+            ring.strokeColor = SKColor(red: 0.40, green: 0.80, blue: 1.0, alpha: 0.55)
+            ring.lineWidth = 1
+            ring.fillColor = .clear
+            ring.position = CGPoint(x: 0, y: -8)
+            ring.zPosition = 0
+            ring.alpha = 0
+            nose.addChild(ring)
+            ring.run(.repeatForever(.sequence([
+                .wait(forDuration: Double(i) * 0.5),
+                .group([
+                    .sequence([.fadeAlpha(to: 0.6, duration: 0.6),
+                               .fadeAlpha(to: 0.0, duration: 0.5)]),
+                    .scale(to: 1.6, duration: 1.1),
+                ]),
+                .scale(to: 1.0, duration: 0),
+            ])))
+        }
+
+        // Subtle bob to suggest the snout breathing at the surface
+        snout.run(.repeatForever(.sequence([
+            .moveBy(x: 0, y: 1.5, duration: 0.45),
+            .moveBy(x: 0, y: -1.5, duration: 0.45),
+        ])))
+
+        // Entry pop
+        nose.setScale(0.4); nose.alpha = 0
+        nose.run(.group([
+            .scale(to: 1.0, duration: 0.18),
+            .fadeIn(withDuration: 0.18),
+        ]))
+
+        gameWorldNode.addChild(nose)
+        dolphinNoseNode = nose
+        dolphinActive = true
+        dolphinHideTimer = Double.random(in: 4.5...6.5)
+    }
+
+    private func hideDolphinNose() {
+        dolphinActive = false
+        guard let nose = dolphinNoseNode else { return }
+        dolphinNoseNode = nil
+        nose.run(.sequence([
+            .group([
+                .fadeOut(withDuration: 0.25),
+                .scale(to: 0.5, duration: 0.25),
+            ]),
+            .removeFromParent(),
+        ]))
+    }
+
+    private func checkDolphinCollision() {
+        guard dolphinActive, !dolphinJumping else { return }
+        for ball in activeBalls {
+            if ball.hasHitSurface || ball.hasScored { continue }
+            if ball.bz > 24 { continue }
+            let dx = ball.bx - dolphinNosePos.x
+            let dy = ball.by - dolphinNosePos.y
+            if dx * dx + dy * dy <= dolphinNoseRadius * dolphinNoseRadius {
+                triggerDolphinJump(forOwner: ball.owner, hitBall: ball)
+                return
+            }
+        }
+    }
+
+    private func triggerDolphinJump(forOwner owner: BallOwner, hitBall: BeachBall) {
+        dolphinJumping = true
+
+        // Sink the ball that hit the nose — it splashed into the dolphin's domain
+        hitBall.hasHitSurface = true
+        spawnSplash(at: CGPoint(x: hitBall.bx, y: hitBall.by))
+        hitBall.node.run(.sequence([
+            .group([.scale(to: 0.35, duration: 0.18), .fadeOut(withDuration: 0.18)]),
+            .removeFromParent(),
+        ]))
+        hitBall.shadow.run(.sequence([.fadeOut(withDuration: 0.14), .removeFromParent()]))
+        run(.sequence([
+            .wait(forDuration: 0.3),
+            .run { [weak self, weak hitBall] in
+                guard let self, let hitBall else { return }
+                self.activeBalls.removeAll { $0 === hitBall }
+            },
+        ]))
+
+        // Hide the snout — the dolphin is launching now
+        if let nose = dolphinNoseNode {
+            dolphinNoseNode = nil
+            nose.removeFromParent()
+        }
+        dolphinActive = false
+
+        // Build the dolphin sprite and arc it through the hole
+        let dolphin = SKSpriteNode(texture: makeDolphinTexture(),
+                                   size: CGSize(width: 64, height: 32))
+        dolphin.zPosition = 60
+        let startPos = dolphinNosePos
+        let endPos   = CGPoint(x: holeCenterX, y: holeCenterY)
+        let arcHeight: CGFloat = 110
+        let duration: TimeInterval = 0.75
+        let initialFacingLeft = endPos.x < startPos.x
+        dolphin.xScale = initialFacingLeft ? -1 : 1
+        dolphin.position = startPos
+        gameWorldNode.addChild(dolphin)
+
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        run(.playSoundFileNamed("bag_land.wav", waitForCompletion: false))
+
+        let arc = SKAction.customAction(withDuration: duration) { node, elapsed in
+            let p = max(0, min(1, CGFloat(elapsed) / CGFloat(duration)))
+            let x = startPos.x + (endPos.x - startPos.x) * p
+            let baseY = startPos.y + (endPos.y - startPos.y) * p
+            let y = baseY + sin(.pi * p) * arcHeight
+            node.position = CGPoint(x: x, y: y)
+            // Tangent-based tilt so the dolphin's body follows the arc
+            let dxArc = endPos.x - startPos.x
+            let slope = (endPos.y - startPos.y) / max(1, duration) +
+                        arcHeight * cos(.pi * p) * .pi / CGFloat(duration)
+            let horiz = dxArc / CGFloat(duration)
+            let baseRot = atan2(slope, horiz == 0 ? 0.0001 : horiz)
+            (node as? SKSpriteNode).map { spr in
+                spr.zRotation = initialFacingLeft ? (.pi - baseRot) : baseRot
+            }
+        }
+
+        dolphin.run(.sequence([
+            arc,
+            .run { [weak self] in
+                guard let self = self else { return }
+                self.completeDolphinBonus(forOwner: owner, at: endPos)
+            },
+            .group([
+                .scale(to: 0.30, duration: 0.20),
+                .fadeOut(withDuration: 0.20),
+            ]),
+            .removeFromParent(),
+        ]))
+    }
+
+    private func completeDolphinBonus(forOwner owner: BallOwner, at pos: CGPoint) {
+        if owner == .player {
+            playerScore += 5
+            playerScoreLabel?.text = "YOU: \(playerScore)"
+        } else {
+            aiScore += 5
+            aiScoreLabel?.text = "BOT: \(aiScore)"
+        }
+        showHoleEffect(at: pos)
+        showDolphinBonusMessage(forOwner: owner)
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+
+        // Reset spawn so a fresh nose can appear later in the round
+        dolphinJumping = false
+        dolphinSpawnTimer = Double.random(in: 12.0...18.0)
+    }
+
+    private func showDolphinBonusMessage(forOwner owner: BallOwner) {
+        let banner = SKNode()
+        banner.zPosition = 1200
+
+        let text = owner == .player
+            ? "5 POINT DOLPHIN BONUS!"
+            : "BOT: 5 POINT DOLPHIN BONUS!"
+
+        let label = makeLabel(text: text, size: min(11, W / 26),
+                              color: SKColor(red: 0.40, green: 0.92, blue: 1.0, alpha: 1))
+        let pad: CGFloat = 14
+        let estW = CGFloat(text.count) * label.fontSize * 0.62 + pad * 2
+        let bg = SKSpriteNode(
+            color: SKColor(red: 0.02, green: 0.08, blue: 0.22, alpha: 0.92),
+            size: CGSize(width: min(W * 0.92, estW), height: 30))
+        banner.addChild(bg)
+        banner.addChild(label)
+
+        banner.position = CGPoint(x: 0, y: H * 0.18)
+        banner.setScale(0.6); banner.alpha = 0
+        addChild(banner)
+
+        banner.run(.sequence([
+            .group([.scale(to: 1.0, duration: 0.18), .fadeIn(withDuration: 0.18)]),
+            .wait(forDuration: 1.6),
+            .group([.fadeOut(withDuration: 0.30), .moveBy(x: 0, y: 14, duration: 0.30)]),
+            .removeFromParent(),
+        ]))
+    }
+
+    // Programmatic snout: gray oval body + dark nostril dot + soft highlight
+    private func makeDolphinNoseTexture() -> SKTexture {
+        if let t = dolphinTexture { return t }
+        let sz = CGSize(width: 36, height: 18)
+        let fmt = UIGraphicsImageRendererFormat(); fmt.scale = 1
+        let img = UIGraphicsImageRenderer(size: sz, format: fmt).image { ctx in
+            let c = ctx.cgContext
+            // Body — snout pointing right
+            c.setFillColor(UIColor(red: 0.42, green: 0.55, blue: 0.66, alpha: 1).cgColor)
+            c.fillEllipse(in: CGRect(x: 0, y: 2, width: 34, height: 14))
+            // Underbelly lighter
+            c.setFillColor(UIColor(red: 0.78, green: 0.84, blue: 0.90, alpha: 0.85).cgColor)
+            c.fillEllipse(in: CGRect(x: 4, y: 8, width: 26, height: 7))
+            // Top specular
+            c.setFillColor(UIColor(white: 1.0, alpha: 0.35).cgColor)
+            c.fillEllipse(in: CGRect(x: 6, y: 3, width: 18, height: 3))
+            // Nostril
+            c.setFillColor(UIColor(white: 0.05, alpha: 1).cgColor)
+            c.fillEllipse(in: CGRect(x: 8, y: 5, width: 2, height: 2))
+            // Tip darker
+            c.setFillColor(UIColor(red: 0.30, green: 0.40, blue: 0.50, alpha: 1).cgColor)
+            c.fillEllipse(in: CGRect(x: 28, y: 6, width: 6, height: 6))
+        }
+        let tex = SKTexture(image: img); tex.filteringMode = .nearest
+        dolphinTexture = tex
+        return tex
+    }
+
+    // Full leaping dolphin sprite (snout facing right by default)
+    private func makeDolphinTexture() -> SKTexture {
+        let sz = CGSize(width: 64, height: 32)
+        let fmt = UIGraphicsImageRendererFormat(); fmt.scale = 1
+        let img = UIGraphicsImageRenderer(size: sz, format: fmt).image { ctx in
+            let c = ctx.cgContext
+            // Body — curved teardrop
+            c.setFillColor(UIColor(red: 0.38, green: 0.52, blue: 0.64, alpha: 1).cgColor)
+            let bodyPath = UIBezierPath()
+            bodyPath.move(to: CGPoint(x: 2, y: 18))
+            bodyPath.addCurve(to: CGPoint(x: 58, y: 14),
+                              controlPoint1: CGPoint(x: 22, y: 4),
+                              controlPoint2: CGPoint(x: 50, y: 6))
+            bodyPath.addCurve(to: CGPoint(x: 2, y: 18),
+                              controlPoint1: CGPoint(x: 50, y: 26),
+                              controlPoint2: CGPoint(x: 22, y: 30))
+            bodyPath.close()
+            c.addPath(bodyPath.cgPath); c.fillPath()
+
+            // Belly
+            c.setFillColor(UIColor(red: 0.82, green: 0.88, blue: 0.92, alpha: 1).cgColor)
+            let bellyPath = UIBezierPath()
+            bellyPath.move(to: CGPoint(x: 10, y: 22))
+            bellyPath.addCurve(to: CGPoint(x: 50, y: 18),
+                               controlPoint1: CGPoint(x: 25, y: 30),
+                               controlPoint2: CGPoint(x: 42, y: 26))
+            bellyPath.addCurve(to: CGPoint(x: 10, y: 22),
+                               controlPoint1: CGPoint(x: 42, y: 22),
+                               controlPoint2: CGPoint(x: 25, y: 24))
+            bellyPath.close()
+            c.addPath(bellyPath.cgPath); c.fillPath()
+
+            // Dorsal fin
+            c.setFillColor(UIColor(red: 0.32, green: 0.44, blue: 0.56, alpha: 1).cgColor)
+            let fin = UIBezierPath()
+            fin.move(to: CGPoint(x: 32, y: 6))
+            fin.addLine(to: CGPoint(x: 38, y: 0))
+            fin.addLine(to: CGPoint(x: 42, y: 8))
+            fin.close()
+            c.addPath(fin.cgPath); c.fillPath()
+
+            // Tail fluke
+            let tail = UIBezierPath()
+            tail.move(to: CGPoint(x: 2, y: 18))
+            tail.addLine(to: CGPoint(x: -2, y: 8))
+            tail.addLine(to: CGPoint(x: 8, y: 16))
+            tail.addLine(to: CGPoint(x: -2, y: 28))
+            tail.close()
+            c.addPath(tail.cgPath); c.fillPath()
+
+            // Eye
+            c.setFillColor(UIColor(white: 0.05, alpha: 1).cgColor)
+            c.fillEllipse(in: CGRect(x: 48, y: 12, width: 2.5, height: 2.5))
+
+            // Specular along top
+            c.setFillColor(UIColor(white: 1, alpha: 0.30).cgColor)
+            let spec = UIBezierPath()
+            spec.move(to: CGPoint(x: 14, y: 8))
+            spec.addCurve(to: CGPoint(x: 46, y: 9),
+                          controlPoint1: CGPoint(x: 26, y: 4),
+                          controlPoint2: CGPoint(x: 38, y: 5))
+            spec.addCurve(to: CGPoint(x: 14, y: 8),
+                          controlPoint1: CGPoint(x: 38, y: 11),
+                          controlPoint2: CGPoint(x: 26, y: 11))
+            spec.close()
+            c.addPath(spec.cgPath); c.fillPath()
+        }
+        let tex = SKTexture(image: img); tex.filteringMode = .nearest
+        return tex
     }
 
     // MARK: - Ball-Ball Collisions
@@ -1272,6 +1619,9 @@ final class BeachBallCornholeScene: SKScene {
         timerLabel?.fontColor  = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 1)
         for ball in activeBalls { ball.node.removeFromParent(); ball.shadow.removeFromParent() }
         activeBalls.removeAll()
+        dolphinNoseNode?.removeFromParent(); dolphinNoseNode = nil
+        dolphinActive = false; dolphinJumping = false
+        dolphinSpawnTimer = 7.0; dolphinHideTimer = 0
     }
 
     // MARK: - Dismiss

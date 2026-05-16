@@ -10,6 +10,7 @@ final class MiniGamePickerScene: SKScene {
     private var tapEnabled = false
     private var nodesCount = 45
     private weak var nodesLabel: SKLabelNode?
+    private var hasSetup = false
 
     private struct MenuItem {
         let label: String
@@ -42,6 +43,17 @@ final class MiniGamePickerScene: SKScene {
         W = size.width; H = size.height
         backgroundColor = SKColor(red: 0.020, green: 0.012, blue: 0.008, alpha: 1) // #050302
 
+        // Re-entry path (returning from a mini-game): wipe stale nodes/actions so input doesn't get
+        // jammed by leftover state from the previous presentation, then rebuild from scratch.
+        if hasSetup {
+            removeAllActions()
+            removeAllChildren()
+            cardNodes.removeAll()
+            nodesLabel = nil
+            tapEnabled = false
+        }
+        hasSetup = true
+
         setupHeader()
         setupEyebrow()
         setupCards()
@@ -49,6 +61,7 @@ final class MiniGamePickerScene: SKScene {
         setupFooter()
         addCrtOverlay()
 
+        isPaused = false
         run(.sequence([.wait(forDuration: 0.5), .run { self.tapEnabled = true }]))
     }
 
