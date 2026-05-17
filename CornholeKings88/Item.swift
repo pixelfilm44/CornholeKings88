@@ -19,6 +19,8 @@ enum ItemType: String, CaseIterable {
     /// Won by winning the Beanbag Bike Race. Scores 2 pts on the board, 6 pts in the hole.
     /// Fully immune to all magic bag effects — cannot be destroyed or have hole points removed.
     case goldenBag
+    /// Found in world chests. Place from inventory to distract a chasing dog for a few seconds.
+    case dogBiscuit
 
     var color: SKColor {
         switch self {
@@ -29,7 +31,8 @@ enum ItemType: String, CaseIterable {
         case .bombBag:  return SKColor(red: 0.08, green: 0.06, blue: 0.06, alpha: 1.0)
         case .magicBag: return SKColor(red: 0.12, green: 0.82, blue: 0.35, alpha: 1.0)
         case .fireBag:  return SKColor(red: 0.95, green: 0.30, blue: 0.05, alpha: 1.0)
-        case .goldenBag: return SKColor(red: 1.00, green: 0.84, blue: 0.00, alpha: 1.0)
+        case .goldenBag:  return SKColor(red: 1.00, green: 0.84, blue: 0.00, alpha: 1.0)
+        case .dogBiscuit: return SKColor(red: 0.80, green: 0.62, blue: 0.36, alpha: 1.0)
         }
     }
 
@@ -42,7 +45,8 @@ enum ItemType: String, CaseIterable {
         case .bombBag:  return "BOMB BAG"
         case .magicBag: return "MAGIC BAG"
         case .fireBag:   return "FIRE BAG"
-        case .goldenBag: return "GOLDEN BAG"
+        case .goldenBag:  return "GOLDEN BAG"
+        case .dogBiscuit: return "DOG BISCUIT"
         }
     }
 
@@ -55,7 +59,8 @@ enum ItemType: String, CaseIterable {
         case .bombBag:  return "B"
         case .magicBag: return "M"
         case .fireBag:   return "F"
-        case .goldenBag: return "★"
+        case .goldenBag:  return "★"
+        case .dogBiscuit: return "D"
         }
     }
 }

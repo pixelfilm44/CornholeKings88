@@ -8,6 +8,8 @@ struct TMXMap {
     let sizeInPoints: CGSize
     let layerGIDs: [String: [[Int]]]
     let layerNodes: [String: SKNode]
+    /// Each loaded tileset's lowercase basename and its GID range.
+    let tilesetRanges: [(name: String, gidRange: ClosedRange<Int>)]
 
     func tileCenter(col: Int, row: Int) -> CGPoint {
         CGPoint(
@@ -62,6 +64,7 @@ enum TMXLoader {
             let atlas = SKTexture(image: image)
             atlas.filteringMode = .nearest
             tilesets.append(LoadedTileset(
+                name: tsxBasename.lowercased(),
                 firstgid: ref.firstgid,
                 tileWidth: tw,
                 tileHeight: th,
@@ -115,6 +118,10 @@ enum TMXLoader {
             layerNodes[layer.name] = layerNode
         }
 
+        let tilesetRanges: [(name: String, gidRange: ClosedRange<Int>)] = tilesets.map { ts in
+            (name: ts.name, gidRange: ts.firstgid...(ts.firstgid + ts.tileCount - 1))
+        }
+
         return TMXMap(
             mapNode: mapNode,
             tileSize: tileSize,
@@ -122,7 +129,8 @@ enum TMXLoader {
             rows: rows,
             sizeInPoints: sizeInPoints,
             layerGIDs: layerGIDs,
-            layerNodes: layerNodes
+            layerNodes: layerNodes,
+            tilesetRanges: tilesetRanges
         )
     }
 
@@ -189,6 +197,7 @@ enum TMXLoader {
 }
 
 private struct LoadedTileset {
+    let name: String
     let firstgid: Int
     let tileWidth: Int
     let tileHeight: Int

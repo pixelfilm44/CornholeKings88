@@ -16,31 +16,39 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     private var cornholeBoardPositions: [CGPoint] = []
     private var nearbyBoardPosition: CGPoint?
     private var interactPrompt: SKNode?
-    // GID range for the "cornhole board" tileset (firstgid=917, 4 tiles = 2×2)
-    private let cornholeBoardGIDRange = 917...920
 
     // Baseball interaction
     private var baseballPositions: [CGPoint] = []
     private var nearbyBaseballPosition: CGPoint?
-    // GID for the baseball tileset (firstgid=921, tilecount=2)
-    private let baseballGIDRange = 921...922
 
     // Tree interaction
     private var treePositions: [CGPoint] = []
     private var nearbyTreePosition: CGPoint?
-    // GID range for tree tiles (firstgid=923, tilecount=8)
-    private let treeGIDRange = 923...930
+
+    // Apple tree interaction (launches cornhole vs. Spirit)
+    private var appleTreePositions: [CGPoint] = []
+    private var nearbyAppleTreePosition: CGPoint?
 
     // Beehive interaction
     private var beehivePositions: [CGPoint] = []
     private var nearbyBeehivePosition: CGPoint?
-    // GID range for beehive tileset (firstgid=931, tilecount=4)
-    private let beehiveGIDRange = 931...934
 
-    // Beach ball pool interaction (add a pool tileset at firstgid=935, tilecount=4 in Tiled)
+    // Bridge stone interaction (opens beachball cornhole)
+    private var bridgeStonePositions: [CGPoint] = []
+    private var nearbyBridgeStonePosition: CGPoint?
+
+    // Chest interaction
+    private var chestPositions: [CGPoint] = []
+    private var nearbyChestPosition: CGPoint?
+    private var openedChestKeys: Set<String> = []
+
+    // Placed dog biscuits
+    private struct PlacedBiscuit { let node: SKNode; var isClaimed: Bool }
+    private var placedBiscuits: [PlacedBiscuit] = []
+
+    // Beach ball pool interaction — matches tilesets whose name contains "pool"
     private var poolPositions: [CGPoint] = []
     private var nearbyPoolPosition: CGPoint?
-    private let poolGIDRange = 935...938
 
     // Tutorial state
     private var hasShownDogTutorial = false
@@ -457,8 +465,11 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         extractBoardPositions(from: m)
         extractBaseballPositions(from: m)
         extractTreePositions(from: m)
+        extractAppleTreePositions(from: m)
         extractBeehivePositions(from: m)
         extractPoolPositions(from: m)
+        extractChestPositions(from: m)
+        extractBridgeStonePositions(from: m)
         ySortStaticLayers(in: m)
     }
 
@@ -469,13 +480,21 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     private func extractBoardPositions(from m: TMXMap) {
         cornholeBoardPositions.removeAll()
 
-        // Collect all cells that belong to the cornhole board tileset
+        let boardRanges = m.tilesetRanges
+            .filter { $0.name.contains("cornhole") }
+            .map(\.gidRange)
+        guard !boardRanges.isEmpty else {
+            print("🎯 No cornhole board tilesets found on the map")
+            return
+        }
+
+        // Collect all cells that belong to a cornhole-board tileset
         var boardCells = Set<String>()
         for (_, grid) in m.layerGIDs {
             for r in 0..<m.rows {
                 for c in 0..<m.cols {
                     let gid = grid[r][c] & 0x0FFF_FFFF
-                    if cornholeBoardGIDRange.contains(gid) {
+                    if boardRanges.contains(where: { $0.contains(gid) }) {
                         boardCells.insert("\(r),\(c)")
                     }
                 }
@@ -513,14 +532,22 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     private func extractBaseballPositions(from m: TMXMap) {
         baseballPositions.removeAll()
 
-        // 1. Collect all tile coords that belong to the baseball tileset
+        let baseballRanges = m.tilesetRanges
+            .filter { $0.name.contains("baseball") }
+            .map(\.gidRange)
+        guard !baseballRanges.isEmpty else {
+            print("⚾ No baseball tilesets found on the map")
+            return
+        }
+
+        // 1. Collect all tile coords that belong to a baseball tileset
         var cells: [(r: Int, c: Int)] = []
         var seen = Set<String>()
         for (_, grid) in m.layerGIDs {
             for r in 0..<m.rows {
                 for c in 0..<m.cols {
                     let gid = grid[r][c] & 0x0FFF_FFFF
-                    guard baseballGIDRange.contains(gid) else { continue }
+                    guard baseballRanges.contains(where: { $0.contains(gid) }) else { continue }
                     let key = "\(r),\(c)"
                     guard !seen.contains(key) else { continue }
                     seen.insert(key)
@@ -563,12 +590,19 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     /// Scans every map layer for tree tiles and stores one world-space center per tile.
     private func extractTreePositions(from m: TMXMap) {
         treePositions.removeAll()
+        let treeRanges = m.tilesetRanges
+            .filter { $0.name.contains("tree") && !$0.name.contains("apple") }
+            .map(\.gidRange)
+        guard !treeRanges.isEmpty else {
+            print("🌳 No tree tilesets found on the map")
+            return
+        }
         var seen = Set<String>()
         for (_, grid) in m.layerGIDs {
             for r in 0..<m.rows {
                 for c in 0..<m.cols {
                     let gid = grid[r][c] & 0x0FFF_FFFF
-                    guard treeGIDRange.contains(gid) else { continue }
+                    guard treeRanges.contains(where: { $0.contains(gid) }) else { continue }
                     let key = "\(r),\(c)"
                     guard !seen.contains(key) else { continue }
                     seen.insert(key)
@@ -579,16 +613,49 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         print("🌳 Found \(treePositions.count) tree(s) on the map")
     }
 
+    /// Scans every map layer for apple_tree tiles and stores one world-space center per tile.
+    private func extractAppleTreePositions(from m: TMXMap) {
+        appleTreePositions.removeAll()
+        let appleRanges = m.tilesetRanges
+            .filter { $0.name.contains("apple") }
+            .map(\.gidRange)
+        guard !appleRanges.isEmpty else {
+            print("🍎 No apple_tree tilesets found on the map")
+            return
+        }
+        var seen = Set<String>()
+        for (_, grid) in m.layerGIDs {
+            for r in 0..<m.rows {
+                for c in 0..<m.cols {
+                    let gid = grid[r][c] & 0x0FFF_FFFF
+                    guard appleRanges.contains(where: { $0.contains(gid) }) else { continue }
+                    let key = "\(r),\(c)"
+                    guard !seen.contains(key) else { continue }
+                    seen.insert(key)
+                    appleTreePositions.append(m.tileCenter(col: c, row: r))
+                }
+            }
+        }
+        print("🍎 Found \(appleTreePositions.count) apple tree(s) on the map")
+    }
+
     /// Scans every map layer for beehive tiles and stores one world-space centroid per cluster.
     private func extractBeehivePositions(from m: TMXMap) {
         beehivePositions.removeAll()
+        let beeRanges = m.tilesetRanges
+            .filter { $0.name.contains("bee") }
+            .map(\.gidRange)
+        guard !beeRanges.isEmpty else {
+            print("🐝 No bee tilesets found on the map")
+            return
+        }
         var cells: [(r: Int, c: Int)] = []
         var seen = Set<String>()
         for (_, grid) in m.layerGIDs {
             for r in 0..<m.rows {
                 for c in 0..<m.cols {
                     let gid = grid[r][c] & 0x0FFF_FFFF
-                    guard beehiveGIDRange.contains(gid) else { continue }
+                    guard beeRanges.contains(where: { $0.contains(gid) }) else { continue }
                     let key = "\(r),\(c)"
                     guard !seen.contains(key) else { continue }
                     seen.insert(key)
@@ -625,14 +692,18 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         print("🐝 Found \(cells.count) beehive tile(s) → \(beehivePositions.count) hive(s)")
     }
 
-    /// Scans for pool tiles (firstgid=935) and stores centroids for beach-ball cornhole triggers.
+    /// Scans for pool tiles (any tileset with "pool" in its name) for beach-ball cornhole triggers.
     private func extractPoolPositions(from m: TMXMap) {
         poolPositions.removeAll()
+        let poolRanges = m.tilesetRanges
+            .filter { $0.name.contains("pool") }
+            .map(\.gidRange)
+        guard !poolRanges.isEmpty else { return }
         for (_, grid) in m.layerGIDs {
             for r in 0..<m.rows {
                 for c in 0..<m.cols {
                     let gid = grid[r][c] & 0x0FFF_FFFF
-                    guard poolGIDRange.contains(gid) else { continue }
+                    guard poolRanges.contains(where: { $0.contains(gid) }) else { continue }
                     poolPositions.append(m.tileCenter(col: c, row: r))
                 }
             }
@@ -642,71 +713,150 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         }
     }
 
+    /// Scans every map layer for chest tiles and stores one world-space center per tile.
+    private func extractChestPositions(from m: TMXMap) {
+        chestPositions.removeAll()
+        let chestRanges = m.tilesetRanges
+            .filter { $0.name.contains("chest") }
+            .map(\.gidRange)
+        guard !chestRanges.isEmpty else { return }
+        var seen = Set<String>()
+        for (_, grid) in m.layerGIDs {
+            for r in 0..<m.rows {
+                for c in 0..<m.cols {
+                    let gid = grid[r][c] & 0x0FFF_FFFF
+                    guard chestRanges.contains(where: { $0.contains(gid) }) else { continue }
+                    let key = "\(r),\(c)"
+                    guard !seen.contains(key) else { continue }
+                    seen.insert(key)
+                    chestPositions.append(m.tileCenter(col: c, row: r))
+                }
+            }
+        }
+        print("📦 Found \(chestPositions.count) chest(s) on the map")
+    }
+
+    /// Scans every map layer for bridge_stone tiles and stores one world-space center per tile.
+    private func extractBridgeStonePositions(from m: TMXMap) {
+        bridgeStonePositions.removeAll()
+        let ranges = m.tilesetRanges
+            .filter { $0.name.contains("bridge_stone") }
+            .map(\.gidRange)
+        guard !ranges.isEmpty else { return }
+        var seen = Set<String>()
+        for (_, grid) in m.layerGIDs {
+            for r in 0..<m.rows {
+                for c in 0..<m.cols {
+                    let gid = grid[r][c] & 0x0FFF_FFFF
+                    guard ranges.contains(where: { $0.contains(gid) }) else { continue }
+                    let key = "\(r),\(c)"
+                    guard !seen.contains(key) else { continue }
+                    seen.insert(key)
+                    bridgeStonePositions.append(m.tileCenter(col: c, row: r))
+                }
+            }
+        }
+        print("🌉 Found \(bridgeStonePositions.count) bridge stone(s) on the map")
+    }
+
     /// Called every frame. Shows a single "▲A" prompt for the nearest interactable
-    /// object — cornhole board, baseball zone, tree, beehive, or pool — and hides it otherwise.
+    /// object — cornhole board, baseball zone, tree, beehive, pool, or chest — and hides it otherwise.
     private func checkBoardProximity() {
-        let cornholeRadius: CGFloat = 26
-        let baseballRadius: CGFloat = 56
-        let treeRadius:     CGFloat = 20
-        let beehiveRadius:  CGFloat = 36
-        let poolRadius:     CGFloat = 36
+        let cornholeRadius:    CGFloat = 26
+        let chestRadius:       CGFloat = 26
+        let bridgeStoneRadius: CGFloat = 36
+        let baseballRadius:    CGFloat = 56
+        let treeRadius:        CGFloat = 20
+        let appleTreeRadius:   CGFloat = 26
+        let beehiveRadius:     CGFloat = 36
+        let poolRadius:        CGFloat = 36
 
         // Find the single closest object across all categories.
-        var bestDist     = CGFloat.infinity
-        var bestBoard:    CGPoint? = nil
-        var bestBaseball: CGPoint? = nil
-        var bestTree:     CGPoint? = nil
-        var bestBeehive:  CGPoint? = nil
-        var bestPool:     CGPoint? = nil
+        var bestDist         = CGFloat.infinity
+        var bestBoard:        CGPoint? = nil
+        var bestChest:        CGPoint? = nil
+        var bestBridgeStone:  CGPoint? = nil
+        var bestBaseball:     CGPoint? = nil
+        var bestTree:         CGPoint? = nil
+        var bestAppleTree:    CGPoint? = nil
+        var bestBeehive:      CGPoint? = nil
+        var bestPool:         CGPoint? = nil
 
         for pos in cornholeBoardPositions {
             let d = hypot(player.position.x - pos.x, player.position.y - pos.y)
             if d < cornholeRadius && d < bestDist { bestDist = d; bestBoard = pos }
         }
+        for pos in chestPositions where !openedChestKeys.contains("\(Int(pos.x)),\(Int(pos.y))") {
+            let d = hypot(player.position.x - pos.x, player.position.y - pos.y)
+            if d < chestRadius && d < bestDist {
+                bestDist = d; bestBoard = nil; bestChest = pos
+            }
+        }
+        for pos in bridgeStonePositions {
+            let d = hypot(player.position.x - pos.x, player.position.y - pos.y)
+            if d < bridgeStoneRadius && d < bestDist {
+                bestDist = d; bestBoard = nil; bestChest = nil; bestBridgeStone = pos
+            }
+        }
         for pos in baseballPositions {
             let d = hypot(player.position.x - pos.x, player.position.y - pos.y)
             if d < baseballRadius && d < bestDist {
-                bestDist = d; bestBoard = nil; bestBaseball = pos
+                bestDist = d; bestBoard = nil; bestChest = nil; bestBridgeStone = nil; bestBaseball = pos
             }
         }
         for pos in treePositions {
             let d = hypot(player.position.x - pos.x, player.position.y - pos.y)
             if d < treeRadius && d < bestDist {
-                bestDist = d; bestBoard = nil; bestBaseball = nil; bestTree = pos
+                bestDist = d; bestBoard = nil; bestChest = nil; bestBridgeStone = nil
+                bestBaseball = nil; bestTree = pos
+            }
+        }
+        for pos in appleTreePositions {
+            let d = hypot(player.position.x - pos.x, player.position.y - pos.y)
+            if d < appleTreeRadius && d < bestDist {
+                bestDist = d; bestBoard = nil; bestChest = nil; bestBridgeStone = nil
+                bestBaseball = nil; bestTree = nil; bestAppleTree = pos
             }
         }
         for pos in beehivePositions {
             let d = hypot(player.position.x - pos.x, player.position.y - pos.y)
             if d < beehiveRadius && d < bestDist {
-                bestDist = d; bestBoard = nil; bestBaseball = nil; bestTree = nil
-                bestBeehive = pos
+                bestDist = d; bestBoard = nil; bestChest = nil; bestBridgeStone = nil
+                bestBaseball = nil; bestTree = nil; bestAppleTree = nil; bestBeehive = pos
             }
         }
         for pos in poolPositions {
             let d = hypot(player.position.x - pos.x, player.position.y - pos.y)
             if d < poolRadius && d < bestDist {
-                bestDist = d; bestBoard = nil; bestBaseball = nil; bestTree = nil
+                bestDist = d; bestBoard = nil; bestChest = nil; bestBridgeStone = nil
+                bestBaseball = nil; bestTree = nil; bestAppleTree = nil
                 bestBeehive = nil; bestPool = pos
             }
         }
 
-        nearbyBoardPosition    = bestBoard
-        nearbyBaseballPosition = bestBaseball
-        nearbyTreePosition     = bestTree
-        nearbyBeehivePosition  = bestBeehive
-        nearbyPoolPosition     = bestPool
+        nearbyBoardPosition       = bestBoard
+        nearbyChestPosition       = bestChest
+        nearbyBridgeStonePosition = bestBridgeStone
+        nearbyBaseballPosition    = bestBaseball
+        nearbyTreePosition        = bestTree
+        nearbyAppleTreePosition   = bestAppleTree
+        nearbyBeehivePosition     = bestBeehive
+        nearbyPoolPosition        = bestPool
 
         // Auto-descend when the player walks away from the tree they climbed.
         if bestTree == nil && player.isInTree { player.descendTree() }
 
         // Position the single shared prompt above the nearest object, or hide it.
         let anchor: CGPoint?
-        if let p = bestBoard          { anchor = CGPoint(x: p.x, y: p.y + 22) }
-        else if let p = bestBaseball  { anchor = CGPoint(x: p.x, y: p.y + 22) }
-        else if let p = bestTree      { anchor = CGPoint(x: p.x, y: p.y + 22) }
-        else if let p = bestBeehive   { anchor = CGPoint(x: p.x, y: p.y + 22) }
-        else if let p = bestPool      { anchor = CGPoint(x: p.x, y: p.y + 22) }
-        else                          { anchor = nil }
+        if let p = bestBoard              { anchor = CGPoint(x: p.x, y: p.y + 22) }
+        else if let p = bestChest         { anchor = CGPoint(x: p.x, y: p.y + 22) }
+        else if let p = bestBridgeStone   { anchor = CGPoint(x: p.x, y: p.y + 22) }
+        else if let p = bestBaseball      { anchor = CGPoint(x: p.x, y: p.y + 22) }
+        else if let p = bestTree          { anchor = CGPoint(x: p.x, y: p.y + 22) }
+        else if let p = bestAppleTree     { anchor = CGPoint(x: p.x, y: p.y + 22) }
+        else if let p = bestBeehive       { anchor = CGPoint(x: p.x, y: p.y + 22) }
+        else if let p = bestPool          { anchor = CGPoint(x: p.x, y: p.y + 22) }
+        else                              { anchor = nil }
 
         if let pos = anchor {
             if interactPrompt == nil {
@@ -756,7 +906,79 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         snapBeanbagHome()
     }
 
-    private func openCornholeMiniGame() {
+    // MARK: - Chest
+
+    private func openChest() {
+        guard let pos = nearbyChestPosition else { return }
+        let key = "\(Int(pos.x)),\(Int(pos.y))"
+        openedChestKeys.insert(key)
+        nearbyChestPosition = nil
+        hideChestTile(at: pos)
+        // 50/50: heart refill or dog biscuit
+        if Bool.random() {
+            HeartsManager.shared.gain()
+            showPickupText("+ HEART", at: pos)
+        } else {
+            inventory.collect(.dogBiscuit, count: 1)
+            showPickupText("+ DOG BISCUIT", at: pos)
+        }
+    }
+
+    private func hideChestTile(at worldPos: CGPoint) {
+        guard let m = map else { return }
+        for (_, layerNode) in m.layerNodes {
+            for child in layerNode.children {
+                if abs(child.position.x - worldPos.x) < 2 && abs(child.position.y - worldPos.y) < 2 {
+                    child.isHidden = true
+                }
+            }
+        }
+    }
+
+    // MARK: - Inventory Tap
+
+    private func handleInventoryTap(_ itemType: ItemType) {
+        guard !isTransitioning else { return }
+        switch itemType {
+        case .dogBiscuit:
+            guard (inventory.counts[.dogBiscuit] ?? 0) > 0 else { return }
+            placeDogBiscuit()
+        default:
+            break
+        }
+    }
+
+    private func placeDogBiscuit() {
+        inventory.consume(.dogBiscuit, count: 1)
+        let biscuitNode = makeBiscuitNode()
+        biscuitNode.position = player.position
+        biscuitNode.zPosition = -player.position.y + 1
+        map?.mapNode.addChild(biscuitNode)
+        placedBiscuits.append(PlacedBiscuit(node: biscuitNode, isClaimed: false))
+        showPickupText("BISCUIT PLACED!", at: player.position)
+    }
+
+    private func makeBiscuitNode() -> SKNode {
+        let root = SKNode()
+        // Bone shaft
+        let shaft = SKSpriteNode(color: SKColor(red: 0.80, green: 0.65, blue: 0.40, alpha: 1.0),
+                                 size: CGSize(width: 14, height: 5))
+        root.addChild(shaft)
+        // Knob ends
+        for xOff: CGFloat in [-8, 8] {
+            let knob = SKSpriteNode(color: SKColor(red: 0.70, green: 0.52, blue: 0.28, alpha: 1.0),
+                                   size: CGSize(width: 6, height: 6))
+            knob.position = CGPoint(x: xOff, y: 0)
+            root.addChild(knob)
+        }
+        root.run(.repeatForever(.sequence([
+            .moveBy(x: 0, y: 1.5, duration: 0.5),
+            .moveBy(x: 0, y: -1.5, duration: 0.5),
+        ])))
+        return root
+    }
+
+    private func openCornholeMiniGame(preSelectedOpponent: CornholeMiniGameScene.AIOpponent? = nil) {
         guard let view = self.view else { return }
         isTransitioning = true
         player.moveDirection = .zero
@@ -764,8 +986,9 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         resetBeanbagControl()
 
         let mini = CornholeMiniGameScene(size: self.size)
-        mini.scaleMode          = self.scaleMode
-        mini.previousScene      = self
+        mini.scaleMode              = self.scaleMode
+        mini.previousScene          = self
+        mini.preSelectedOpponent    = preSelectedOpponent
         mini.availableHoneyBags  = inventory.counts[.honeyBag,  default: 0]
         mini.availableBombBags   = inventory.counts[.bombBag,   default: 0]
         mini.availableMagicBags  = inventory.counts[.magicBag,  default: 0]
@@ -1036,11 +1259,29 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
             return
         }
 
+        // Inventory slot taps (bottom chrome, above D-pad).
+        for n in nodes(at: touch.location(in: self)) {
+            let nm = n.name ?? n.parent?.name ?? ""
+            if nm.hasPrefix("slot_") {
+                let rawValue = String(nm.dropFirst("slot_".count))
+                if let itemType = ItemType(rawValue: rawValue) {
+                    handleInventoryTap(itemType)
+                    return
+                }
+            }
+        }
+
         // Action buttons.
         let btnHit = (actionBtnRadius + 6) * (actionBtnRadius + 6)
         if let a = btnA, distanceSquared(pInCam, a.position) < btnHit {
             if nearbyBoardPosition != nil {
                 openCornholeMiniGame()
+            } else if nearbyChestPosition != nil {
+                openChest()
+            } else if nearbyBridgeStonePosition != nil {
+                openBeachBallCornhole()
+            } else if nearbyAppleTreePosition != nil {
+                openCornholeMiniGame(preSelectedOpponent: .spirit)
             } else if nearbyBaseballPosition != nil {
                 openCornholeBaseball()
             } else if nearbyBeehivePosition != nil {
@@ -1250,6 +1491,28 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
             nextDogSpawnInterval = TimeInterval.random(in: 6...12)
             spawnDog()
         }
+        // Attract non-distracted dogs toward any unclaimed biscuits within sniff range.
+        let sniffRadius: CGFloat = 80
+        for dog in dogs where !dog.isFleeing && dog.biscuitTarget == nil {
+            for i in 0..<placedBiscuits.count where !placedBiscuits[i].isClaimed {
+                let bpos = placedBiscuits[i].node.position
+                let d = hypot(dog.position.x - bpos.x, dog.position.y - bpos.y)
+                guard d < sniffRadius else { continue }
+                placedBiscuits[i].isClaimed = true
+                dog.biscuitTarget = bpos
+                let nodeRef = placedBiscuits[i].node
+                dog.onFinishedEating = { [weak self, weak nodeRef] in
+                    guard let self, let node = nodeRef else { return }
+                    node.run(.sequence([
+                        .group([.scale(to: 1.5, duration: 0.12), .fadeOut(withDuration: 0.25)]),
+                        .removeFromParent(),
+                    ]))
+                    self.placedBiscuits.removeAll { $0.node === node }
+                }
+                break
+            }
+        }
+
         for dog in dogs {
             let biting = dogsTouchingPlayer.contains(ObjectIdentifier(dog))
             dog.update(dt: dt,

@@ -41,6 +41,7 @@ final class InventoryHUDNode: SKNode {
 
     private func makeSlot(type: ItemType, count: Int) -> SKNode {
         let node = SKNode()
+        node.name = "slot_\(type.rawValue)"
 
         // Dark pill background
         let bg = SKSpriteNode(color: SKColor(red: 0.08, green: 0.06, blue: 0.04, alpha: 0.82),

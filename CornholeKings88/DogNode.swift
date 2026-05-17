@@ -13,6 +13,13 @@ final class DogNode: SKNode {
     private(set) var isFleeing = false
     private var fleeVelocity: CGVector = .zero
 
+    // Biscuit distraction — GameScene assigns a world position; dog walks there and eats.
+    var biscuitTarget: CGPoint? = nil
+    private(set) var isEating = false
+    private var eatTimer: TimeInterval = 0
+    private let eatDuration: TimeInterval = 3.0
+    var onFinishedEating: (() -> Void)? = nil
+
     /// Lock in a flee heading directly away from `playerPos` and switch the
     /// dog into flee mode. After this the dog ignores the player entirely.
     func startFleeing(awayFrom playerPos: CGPoint) {
@@ -107,7 +114,9 @@ final class DogNode: SKNode {
         // body and fires a contact event.
         let target = CGPoint(x: playerPosition.x, y: playerPosition.y - 16)
 
-        if playerInTree {
+        // Biscuit target suppresses tree-run locking so the dog doesn't drift off.
+        if biscuitTarget == nil {
+          if playerInTree {
             if straightRunVelocity == nil {
                 // Lock the dog's heading at the moment the player climbs. If
                 // the dog was latched on the player (velocity ~0), give it a
@@ -131,6 +140,9 @@ final class DogNode: SKNode {
                     }
                 }
             }
+          } else {
+            straightRunVelocity = nil
+          }
         } else {
             straightRunVelocity = nil
         }
@@ -139,6 +151,29 @@ final class DogNode: SKNode {
         if isFleeing {
             // Bolt away — ignore player position and any other state.
             targetVelocity = fleeVelocity
+        } else if isEating {
+            // Standing still over biscuit — tick down eat timer.
+            eatTimer += dt
+            if eatTimer >= eatDuration {
+                isEating = false
+                biscuitTarget = nil
+                eatTimer = 0
+                onFinishedEating?()
+                onFinishedEating = nil
+            }
+            targetVelocity = .zero
+        } else if let bpos = biscuitTarget {
+            // Walk toward biscuit; begin eating when close enough.
+            let dx   = bpos.x - position.x
+            let dy   = bpos.y - position.y
+            let dist = hypot(dx, dy)
+            if dist < 8 {
+                isEating = true
+                eatTimer = 0
+                targetVelocity = .zero
+            } else {
+                targetVelocity = CGVector(dx: dx / dist * chaseSpeed, dy: dy / dist * chaseSpeed)
+            }
         } else if let sv = straightRunVelocity {
             targetVelocity = sv
         } else if isBiting {

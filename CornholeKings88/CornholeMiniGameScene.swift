@@ -277,7 +277,9 @@ final class CornholeMiniGameScene: SKScene {
     private var crowFlyingRight = true
 
     // Opponent selection
-    private enum AIOpponent { case tom, jenny, billy, spirit }
+    enum AIOpponent { case tom, jenny, billy, spirit }
+    /// Set before presenting to skip the picker and start with a specific opponent.
+    var preSelectedOpponent: AIOpponent? = nil
     private var selectedOpponent: AIOpponent = .tom
     private var opponentPortrait: SKSpriteNode?
     private var opponentName: String {
@@ -3122,6 +3124,21 @@ final class CornholeMiniGameScene: SKScene {
     // MARK: - Opponent Selection
 
     private func showOpponentPicker() {
+        if let pre = preSelectedOpponent {
+            selectedOpponent = pre
+            switch pre {
+            case .billy:  applyBillySettings()
+            case .spirit: applySpiritSettings()
+            default: break
+            }
+            addOpponentPortrait()
+            if TutorialManager.shared.hasSeen(TutorialManager.cornhole) {
+                startRound()
+            } else {
+                showFirstTimeTutorial()
+            }
+            return
+        }
         let configs: [OpponentConfig] = [
             OpponentConfig(name: "TOM",    imageName: "tom",
                            traitText: "TOPS YOUR HOLE SHOTS"),
