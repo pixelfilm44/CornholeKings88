@@ -650,14 +650,14 @@ final class BikeDodgeScene: SKScene {
             pr.distanceRemaining = max(0, pr.distanceRemaining - pr.speed * distPerPx * dt)
         }
         // AI uses a fixed accel independent of player's no-crash streak.
-        let aiAccel = accel * 1.4
+        let aiAccel = accel * 2.2
         if !pk.isCrashing {
-            let cap = pk.isBoosting ? maxSpeed * boostMult * 0.88 : maxSpeed * 0.96
+            let cap = pk.isBoosting ? maxSpeed * boostMult * 0.95 : maxSpeed * 1.15
             pk.speed = min(cap, pk.speed + aiAccel * dt)
             pk.distanceRemaining = max(0, pk.distanceRemaining - pk.speed * distPerPx * dt)
         }
         if !gr.isCrashing {
-            let cap = gr.isBoosting ? maxSpeed * boostMult * 0.90 : maxSpeed * 1.01
+            let cap = gr.isBoosting ? maxSpeed * boostMult * 0.97 : maxSpeed * 1.20
             gr.speed = min(cap, gr.speed + aiAccel * dt)
             gr.distanceRemaining = max(0, gr.distanceRemaining - gr.speed * distPerPx * dt)
         }
@@ -696,12 +696,12 @@ final class BikeDodgeScene: SKScene {
         // Dodge cars ahead
         for car in cars where car.isActive {
             let ahead = car.screenY - myY
-            if ahead > 0 && ahead < 200 && abs(car.x - racer.x) < laneWidth * 0.8 {
-                if racer.errorCooldown <= 0 && Float.random(in: 0...1) > 0.05 {
+            if ahead > 0 && ahead < 300 && abs(car.x - racer.x) < laneWidth * 1.0 {
+                if racer.errorCooldown <= 0 && Float.random(in: 0...1) > 0.02 {
                     let curr = laneIndexFor(x: racer.targetLaneX)
                     let alt  = curr == 0 ? 1 : (curr == 2 ? 1 : (Bool.random() ? 0 : 2))
                     racer.targetLaneX = laneCenter[alt]
-                    racer.errorCooldown = 1.5
+                    racer.errorCooldown = 0.7
                 }
                 target = racer.targetLaneX; break
             }
@@ -715,7 +715,7 @@ final class BikeDodgeScene: SKScene {
         }
 
         let diff = target - racer.x
-        racer.xVelocity += diff.bikeClamp(-steerAccel...steerAccel) * dt * 3
+        racer.xVelocity += diff.bikeClamp(-steerAccel...steerAccel) * dt * 5
         racer.xVelocity *= max(0, 1 - 5 * dt)
         racer.xVelocity = racer.xVelocity.bikeClamp(-maxSteerVel...maxSteerVel)
         racer.x = (racer.x + racer.xVelocity * dt).bikeClamp(roadLeft + 10...roadRight - 10)

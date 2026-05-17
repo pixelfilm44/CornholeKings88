@@ -655,12 +655,12 @@ final class CornholeBaseballScene: SKScene {
         pitchBag      = pitch
         pitchInFlight = true
 
-        // 20% chance AI tries a power swing
-        aiWillPowerSwing = CGFloat.random(in: 0...1) < 0.20
+        // 50% chance AI tries a power swing
+        aiWillPowerSwing = CGFloat.random(in: 0...1) < 0.50
         if aiWillPowerSwing { aiPowerChargeStartTime = CACurrentMediaTime() }
 
-        // AI hit probability: base 85 %, drops slightly if power-swinging
-        let preMissProb: Double = aiWillPowerSwing ? 0.30 : 0.15
+        // AI hit probability: base 95 %, drops slightly if power-swinging
+        let preMissProb: Double = aiWillPowerSwing ? 0.15 : 0.05
         aiWillHit    = Double.random(in: 0...1) > preMissProb
         aiFrameCount = 0
         let travelFrames = max(10, Int((batY - pitcherY) / pitchSpeed))
@@ -796,7 +796,7 @@ final class CornholeBaseballScene: SKScene {
         aiWillPowerSwing = false
 
         // Recalculate hit chance — AI is a strong hitter, power swing adds minor risk
-        let missProb = 0.15 + Double(aiCharge) * 0.20
+        let missProb = 0.05 + Double(aiCharge) * 0.10
         aiWillHit    = Double.random(in: 0...1) > missProb
 
         removePitchBag()
@@ -808,7 +808,7 @@ final class CornholeBaseballScene: SKScene {
             run(.wait(forDuration: 0.25)) { [weak self] in
                 self?.aiBatNode.run(.rotate(toAngle: 0, duration: 0.18))
             }
-            let quality = CGFloat.random(in: 0.65 ... 1.0)
+            let quality = CGFloat.random(in: 0.82 ... 1.0)
             launchHitBag(from: CGPoint(x: pitch.bx, y: batY),
                          quality: quality, chargeLevel: aiCharge, isUser: false)
         } else {
