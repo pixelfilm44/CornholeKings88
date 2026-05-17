@@ -73,6 +73,7 @@ Maps are authored in **Tiled** (.tmx format, CSV encoding) and loaded by `TMXLoa
 | `pool`                | Beach-ball cornhole |
 | `bridge_stone`        | Beach-ball cornhole (same mini-game, different trigger) |
 | `chest`               | Open chest → 50/50 heart refill or dog biscuit |
+| `bridge_wood`         | Piranha mini-game; on win, unlocks walkable bridge (ImaginationFX layer) |
 
 Collision tiles still come from the `Collisions` layer (any non-zero GID); water collisions still come from explicit GID ranges in `buildPhysics(from:)`.
 
@@ -108,6 +109,17 @@ Tilesets whose name contains `"chest"` (e.g. `Golden_Chest_Anim.tsx`) become one
 2. A 50/50 roll grants either `HeartsManager.shared.gain()` or `inventory.collect(.dogBiscuit, count: 1)`.
 3. A floating `+ HEART` / `+ DOG BISCUIT` pickup label animates from the chest.
 4. The opened position is tracked in `openedChestKeys: Set<String>` (key = `"<intX>,<intY>"`) so proximity detection skips it for the rest of the session. Memory is **not** persisted to `UserDefaults`.
+
+### Bridge Wood
+
+Tilesets whose name contains `"bridge_wood"` (e.g. `Bridge_Wood.tsx`) trigger `BridgePiranhaScene` when the player presses A nearby (36-unit radius). The prompt is suppressed once the bridge is unlocked.
+
+On win, `unlockBridge()` runs:
+1. Sets `UserDefaults` key `"bridgeUnlocked_v1"` to `true` — persists across launches.
+2. Shows the `ImaginationFX` map layer (hidden by default; contains the visual bridge tiles over the river).
+3. Removes the cached water-collision physics bodies (`bridgePhysicsNodes`) that sit under those tiles, making the river crossable.
+
+On scene load, GameScene checks the flag and calls `unlockBridge()` immediately after `cacheBridgePhysicsNodes(from:)` so already-unlocked sessions see the bridge from the start.
 
 ### Mini-Game Pattern
 

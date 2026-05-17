@@ -37,6 +37,12 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     private var bridgeStonePositions: [CGPoint] = []
     private var nearbyBridgeStonePosition: CGPoint?
 
+    // Bridge wood interaction (opens piranha mini-game; unlocks walkable bridge)
+    private var bridgeWoodPositions: [CGPoint] = []
+    private var nearbyBridgeWoodPosition: CGPoint?
+    private var bridgePhysicsNodes: [SKNode] = []
+    private let bridgeUnlockedKey = "bridgeUnlocked_v1"
+
     // Chest interaction
     private var chestPositions: [CGPoint] = []
     private var nearbyChestPosition: CGPoint?
@@ -458,6 +464,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         m.layerNodes["Collisions"]?.zPosition = 0
         m.layerNodes["Interactions"]?.zPosition = 0
         m.layerNodes["ImaginationFX"]?.zPosition = 1000
+        m.layerNodes["ImaginationFX"]?.isHidden = true
 
         gameWorld.addChild(m.mapNode)
 
@@ -470,7 +477,11 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         extractPoolPositions(from: m)
         extractChestPositions(from: m)
         extractBridgeStonePositions(from: m)
+        extractBridgeWoodPositions(from: m)
+        cacheBridgePhysicsNodes(from: m)
         ySortStaticLayers(in: m)
+
+        if UserDefaults.standard.bool(forKey: bridgeUnlockedKey) { unlockBridge() }
     }
 
     // MARK: - Cornhole Board Detection
@@ -759,6 +770,50 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         print("🌉 Found \(bridgeStonePositions.count) bridge stone(s) on the map")
     }
 
+    private func extractBridgeWoodPositions(from m: TMXMap) {
+        bridgeWoodPositions.removeAll()
+        let ranges = m.tilesetRanges
+            .filter { $0.name.contains("bridge_wood") }
+            .map(\.gidRange)
+        guard !ranges.isEmpty else { return }
+        var seen = Set<String>()
+        for (_, grid) in m.layerGIDs {
+            for r in 0..<m.rows {
+                for c in 0..<m.cols {
+                    let gid = grid[r][c] & 0x0FFF_FFFF
+                    guard ranges.contains(where: { $0.contains(gid) }) else { continue }
+                    let key = "\(r),\(c)"
+                    guard !seen.contains(key) else { continue }
+                    seen.insert(key)
+                    bridgeWoodPositions.append(m.tileCenter(col: c, row: r))
+                }
+            }
+        }
+        print("🌉 Found \(bridgeWoodPositions.count) bridge wood tile(s) on the map")
+    }
+
+    /// Stores references to the water-blocking physics nodes that sit under ImaginationFX
+    /// bridge tiles so they can be removed when the bridge is unlocked.
+    private func cacheBridgePhysicsNodes(from m: TMXMap) {
+        guard let fxGrid = m.layerGIDs["ImaginationFX"] else { return }
+        var bridgeCenters = Set<String>()
+        for r in 0..<m.rows {
+            for c in 0..<m.cols {
+                if (fxGrid[r][c] & 0x0FFF_FFFF) != 0 {
+                    let pt = m.tileCenter(col: c, row: r)
+                    bridgeCenters.insert("\(Int(pt.x)),\(Int(pt.y))")
+                }
+            }
+        }
+        guard !bridgeCenters.isEmpty else { return }
+        bridgePhysicsNodes = m.mapNode.children.filter { node in
+            guard node.physicsBody != nil else { return false }
+            let key = "\(Int(node.position.x)),\(Int(node.position.y))"
+            return bridgeCenters.contains(key)
+        }
+        print("🌉 Cached \(bridgePhysicsNodes.count) bridge physics node(s)")
+    }
+
     /// Called every frame. Shows a single "▲A" prompt for the nearest interactable
     /// object — cornhole board, baseball zone, tree, beehive, pool, or chest — and hides it otherwise.
     private func checkBoardProximity() {
@@ -770,6 +825,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         let appleTreeRadius:   CGFloat = 26
         let beehiveRadius:     CGFloat = 36
         let poolRadius:        CGFloat = 36
+        let bridgeWoodRadius:  CGFloat = 36
 
         // Find the single closest object across all categories.
         var bestDist         = CGFloat.infinity
@@ -781,6 +837,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         var bestAppleTree:    CGPoint? = nil
         var bestBeehive:      CGPoint? = nil
         var bestPool:         CGPoint? = nil
+        var bestBridgeWood:   CGPoint? = nil
 
         for pos in cornholeBoardPositions {
             let d = hypot(player.position.x - pos.x, player.position.y - pos.y)
@@ -833,6 +890,17 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
                 bestBeehive = nil; bestPool = pos
             }
         }
+        // Only show the bridge_wood prompt if the bridge hasn't been unlocked yet.
+        if !UserDefaults.standard.bool(forKey: bridgeUnlockedKey) {
+            for pos in bridgeWoodPositions {
+                let d = hypot(player.position.x - pos.x, player.position.y - pos.y)
+                if d < bridgeWoodRadius && d < bestDist {
+                    bestDist = d; bestBoard = nil; bestChest = nil; bestBridgeStone = nil
+                    bestBaseball = nil; bestTree = nil; bestAppleTree = nil
+                    bestBeehive = nil; bestPool = nil; bestBridgeWood = pos
+                }
+            }
+        }
 
         nearbyBoardPosition       = bestBoard
         nearbyChestPosition       = bestChest
@@ -842,6 +910,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         nearbyAppleTreePosition   = bestAppleTree
         nearbyBeehivePosition     = bestBeehive
         nearbyPoolPosition        = bestPool
+        nearbyBridgeWoodPosition  = bestBridgeWood
 
         // Auto-descend when the player walks away from the tree they climbed.
         if bestTree == nil && player.isInTree { player.descendTree() }
@@ -856,6 +925,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         else if let p = bestAppleTree     { anchor = CGPoint(x: p.x, y: p.y + 22) }
         else if let p = bestBeehive       { anchor = CGPoint(x: p.x, y: p.y + 22) }
         else if let p = bestPool          { anchor = CGPoint(x: p.x, y: p.y + 22) }
+        else if let p = bestBridgeWood    { anchor = CGPoint(x: p.x, y: p.y + 22) }
         else                              { anchor = nil }
 
         if let pos = anchor {
@@ -1075,6 +1145,34 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         view.presentScene(beach, transition: transition)
     }
 
+    private func openBridgePiranha() {
+        guard let view = self.view else { return }
+        isTransitioning = true
+        player.moveDirection = .zero
+        player.physicsBody?.velocity = .zero
+        resetBeanbagControl()
+
+        let piranha = BridgePiranhaScene(size: self.size)
+        piranha.scaleMode     = self.scaleMode
+        piranha.previousScene = self
+        piranha.onComplete = { [weak self] won in
+            guard let self else { return }
+            self.isTransitioning = false
+            if won { self.unlockBridge() }
+        }
+
+        let transition = SKTransition.push(with: .up, duration: 0.38)
+        transition.pausesOutgoingScene = false
+        view.presentScene(piranha, transition: transition)
+    }
+
+    private func unlockBridge() {
+        UserDefaults.standard.set(true, forKey: bridgeUnlockedKey)
+        map?.layerNodes["ImaginationFX"]?.isHidden = false
+        bridgePhysicsNodes.forEach { $0.removeFromParent() }
+        bridgePhysicsNodes.removeAll()
+    }
+
     /// Walks playerHearts down to `remaining`, animating each lost heart in the HUD.
     private func syncHeartsFromBeeHive(to remaining: Int) {
         let target = max(0, remaining)
@@ -1288,6 +1386,8 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
                 openBeeHiveMiniGame()
             } else if nearbyPoolPosition != nil {
                 openBeachBallCornhole()
+            } else if nearbyBridgeWoodPosition != nil {
+                openBridgePiranha()
             } else if nearbyTreePosition != nil {
                 if player.isInTree { player.descendTree() } else { player.climbTree() }
             }
