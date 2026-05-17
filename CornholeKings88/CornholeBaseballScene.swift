@@ -42,6 +42,8 @@ final class CornholeBaseballScene: SKScene {
     private let hudViewModel = BaseballHUDViewModel()
     private var hudHostingController: UIHostingController<BaseballHUDView>?
     private var closeUIButton: UIButton?
+    private var pauseUIButton: UIButton?
+    private var crtUIOverlay: UIView?
 
     // MARK: - Field layout
     private var batY:     CGFloat = 0   // top  (positive)
@@ -86,6 +88,9 @@ final class CornholeBaseballScene: SKScene {
 
     // Phase-transition state (tutorial state is owned by TutorialOverlay itself)
     private var phaseTransitionActive = false
+
+    private var isPausedGame = false
+    private var pauseOverlayNode: SKNode?
 
     // Tracks which half is active for HUD display — stays stable through .tracking/.gameOver
     private var isUserBattingHalf = true
@@ -164,17 +169,27 @@ final class CornholeBaseballScene: SKScene {
     }
 
     private func addHelpButton() {
-        // Top-left of the SwiftUI HUD area; close button is UIKit at top-right.
+        // Pause and close icons are UIKit buttons added in injectHUD() so they sit above
+        // the SwiftUI UIHostingController layer and are actually visible.
+        // Only the SK tutorial help button lives here; it renders in the SK layer below
+        // the SwiftUI view but the HUD background is transparent over the center area.
+        let topInset: CGFloat = view?.safeAreaInsets.top ?? 0
+        let hudY = size.height / 2 - topInset - 24
+
         let help = TutorialHelpButton.make()
-        help.position = CGPoint(x: -size.width / 2 + 28, y: size.height / 2 - 34)
+        help.position = CGPoint(x: -size.width / 2 + 52, y: hudY)
         addChild(help)
     }
 
     override func willMove(from view: SKView) {
         hudHostingController?.view.removeFromSuperview()
         hudHostingController = nil
+        pauseUIButton?.removeFromSuperview()
+        pauseUIButton = nil
         closeUIButton?.removeFromSuperview()
         closeUIButton = nil
+        crtUIOverlay?.removeFromSuperview()
+        crtUIOverlay = nil
     }
 
     private func preloadAssets() {
@@ -219,23 +234,62 @@ final class CornholeBaseballScene: SKScene {
         view.addSubview(hc.view)
         hudHostingController = hc
 
-        let sz: CGFloat = 66
-        let safeTop = view.safeAreaInsets.top
-        let btn = UIButton(type: .custom)
-        btn.frame = CGRect(x: view.bounds.width - sz - 8,
-                           y: max(safeTop + 4, 4),
-                           width: sz, height: sz)
-        btn.setImage(UIImage(named: "closeIcon"), for: .normal)
-        btn.imageView?.contentMode = .scaleAspectFit
-        btn.addTarget(self, action: #selector(closeButtonTapped), for: .touchUpInside)
-        view.addSubview(btn)
-        closeUIButton = btn
+        // UIKit pause + close buttons — must sit above the SwiftUI UIHostingController layer,
+        // so SK sprites can't be used here (they render below all UIKit subviews).
+        let topInset = view.safeAreaInsets.top
+        let iconPts: CGFloat = 22   // matches the 22×22 size used by SK sprites in other mini-games
+        let btnSize: CGFloat = 44   // generous tap target
+
+        let pause = UIButton(type: .custom)
+        pause.setImage(Self.resizedIcon(named: "pauseIcon", to: iconPts), for: .normal)
+        pause.frame = CGRect(x: 0, y: topInset, width: btnSize, height: 48)
+        pause.addTarget(self, action: #selector(pauseButtonTapped), for: .touchUpInside)
+        view.addSubview(pause)
+        pauseUIButton = pause
+
+        let close = UIButton(type: .custom)
+        close.setImage(Self.resizedIcon(named: "closeIcon", to: iconPts), for: .normal)
+        close.frame = CGRect(x: view.bounds.width - btnSize, y: topInset, width: btnSize, height: 48)
+        close.addTarget(self, action: #selector(closeButtonTapped), for: .touchUpInside)
+        view.addSubview(close)
+        closeUIButton = close
+
+        // CRT scanline overlay — must be the topmost UIKit view so scanlines appear over
+        // the SwiftUI HUD and the pause/close buttons, matching every other scene.
+        let crt = Self.makeCRTView(frame: view.bounds)
+        view.addSubview(crt)
+        view.bringSubviewToFront(crt)
+        crtUIOverlay = crt
 
         pushHUD()
     }
 
-    @objc private func closeButtonTapped() {
-        dismissScene(playerWon: false)
+    @objc private func pauseButtonTapped() { pauseGame() }
+    @objc private func closeButtonTapped() { dismissScene(playerWon: false) }
+
+    private static func resizedIcon(named: String, to pts: CGFloat) -> UIImage? {
+        guard let src = UIImage(named: named) else { return nil }
+        let sz = CGSize(width: pts, height: pts)
+        return UIGraphicsImageRenderer(size: sz).image { _ in
+            src.draw(in: CGRect(origin: .zero, size: sz))
+        }
+    }
+
+    private static func makeCRTView(frame: CGRect) -> UIView {
+        // Matches the SK CRT overlay: 4pt scanlines (2pt clear / 2pt dark) at 28% view opacity.
+        let fmt = UIGraphicsImageRendererFormat.default()
+        fmt.opaque = false
+        let tile = UIGraphicsImageRenderer(size: CGSize(width: 2, height: 4), format: fmt).image { ctx in
+            UIColor(white: 0, alpha: 0.25).setFill()
+            ctx.fill(CGRect(x: 0, y: 2, width: 2, height: 2))
+            // top 2pt remains transparent (renderer fills with clear by default)
+        }
+        let v = UIView(frame: frame)
+        v.autoresizingMask    = [.flexibleWidth, .flexibleHeight]
+        v.isUserInteractionEnabled = false
+        v.backgroundColor     = UIColor(patternImage: tile)
+        v.alpha               = 0.28
+        return v
     }
 
     // MARK: - Layout
@@ -845,6 +899,7 @@ final class CornholeBaseballScene: SKScene {
     // MARK: - Physics update
 
     override func update(_ currentTime: TimeInterval) {
+        if isPausedGame { return }
         // Resume world after hit-stop timer.
         // IMPORTANT: hitStopEndTime is a CACurrentMediaTime() wall-clock value,
         // so we must compare against CACurrentMediaTime(), NOT the SpriteKit
@@ -1199,6 +1254,16 @@ final class CornholeBaseballScene: SKScene {
         // HUD help button re-presents the tutorial.
         for n in nodes(at: loc) where TutorialHelpButton.wasTapped(n) {
             presentTutorial(autoTriggered: false); return
+        }
+
+        // Pause overlay routing
+        if isPausedGame {
+            for n in nodes(at: loc) {
+                let name = n.name ?? n.parent?.name ?? ""
+                if name == "resumeBtn" { resumeGame(); return }
+                if TutorialHelpButton.wasTapped(n) { presentTutorial(autoTriggered: false); return }
+            }
+            return
         }
         // Phase-transition modal consumes all input.
         if phaseTransitionActive { handleButtonTap(at: loc); return }
@@ -1615,6 +1680,66 @@ final class CornholeBaseballScene: SKScene {
             }
         }
         addChild(overlay)
+    }
+
+    // MARK: - Pause / Resume
+
+    private func pauseGame() {
+        guard !isPausedGame, phase != .gameOver else { return }
+        isPausedGame = true
+        gameWorldNode.speed = 0
+        showPauseOverlay()
+    }
+
+    private func resumeGame() {
+        guard isPausedGame else { return }
+        isPausedGame = false
+        gameWorldNode.speed = 1
+        pauseOverlayNode?.removeFromParent()
+        pauseOverlayNode = nil
+    }
+
+    private func showPauseOverlay() {
+        let W = size.width, H = size.height
+        let ov = SKNode(); ov.zPosition = 5000
+        pauseOverlayNode = ov; addChild(ov)
+
+        let dim = SKShapeNode(rect: CGRect(x: -W / 2, y: -H / 2, width: W, height: H))
+        dim.fillColor = SKColor(white: 0, alpha: 0.65); dim.strokeColor = .clear; ov.addChild(dim)
+
+        let panelW: CGFloat = min(W - 48, 280), panelH: CGFloat = 200
+        let panel = SKShapeNode(rect: CGRect(x: -panelW / 2, y: -panelH / 2, width: panelW, height: panelH), cornerRadius: 10)
+        panel.fillColor   = SKColor(red: 0.10, green: 0.04, blue: 0.02, alpha: 0.97)
+        panel.strokeColor = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 0.80)
+        panel.lineWidth   = 2; ov.addChild(panel)
+
+        let title = SKLabelNode(fontNamed: "PressStart2P-Regular")
+        title.text = "PAUSED"; title.fontSize = 16
+        title.fontColor = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 1)
+        title.horizontalAlignmentMode = .center; title.verticalAlignmentMode = .center
+        title.position = CGPoint(x: 0, y: 56); ov.addChild(title)
+
+        let btnW = panelW - 40, btnH: CGFloat = 44
+        let resumeBg = SKShapeNode(rect: CGRect(x: -btnW / 2, y: -btnH / 2, width: btnW, height: btnH), cornerRadius: 8)
+        resumeBg.fillColor   = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 0.20)
+        resumeBg.strokeColor = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 0.80)
+        resumeBg.lineWidth   = 1.5; resumeBg.position = CGPoint(x: 0, y: 6)
+        resumeBg.name = "resumeBtn"; ov.addChild(resumeBg)
+
+        let resumeLbl = SKLabelNode(fontNamed: "PressStart2P-Regular")
+        resumeLbl.text = "RESUME"; resumeLbl.fontSize = 11
+        resumeLbl.fontColor = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 1)
+        resumeLbl.horizontalAlignmentMode = .center; resumeLbl.verticalAlignmentMode = .center
+        resumeLbl.position = CGPoint(x: 0, y: -1); resumeLbl.name = "resumeBtn"; resumeBg.addChild(resumeLbl)
+
+        let help = TutorialHelpButton.make()
+        help.position = CGPoint(x: 0, y: -62); ov.addChild(help)
+
+        let helpHint = SKLabelNode(fontNamed: "PressStart2P-Regular")
+        helpHint.text = "TUTORIAL"; helpHint.fontSize = 7
+        helpHint.fontColor = SKColor(white: 0.6, alpha: 0.8)
+        helpHint.horizontalAlignmentMode = .center; helpHint.verticalAlignmentMode = .top
+        helpHint.position = CGPoint(x: 0, y: -80); ov.addChild(helpHint)
     }
 
     // MARK: - Dismiss

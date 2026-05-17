@@ -11,6 +11,7 @@ final class MiniGamePickerScene: SKScene {
     private var nodesCount = 45
     private weak var nodesLabel: SKLabelNode?
     private var hasSetup = false
+    private var ribbonBottomY: CGFloat = 0   // scene-Y of bottom edge of the top ribbon
 
     private struct MenuItem {
         let label: String
@@ -65,51 +66,57 @@ final class MiniGamePickerScene: SKScene {
         run(.sequence([.wait(forDuration: 0.5), .run { self.tapEnabled = true }]))
     }
 
-    // MARK: - Header (height 52)
+    // MARK: - Header (DS standard ribbon: #1a0a04 + 2px gold border, safe-area aware)
     private func setupHeader() {
         let font = "PressStart2P-Regular"
-        let hH: CGFloat = 52
-        let hCenterY = H / 2 - hH / 2
+        let dsPrimary = SKColor(red: 0.102, green: 0.039, blue: 0.016, alpha: 1) // #1a0a04
+        let dsGold    = SKColor(red: 0.941, green: 0.753, blue: 0.376, alpha: 1) // #f0c060
 
-        // Dark iron-wood panel with gold bottom rule
-        let panelImg = renderImage(CGSize(width: W, height: hH)) { c, sz in
-            c.setFillColor(UIColor(red: 0.063, green: 0.027, blue: 0.012, alpha: 0.97).cgColor)
-            c.fill(CGRect(x: 0, y: 0, width: sz.width, height: sz.height))
-            // Gold rule at bottom (in image coords y=0 is bottom in SpriteKit, but image coords differ —
-            // fill the last row which will appear at the scene-space bottom of the sprite)
-            c.setFillColor(UIColor(red: 0.784, green: 0.573, blue: 0.165, alpha: 1).cgColor)
-            c.fill(CGRect(x: 0, y: sz.height - 1, width: sz.width, height: 1))
-            // Subtle glow below rule
-            c.setFillColor(UIColor(red: 0.784, green: 0.573, blue: 0.165, alpha: 0.18).cgColor)
-            c.fill(CGRect(x: 0, y: sz.height - 3, width: sz.width, height: 2))
-        }
-        let panel = SKSpriteNode(texture: SKTexture(image: panelImg), size: CGSize(width: W, height: hH))
-        panel.position = CGPoint(x: 0, y: hCenterY); panel.zPosition = 10
-        addChild(panel)
+        let topInset  = view?.safeAreaInsets.top ?? 0
+        let topH: CGFloat = 48
+        let totalTopH = topH + topInset
+        let topBarY   = H / 2 - totalTopH / 2
+        ribbonBottomY = H / 2 - totalTopH
 
+        // Background bar (extends through notch)
+        let bar = SKSpriteNode(color: dsPrimary, size: CGSize(width: W, height: totalTopH))
+        bar.position  = CGPoint(x: 0, y: topBarY)
+        bar.zPosition = 10
+        addChild(bar)
+
+        // 2px gold bottom border
+        let border = SKSpriteNode(color: dsGold, size: CGSize(width: W, height: 2))
+        border.position  = CGPoint(x: 0, y: ribbonBottomY + 1)
+        border.zPosition = 11
+        addChild(border)
+
+        let contentY = H / 2 - topInset - topH / 2
+
+        // Zone B (center): title
         let title = SKLabelNode(fontNamed: font)
         title.text = "MINI  GAMES"
         title.fontSize = min(14, W / 26)
         title.fontColor = engraveHi
         title.horizontalAlignmentMode = .center
         title.verticalAlignmentMode   = .center
-        title.position  = CGPoint(x: 0, y: hCenterY); title.zPosition = 11
+        title.position  = CGPoint(x: 0, y: contentY)
+        title.zPosition = 11
         addChild(title)
 
-        let closeSize: CGFloat = min(30, W / 13)
+        // Zone C (right): close / back icon at 22×22
         let back = SKSpriteNode(imageNamed: "closeIcon")
-        back.size = CGSize(width: closeSize, height: closeSize)
+        back.size             = CGSize(width: 22, height: 22)
         back.texture?.filteringMode = .nearest
-        back.position  = CGPoint(x: -W / 2 + closeSize / 2 + 10, y: hCenterY)
-        back.zPosition = 11; back.name = "back"
+        back.position  = CGPoint(x: W / 2 - 22, y: contentY)
+        back.zPosition = 11
+        back.name      = "back"
         addChild(back)
     }
 
     // MARK: - Eyebrow
     private func setupEyebrow() {
         let font = "PressStart2P-Regular"
-        let headerBottomY = H / 2 - 52
-        let ey = headerBottomY - 22
+        let ey = ribbonBottomY - 22
 
         let lbl = SKLabelNode(fontNamed: font)
         lbl.text = "CHOOSE YOUR EVENT"
@@ -139,16 +146,15 @@ final class MiniGamePickerScene: SKScene {
     // MARK: - Cards
     private func setupCards() {
         let font = "PressStart2P-Regular"
-        let headerH: CGFloat  = 52
         let footerH: CGFloat  = 28
         let eyebrowH: CGFloat = 40
         let sidePad: CGFloat  = 18
         let gap: CGFloat      = 14
         let btnW = W - sidePad * 2
-        let usableH = H - headerH - footerH - eyebrowH - 12
+        let usableH = ribbonBottomY + H / 2 - footerH - eyebrowH - 12
         let btnH = min(76, max(54, (usableH - CGFloat(items.count - 1) * gap) / CGFloat(items.count)))
 
-        let topY   = H / 2 - headerH - eyebrowH - 4
+        let topY   = ribbonBottomY - eyebrowH - 4
         var curY   = topY - btnH / 2
 
         for (i, item) in items.enumerated() {

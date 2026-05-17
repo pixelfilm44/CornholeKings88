@@ -5,6 +5,7 @@ final class StatsScene: SKScene {
 
     private var W: CGFloat = 0, H: CGFloat = 0
     private var resetLabel: SKLabelNode?
+    private var ribbonBottomY: CGFloat = 0   // scene-Y of bottom edge of the top ribbon
 
     // MARK: - didMove
     override func didMove(to view: SKView) {
@@ -22,46 +23,59 @@ final class StatsScene: SKScene {
         addCrtOverlay()
     }
 
-    // MARK: - Top strip (back button)
+    // MARK: - Top ribbon (DS standard: #1a0a04 + 2px gold border, safe-area aware)
     private func setupTopStrip() {
-        let font = "PressStart2P-Regular"
-        let stripH: CGFloat = 20
-        let stripY = H / 2 - stripH / 2
+        let dsPrimary = SKColor(red: 0.102, green: 0.039, blue: 0.016, alpha: 1) // #1a0a04
+        let dsGold    = SKColor(red: 0.941, green: 0.753, blue: 0.376, alpha: 1) // #f0c060
 
-        let bg = makeStrip(width: W, height: stripH)
-        bg.position = CGPoint(x: 0, y: stripY)
-        bg.zPosition = 10
-        addChild(bg)
+        let topInset  = view?.safeAreaInsets.top ?? 0
+        let topH: CGFloat = 48
+        let totalTopH = topH + topInset
+        let topBarY   = H / 2 - totalTopH / 2
+        ribbonBottomY = H / 2 - totalTopH
 
-        let closeSize: CGFloat = min(24, stripH + 4)
+        // Background bar (extends through notch)
+        let bar = SKSpriteNode(color: dsPrimary, size: CGSize(width: W, height: totalTopH))
+        bar.position  = CGPoint(x: 0, y: topBarY)
+        bar.zPosition = 10
+        addChild(bar)
+
+        // 2px gold bottom border
+        let border = SKSpriteNode(color: dsGold, size: CGSize(width: W, height: 2))
+        border.position  = CGPoint(x: 0, y: ribbonBottomY + 1)
+        border.zPosition = 11
+        addChild(border)
+
+        // Zone C (right): close / back icon at 22×22
+        let contentY = H / 2 - topInset - topH / 2
         let back = SKSpriteNode(imageNamed: "closeIcon")
-        back.size = CGSize(width: closeSize, height: closeSize)
+        back.size             = CGSize(width: 22, height: 22)
         back.texture?.filteringMode = .nearest
-        back.position = CGPoint(x: -W / 2 + closeSize / 2 + 6, y: stripY)
-        back.zPosition = 11
-        back.name = "back"
+        back.position  = CGPoint(x: W / 2 - 22, y: contentY)
+        back.zPosition = 12
+        back.name      = "back"
         addChild(back)
 
+        // Zone B (center): scene title
+        let font = "PressStart2P-Regular"
         let title = SKLabelNode(fontNamed: font)
         title.text = "STATS"
-        title.fontSize = min(6, W / 50)
-        title.fontColor = SKColor(white: 0.70, alpha: 1)
+        title.fontSize = 8
+        title.fontColor = SKColor(red: 0.941, green: 0.753, blue: 0.376, alpha: 1)
         title.horizontalAlignmentMode = .center
-        title.verticalAlignmentMode = .center
-        title.position = CGPoint(x: 0, y: stripY)
-        title.zPosition = 11
+        title.verticalAlignmentMode   = .center
+        title.position  = CGPoint(x: 0, y: contentY)
+        title.zPosition = 12
         addChild(title)
     }
 
     // MARK: - Wooden plaque header
     private func setupPlaque() {
         let font = "PressStart2P-Regular"
-        let stripH: CGFloat = 20
-        let stripBottom = H / 2 - stripH
 
         let plaqueW = min(W * 0.72, 240)
         let plaqueH: CGFloat = 52
-        let plaqueY = stripBottom - 16 - plaqueH / 2
+        let plaqueY = ribbonBottomY - 16 - plaqueH / 2
 
         let plaque = SKSpriteNode(texture: makePlaqueTexture(size: CGSize(width: plaqueW, height: plaqueH)),
                                   size: CGSize(width: plaqueW, height: plaqueH))
@@ -90,9 +104,8 @@ final class StatsScene: SKScene {
     // MARK: - Stat cards
     private func setupStats() {
         let stats = CornholeStatsManager.shared
-        let stripH: CGFloat = 20
         let plaqueH: CGFloat = 52
-        let topContentY = H / 2 - stripH - 16 - plaqueH - 20
+        let topContentY = ribbonBottomY - 16 - plaqueH - 20
 
         let cardW = min(W * 0.84, 300)
         let cardH: CGFloat = 60
@@ -241,9 +254,9 @@ final class StatsScene: SKScene {
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         guard let touch = touches.first else { return }
         let loc = touch.location(in: self)
-        let name = atPoint(loc).name ?? atPoint(loc).parent?.name ?? ""
-
-        switch name {
+        // Use nodes(at:) so the CRT overlay (highest zPosition) doesn't shadow named nodes below it.
+        let hit = nodes(at: loc).first(where: { $0.name != nil })
+        switch hit?.name {
         case "back":
             goBack()
         case "resetStats":

@@ -11,7 +11,7 @@ final class CornholeMiniGameScene: SKScene {
     // MARK: - Public
     var previousScene: SKScene?
     var onComplete: ((Bool) -> Void)?
-    private var closeUIButton: UIButton?
+    private var closeUIButton: UIButton? = nil  // unused; SK close button replaces UIKit
     /// Honey bags from inventory injected by GameScene before presenting.
     var availableHoneyBags: Int = 0
     /// How many honey bags the player actually used this match (consumed from inventory).
@@ -224,6 +224,8 @@ final class CornholeMiniGameScene: SKScene {
 
     // MARK: - Game state
     private var gameState: State = .playerTurn
+    private var isPausedGame = false
+    private var pauseOverlayNode: SKNode?
     private var activeBags: [MiniGameBag] = []
     private var playerBagsThrown = 0
     private var aiBagsThrown     = 0
@@ -319,7 +321,6 @@ final class CornholeMiniGameScene: SKScene {
         setupGameWorld()
         setupBoard()
         setupUI()
-        pushCloseButton(to: view)
         rollRainScenario()
         rollThunderstormScenario()
 
@@ -327,10 +328,7 @@ final class CornholeMiniGameScene: SKScene {
         showOpponentPicker()
     }
 
-    override func willMove(from view: SKView) {
-        closeUIButton?.removeFromSuperview()
-        closeUIButton = nil
-    }
+    override func willMove(from view: SKView) { }
 
     private func preloadAssets() {
         // Force textures into GPU memory so the first bag throw doesn't stutter
@@ -536,62 +534,98 @@ final class CornholeMiniGameScene: SKScene {
     // MARK: - UI
 
     private func setupUI() {
-        let topH: CGFloat    = max(48, size.height * 0.09)
+        // Bit-Wood Brawler design-system colors
+        let dsPrimary  = SKColor(red: 0.102, green: 0.039, blue: 0.016, alpha: 1) // #1a0a04
+        let dsGold     = SKColor(red: 0.941, green: 0.753, blue: 0.376, alpha: 1) // #f0c060
+        let dsIronGray = SKColor(red: 0.349, green: 0.349, blue: 0.349, alpha: 1) // #595959
+
+        let topInset: CGFloat = view?.safeAreaInsets.top ?? 0
+        let topH: CGFloat    = 48
         let bottomH: CGFloat = max(40, size.height * 0.08)
-        let topBarY  = size.height / 2 - topH / 2
-        let botBarY  = -size.height / 2 + bottomH / 2
+        // Panel sits immediately below the safe-area inset (Dynamic Island / notch)
+        let panelTopY = size.height / 2 - topInset
+        let topBarY   = panelTopY - topH / 2
+        let botBarY   = -size.height / 2 + bottomH / 2
 
-        // ── Top bar ────────────────────────────────────────────────────────
-        addChrome(y: topBarY, h: topH)
+        // ── Top HUD ribbon ────────────────────────────────────────────────
+        // Extend the background up through the safe-area inset so the notch stays dark
+        let totalTopH = topH + topInset
+        let topBar = SKSpriteNode(color: dsPrimary,
+                                  size: CGSize(width: size.width, height: totalTopH))
+        topBar.position  = CGPoint(x: 0, y: size.height / 2 - totalTopH / 2)
+        topBar.zPosition = 500
+        addChild(topBar)
 
-        // Score chip — centered, just below the top bar (clear of the camera area)
-        let chipW: CGFloat = min(size.width * 0.62, 230)
-        let chipH: CGFloat = 36
-        let chipY = size.height / 2 - topH - chipH / 2 - 8
+        // 2px gold bottom border at the bottom edge of the visible 48pt ribbon
+        let topBorder = SKSpriteNode(color: dsGold,
+                                     size: CGSize(width: size.width, height: 2))
+        topBorder.position  = CGPoint(x: 0, y: topBarY - topH / 2)
+        topBorder.zPosition = 501
+        addChild(topBorder)
 
-        let chipBg = SKSpriteNode(color: SKColor(red: 0.06, green: 0.02, blue: 0.01, alpha: 0.90),
-                                  size: CGSize(width: chipW, height: chipH))
-        chipBg.position  = CGPoint(x: 0, y: chipY)
-        chipBg.zPosition = 600
-        addChild(chipBg)
+        // Zone A (left): pause icon
+        let pauseBtn = SKSpriteNode(imageNamed: "pauseIcon")
+        pauseBtn.size     = CGSize(width: 22, height: 22)
+        pauseBtn.position = CGPoint(x: -size.width / 2 + 22, y: topBarY)
+        pauseBtn.zPosition = 502
+        pauseBtn.name     = "pauseBtn"
+        addChild(pauseBtn)
 
-        let pLabel = makeLabel(text: "YOU: 0", size: 9,
-                               color: SKColor(red: 0.83, green: 0.27, blue: 0.12, alpha: 1))
-        pLabel.horizontalAlignmentMode = .left
-        pLabel.position  = CGPoint(x: -chipW / 2 + 12, y: chipY)
-        pLabel.zPosition = 602
-        addChild(pLabel)
-        playerScoreLabel = pLabel
+        // Tutorial help button just right of pause
+        let help = TutorialHelpButton.make()
+        help.position = CGPoint(x: -size.width / 2 + 52, y: topBarY)
+        addChild(help)
 
-        let chipDiv = SKSpriteNode(color: SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 0.35),
-                                   size: CGSize(width: 1, height: 20))
-        chipDiv.position  = CGPoint(x: 0, y: chipY)
-        chipDiv.zPosition = 602
-        addChild(chipDiv)
+        // Zone B (center): combined score label
+        let scoreLabel = makeLabel(text: "YOU: 0 | OPP: 0", size: 9, color: dsGold)
+        scoreLabel.horizontalAlignmentMode = .center
+        scoreLabel.position  = CGPoint(x: 0, y: topBarY)
+        scoreLabel.zPosition = 502
+        addChild(scoreLabel)
+        playerScoreLabel = scoreLabel
 
-        let aLabel = makeLabel(text: "BOT: 0", size: 9,
-                               color: SKColor(red: 0.35, green: 0.61, blue: 0.83, alpha: 1))
-        aLabel.horizontalAlignmentMode = .right
-        aLabel.position  = CGPoint(x: chipW / 2 - 12, y: chipY)
-        aLabel.zPosition = 602
-        addChild(aLabel)
-        aiScoreLabel = aLabel
+        // Zone C (right): SK close button using closeIcon image
+        let closeBtn = SKSpriteNode(imageNamed: "closeIcon")
+        closeBtn.size      = CGSize(width: 22, height: 22)
+        closeBtn.position  = CGPoint(x: size.width / 2 - 22, y: topBarY)
+        closeBtn.zPosition = 502
+        closeBtn.name      = "closeButton"
+        addChild(closeBtn)
 
-        // ── Bottom bar ─────────────────────────────────────────────────────
-        addChrome(y: botBarY, h: bottomH)
+        // Iron bolts — corners of the visible 48pt ribbon
+        addIronBolt(at: CGPoint(x: -size.width / 2 + 5, y: topBarY + topH / 2 - 5), color: dsIronGray)
+        addIronBolt(at: CGPoint(x:  size.width / 2 - 5, y: topBarY + topH / 2 - 5), color: dsIronGray)
+        addIronBolt(at: CGPoint(x: -size.width / 2 + 5, y: topBarY - topH / 2 + 5), color: dsIronGray)
+        addIronBolt(at: CGPoint(x:  size.width / 2 - 5, y: topBarY - topH / 2 + 5), color: dsIronGray)
 
-        let wLabel = makeLabel(text: "CALM", size: 9, color: SKColor(white: 0.75, alpha: 1))
+        // ── Bottom bar ────────────────────────────────────────────────────
+        let botBar = SKSpriteNode(color: dsPrimary,
+                                  size: CGSize(width: size.width, height: bottomH))
+        botBar.position  = CGPoint(x: 0, y: botBarY)
+        botBar.zPosition = 500
+        addChild(botBar)
+
+        // 2px gold top border
+        let botBorder = SKSpriteNode(color: dsGold,
+                                     size: CGSize(width: size.width, height: 2))
+        botBorder.position  = CGPoint(x: 0, y: botBarY + bottomH / 2)
+        botBorder.zPosition = 501
+        addChild(botBorder)
+
+        // Weather / wind — centered, gold
+        let wLabel = makeLabel(text: "CALM", size: 9, color: dsGold)
         wLabel.horizontalAlignmentMode = .center
         wLabel.position  = CGPoint(x: 0, y: botBarY)
-        wLabel.zPosition = 600
+        wLabel.zPosition = 502
         addChild(wLabel)
         windLabel = wLabel
 
+        // Round bag counters — left and right
         let rndPLabel = makeLabel(text: "", size: 9,
                                   color: SKColor(red: 0.90, green: 0.42, blue: 0.42, alpha: 1))
         rndPLabel.horizontalAlignmentMode = .left
-        rndPLabel.position  = CGPoint(x: -size.width / 2 + 58, y: botBarY)
-        rndPLabel.zPosition = 600
+        rndPLabel.position  = CGPoint(x: -size.width / 2 + 14, y: botBarY)
+        rndPLabel.zPosition = 502
         rndPLabel.name = "rndPlayerLabel"
         addChild(rndPLabel)
 
@@ -599,9 +633,13 @@ final class CornholeMiniGameScene: SKScene {
                                   color: SKColor(red: 0.40, green: 0.60, blue: 0.90, alpha: 1))
         rndALabel.horizontalAlignmentMode = .right
         rndALabel.position  = CGPoint(x: size.width / 2 - 8, y: botBarY)
-        rndALabel.zPosition = 600
+        rndALabel.zPosition = 502
         rndALabel.name = "rndAILabel"
         addChild(rndALabel)
+
+        // Iron bolts — bottom corners
+        addIronBolt(at: CGPoint(x: -size.width / 2 + 5, y: botBarY + bottomH / 2 - 5), color: dsIronGray)
+        addIronBolt(at: CGPoint(x:  size.width / 2 - 5, y: botBarY + bottomH / 2 - 5), color: dsIronGray)
 
         // ── Turn indicator ─────────────────────────────────────────────────
         let indTex = SKTexture(imageNamed: "bag_16bit")
@@ -620,14 +658,14 @@ final class CornholeMiniGameScene: SKScene {
         ])))
 
         setupSatchelButton()
-
-        // Tutorial help button — top-left chrome, away from the UIKit close
-        // button (top-right) and the score chip (centered).
-        let help = TutorialHelpButton.make()
-        help.position = CGPoint(x: -size.width / 2 + 26, y: topBarY)
-        addChild(help)
-
         addCrtOverlay()
+    }
+
+    private func addIronBolt(at pt: CGPoint, color: SKColor) {
+        let bolt = SKSpriteNode(color: color, size: CGSize(width: 4, height: 4))
+        bolt.position  = pt
+        bolt.zPosition = 503
+        addChild(bolt)
     }
 
     private func addCrtOverlay() {
@@ -654,56 +692,6 @@ final class CornholeMiniGameScene: SKScene {
         overlay.zPosition = 800
         overlay.isUserInteractionEnabled = false
         addChild(overlay)
-    }
-
-    /// 44×44-minimum close button: dark iron backing with red ✕ label.
-    private func makeCloseButton(size: CGSize) -> SKNode {
-        let n = SKNode()
-        let backing = SKSpriteNode(color: SKColor(red: 0.18, green: 0.07, blue: 0.05, alpha: 0.95),
-                                   size: size)
-        backing.zPosition = 0
-        n.addChild(backing)
-        let lbl = SKLabelNode(fontNamed: "PressStart2P-Regular")
-        lbl.text                    = "✕"
-        lbl.fontSize                = 14
-        lbl.fontColor               = SKColor(red: 0.83, green: 0.27, blue: 0.12, alpha: 1)
-        lbl.verticalAlignmentMode   = .center
-        lbl.horizontalAlignmentMode = .center
-        lbl.zPosition               = 1
-        n.addChild(lbl)
-        return n
-    }
-
-    private func pushCloseButton(to view: SKView) {
-        let sz: CGFloat = 66
-        let safeTop = view.safeAreaInsets.top
-        let btn = UIButton(type: .custom)
-        btn.frame = CGRect(x: view.bounds.width - sz - 8,
-                           y: max(safeTop + 4, 4),
-                           width: sz, height: sz)
-        btn.setImage(UIImage(named: "closeIcon"), for: .normal)
-        btn.imageView?.contentMode = .scaleAspectFit
-        btn.addTarget(self, action: #selector(closeButtonTapped), for: .touchUpInside)
-        view.addSubview(btn)
-        closeUIButton = btn
-    }
-
-    @objc private func closeButtonTapped() {
-        showConfirmQuit()
-    }
-
-    private func addChrome(y: CGFloat, h: CGFloat) {
-        let bar = SKSpriteNode(color: SKColor(red: 0.09, green: 0.07, blue: 0.05, alpha: 0.88),
-                               size: CGSize(width: size.width, height: h))
-        bar.position = CGPoint(x: 0, y: y)
-        bar.zPosition = 500
-        addChild(bar)
-        // 1px pixel-art border on the inner edge
-        let border = SKSpriteNode(color: SKColor(red: 0.50, green: 0.35, blue: 0.15, alpha: 0.7),
-                                  size: CGSize(width: size.width, height: 1))
-        border.position = CGPoint(x: 0, y: y + (y > 0 ? -h / 2 : h / 2))
-        border.zPosition = 501
-        addChild(border)
     }
 
     private func makeLabel(text: String, size: CGFloat, color: SKColor) -> SKLabelNode {
@@ -1310,6 +1298,7 @@ final class CornholeMiniGameScene: SKScene {
     // MARK: - Physics update
 
     override func update(_ currentTime: TimeInterval) {
+        guard !isPausedGame else { return }
         let dt: CGFloat = 1.0 / 60.0
 
         if gameState == .playerTurn {
@@ -2061,6 +2050,17 @@ final class CornholeMiniGameScene: SKScene {
             presentTutorial(autoTriggered: false); return
         }
 
+        // Pause overlay routing
+        if isPausedGame {
+            for n in nodes(at: loc) {
+                let name = n.name ?? n.parent?.name ?? ""
+                if name == "resumeBtn" { resumeGame(); return }
+                if TutorialHelpButton.wasTapped(n) { presentTutorial(autoTriggered: false); return }
+            }
+            return
+        }
+        if nodes(at: loc).contains(where: { $0.name == "pauseBtn" }) { pauseGame(); return }
+
         // Quit-confirm modal consumes all input until resolved
         if confirmingQuit { handleButtonTap(at: loc); return }
 
@@ -2316,8 +2316,7 @@ final class CornholeMiniGameScene: SKScene {
     // MARK: - HUD updates
 
     private func updateScoreLabels() {
-        playerScoreLabel?.text = "YOU: \(playerScore)"
-        aiScoreLabel?.text     = "\(opponentName): \(aiScore)"
+        playerScoreLabel?.text = "YOU: \(playerScore) | \(opponentName): \(aiScore)"
     }
 
     private func updateRoundLabels() {
@@ -2364,7 +2363,7 @@ final class CornholeMiniGameScene: SKScene {
             windLabel?.fontColor = SKColor(red: 0.55, green: 0.72, blue: 0.95, alpha: 1)
         } else {
             windLabel?.text = windText
-            windLabel?.fontColor = SKColor(white: 0.75, alpha: 1)
+            windLabel?.fontColor = SKColor(red: 0.941, green: 0.753, blue: 0.376, alpha: 1) // gold
         }
     }
 
@@ -3211,6 +3210,64 @@ final class CornholeMiniGameScene: SKScene {
         portrait.zPosition = 650
         addChild(portrait)
         opponentPortrait = portrait
+    }
+
+    // MARK: - Pause / Resume
+
+    private func pauseGame() {
+        guard !isPausedGame, gameState != .gameOver else { return }
+        isPausedGame = true
+        showPauseOverlay()
+    }
+
+    private func resumeGame() {
+        guard isPausedGame else { return }
+        isPausedGame = false
+        pauseOverlayNode?.removeFromParent()
+        pauseOverlayNode = nil
+    }
+
+    private func showPauseOverlay() {
+        let W = size.width, H = size.height
+        let ov = SKNode(); ov.zPosition = 5000
+        pauseOverlayNode = ov; addChild(ov)
+
+        let dim = SKShapeNode(rect: CGRect(x: -W / 2, y: -H / 2, width: W, height: H))
+        dim.fillColor = SKColor(white: 0, alpha: 0.65); dim.strokeColor = .clear; ov.addChild(dim)
+
+        let panelW: CGFloat = min(W - 48, 280), panelH: CGFloat = 200
+        let panel = SKShapeNode(rect: CGRect(x: -panelW / 2, y: -panelH / 2, width: panelW, height: panelH), cornerRadius: 10)
+        panel.fillColor   = SKColor(red: 0.10, green: 0.04, blue: 0.02, alpha: 0.97)
+        panel.strokeColor = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 0.80)
+        panel.lineWidth   = 2; ov.addChild(panel)
+
+        let title = SKLabelNode(fontNamed: "PressStart2P-Regular")
+        title.text = "PAUSED"; title.fontSize = 16
+        title.fontColor = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 1)
+        title.horizontalAlignmentMode = .center; title.verticalAlignmentMode = .center
+        title.position = CGPoint(x: 0, y: 56); ov.addChild(title)
+
+        let btnW = panelW - 40, btnH: CGFloat = 44
+        let resumeBg = SKShapeNode(rect: CGRect(x: -btnW / 2, y: -btnH / 2, width: btnW, height: btnH), cornerRadius: 8)
+        resumeBg.fillColor   = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 0.20)
+        resumeBg.strokeColor = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 0.80)
+        resumeBg.lineWidth   = 1.5; resumeBg.position = CGPoint(x: 0, y: 6)
+        resumeBg.name = "resumeBtn"; ov.addChild(resumeBg)
+
+        let resumeLbl = SKLabelNode(fontNamed: "PressStart2P-Regular")
+        resumeLbl.text = "RESUME"; resumeLbl.fontSize = 11
+        resumeLbl.fontColor = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 1)
+        resumeLbl.horizontalAlignmentMode = .center; resumeLbl.verticalAlignmentMode = .center
+        resumeLbl.position = CGPoint(x: 0, y: -1); resumeLbl.name = "resumeBtn"; resumeBg.addChild(resumeLbl)
+
+        let help = TutorialHelpButton.make()
+        help.position = CGPoint(x: 0, y: -62); ov.addChild(help)
+
+        let helpHint = SKLabelNode(fontNamed: "PressStart2P-Regular")
+        helpHint.text = "TUTORIAL"; helpHint.fontSize = 7
+        helpHint.fontColor = SKColor(white: 0.6, alpha: 0.8)
+        helpHint.horizontalAlignmentMode = .center; helpHint.verticalAlignmentMode = .top
+        helpHint.position = CGPoint(x: 0, y: -80); ov.addChild(helpHint)
     }
 
     // MARK: - Dismiss

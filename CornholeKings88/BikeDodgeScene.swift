@@ -88,6 +88,7 @@ final class BikeDodgeScene: SKScene {
     private let maxSteerVel:  CGFloat = 210
     private let distPerPx:    CGFloat = 1.0 / 11_000   // miles per scene-pt scroll
     private let distToPixScale: CGFloat = 1_500         // scene-pts per mile
+    private let brakeDecel:   CGFloat = 420             // speed units/s lost while braking
 
     // MARK: - Game state
     private var gState:     BikeGameState = .menu
@@ -138,17 +139,27 @@ final class BikeDodgeScene: SKScene {
     // MARK: - Input
     private var steerLeft  = false
     private var steerRight = false
+    private var isBraking  = false
     private var leftTouches:  Set<UITouch> = []
     private var rightTouches: Set<UITouch> = []
+    private var brakeTouches: Set<UITouch> = []
 
     // MARK: - HUD
-    private var hudPanelNode: SKShapeNode!
-    private var distLabel:   SKLabelNode!
-    private var timeLabel:   SKLabelNode!
-    private var heartsLabel: SKLabelNode!
-    private var minimapBG:   SKShapeNode!
-    private var mmDots:      [SKShapeNode] = []
+    private var hudPanelNode:    SKShapeNode!
+    private var bottomHudNode:   SKShapeNode?
+    private var distLabel:       SKLabelNode!
+    private var timeLabel:       SKLabelNode!
+    private var heartSprites:    [SKLabelNode] = []
+    private var pauseBtn:        SKSpriteNode!
+    private var closeBtn:        SKSpriteNode!
+    private var minimapBG:       SKShapeNode!
+    private var mmDots:          [SKShapeNode] = []
+    private var brakeButtonNode: SKSpriteNode?
     private var mmBottom:    CGFloat = 0, mmHeight: CGFloat = 0
+
+    // MARK: - Pause
+    private var isPausedGame = false
+    private var pauseOverlayNode: SKNode?
 
     // MARK: - Overlay
     private var overlayNode:    SKNode?
@@ -293,102 +304,206 @@ final class BikeDodgeScene: SKScene {
         return SKSpriteNode(texture: tex, size: CGSize(width: bw, height: bh))
     }
 
-    // MARK: - HUD
+    // MARK: - HUD (Bit-Wood Brawler design system)
+
+    // Design-system colors
+    private static let dsPrimaryContainer = SKColor(red: 0.102, green: 0.039, blue: 0.016, alpha: 1)  // #1a0a04
+    private static let dsSurfaceLowest    = SKColor(red: 0.063, green: 0.055, blue: 0.051, alpha: 1)  // #100e0d
+    private static let dsSecondaryGold    = SKColor(red: 0.941, green: 0.753, blue: 0.376, alpha: 1)  // #f0c060
+    private static let dsGoldDim          = SKColor(red: 0.651, green: 0.502, blue: 0.251, alpha: 1)  // #a68040
+    private static let dsHeartRed         = SKColor(red: 0.831, green: 0.267, blue: 0.118, alpha: 1)  // #d4441e
+    private static let dsTimerBlue        = SKColor(red: 0.353, green: 0.612, blue: 0.831, alpha: 1)  // #5a9cd4
+    private static let dsIronGray         = SKColor(red: 0.349, green: 0.349, blue: 0.349, alpha: 1)  // #595959
+    private static let dsErrorContainer   = SKColor(red: 0.576, green: 0.0,   blue: 0.039, alpha: 1)  // #93000a
+    private static let dsOnErrorContainer = SKColor(red: 1.0,   green: 0.855, blue: 0.839, alpha: 1)  // #ffdad6
+
     private func setupHUD() {
-        let font = "PressStart2P-Regular"
         let topInset = self.view?.safeAreaInsets.top ?? 0
-        let panelH: CGFloat = 44
+        let panelH: CGFloat = 48
         let panelTopY: CGFloat = H / 2 - topInset
         let hudY: CGFloat = panelTopY - panelH / 2
 
-        // Dark wood-iron panel (#1a0a04 → #0a0402) with faint gold inner glow
+        // Solid dark wood ribbon — #1a0a04
         let panelRect = CGRect(x: -W / 2, y: panelTopY - panelH, width: W, height: panelH)
         hudPanelNode = SKShapeNode(rect: panelRect)
-        hudPanelNode.fillColor   = SKColor(red: 0.10, green: 0.04, blue: 0.02, alpha: 0.96)
-        hudPanelNode.strokeColor = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 0.18)
-        hudPanelNode.lineWidth   = 2
+        hudPanelNode.fillColor   = Self.dsPrimaryContainer
+        hudPanelNode.strokeColor = .clear
+        hudPanelNode.lineWidth   = 0
         hudPanelNode.zPosition   = 49
         addChild(hudPanelNode)
 
-        let fs: CGFloat = max(7, W * 0.022)
+        // 2px solid gold bottom border
+        let goldRule = SKSpriteNode(color: Self.dsSecondaryGold, size: CGSize(width: W, height: 2))
+        goldRule.position  = CGPoint(x: 0, y: panelTopY - panelH + 1)
+        goldRule.zPosition = 50
+        addChild(goldRule)
 
-        // Distance — gold (#f0c060), left side cleared past the 44pt UIKit close button
-        distLabel = SKLabelNode(fontNamed: font)
-        distLabel.fontSize = fs
-        distLabel.fontColor = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 1)  // #f0c060
+        // Zone A — Pause button (32×32 hit, 24×24 icon)
+        pauseBtn = SKSpriteNode(imageNamed: "pauseIcon")
+        pauseBtn.size      = CGSize(width: 24, height: 24)
+        pauseBtn.position  = CGPoint(x: -W / 2 + 24, y: hudY)
+        pauseBtn.zPosition = 51
+        pauseBtn.name      = "pauseBtn"
+        addChild(pauseBtn)
+
+        // Zone C — Close button (right-most, replaces UIKit close)
+        closeBtn = SKSpriteNode(imageNamed: "closeIcon")
+        closeBtn.size      = CGSize(width: 24, height: 24)
+        closeBtn.position  = CGPoint(x: W / 2 - 24, y: hudY)
+        closeBtn.zPosition = 51
+        closeBtn.name      = "closeBtn"
+        addChild(closeBtn)
+
+        // Zone B — Hearts row, centered; dist left of hearts, time right
+        let heartSpacing: CGFloat = 20
+        let heartFs: CGFloat = 18
+        let startX = -(CGFloat(pr.maxHearts - 1) * heartSpacing) / 2
+        let heartsHalfWidth = CGFloat(pr.maxHearts - 1) * heartSpacing / 2
+        heartSprites.removeAll()
+        for i in 0..<pr.maxHearts {
+            let h = SKLabelNode(fontNamed: "AvenirNext-Heavy")
+            h.text = "♥"
+            h.fontSize = heartFs
+            h.fontColor = Self.dsHeartRed
+            h.horizontalAlignmentMode = .center
+            h.verticalAlignmentMode   = .center
+            h.position  = CGPoint(x: startX + CGFloat(i) * heartSpacing, y: hudY - 1)
+            h.zPosition = 51
+            addChild(h)
+            heartSprites.append(h)
+        }
+
+        // Distance — gold, left-aligned against the pause button
+        distLabel = SKLabelNode(fontNamed: "PressStart2P-Regular")
+        distLabel.fontSize                = 9
+        distLabel.fontColor               = Self.dsSecondaryGold
         distLabel.horizontalAlignmentMode = .left
         distLabel.verticalAlignmentMode   = .center
-        distLabel.position  = CGPoint(x: -W / 2 + 62, y: hudY)
-        distLabel.zPosition = 50
+        distLabel.position  = CGPoint(x: -W / 2 + 50, y: hudY)
+        distLabel.zPosition = 51
         addChild(distLabel)
 
-        // Hearts — red (#d4441e), centered
-        heartsLabel = SKLabelNode(fontNamed: "Helvetica-Bold")
-        heartsLabel.fontSize = fs + 4
-        heartsLabel.fontColor = SKColor(red: 0.83, green: 0.27, blue: 0.12, alpha: 1)  // #d4441e
-        heartsLabel.horizontalAlignmentMode = .center
-        heartsLabel.verticalAlignmentMode   = .center
-        heartsLabel.position  = CGPoint(x: 0, y: hudY - 1)
-        heartsLabel.zPosition = 50
-        addChild(heartsLabel)
-
-        // Timer — blue (#5a9cd4), right side, cleared past the 44pt UIKit close button
-        timeLabel = SKLabelNode(fontNamed: font)
-        timeLabel.fontSize = fs
-        timeLabel.fontColor = SKColor(red: 0.35, green: 0.61, blue: 0.83, alpha: 1)  // #5a9cd4
+        // Timer — blue, right-aligned against the close button
+        timeLabel = SKLabelNode(fontNamed: "PressStart2P-Regular")
+        timeLabel.fontSize                = 9
+        timeLabel.fontColor               = Self.dsTimerBlue
         timeLabel.horizontalAlignmentMode = .right
         timeLabel.verticalAlignmentMode   = .center
-        timeLabel.position  = CGPoint(x: W / 2 - 62, y: hudY)
-        timeLabel.zPosition = 50
+        timeLabel.position  = CGPoint(x: W / 2 - 50, y: hudY)
+        timeLabel.zPosition = 51
         addChild(timeLabel)
 
-        // Tutorial help button — top-left of the HUD panel, clear of the
-        // distance label (which starts at -W/2 + 62).
-        let help = TutorialHelpButton.make()
-        help.position = CGPoint(x: -W / 2 + 28, y: hudY)
-        addChild(help)
+        // Iron-bolt corner accents — just below the top HUD where it meets the play area
+        addIronBolt(at: CGPoint(x: -W / 2 + 4, y: panelTopY - panelH - 6))
+        addIronBolt(at: CGPoint(x:  W / 2 - 4, y: panelTopY - panelH - 6))
 
+        setupBrakeButton()
         refreshHUD()
+    }
+
+    private func addIronBolt(at pos: CGPoint) {
+        let bolt = SKSpriteNode(color: Self.dsIronGray, size: CGSize(width: 4, height: 4))
+        bolt.position  = pos
+        bolt.zPosition = 52
+        addChild(bolt)
+    }
+
+    private func setupBrakeButton() {
+        let bw: CGFloat = 144, bh: CGFloat = 48
+        let bottomInset = self.view?.safeAreaInsets.bottom ?? 0
+        let brakeY = -H / 2 + bottomInset + 48 + bh / 2 + 16  // above bottom HUD ribbon
+
+        // Drop-shadow rectangle (offset 4,-4) — primary-container color
+        let shadow = SKSpriteNode(color: Self.dsPrimaryContainer,
+                                  size: CGSize(width: bw, height: bh))
+        shadow.position  = CGPoint(x: 4, y: brakeY - 4)
+        shadow.zPosition = 50
+        shadow.name      = "brakeBtn"
+        addChild(shadow)
+
+        // Main button background — sharp rectangle, #93000a
+        let bg = SKSpriteNode(color: Self.dsErrorContainer, size: CGSize(width: bw, height: bh))
+        bg.position  = CGPoint(x: 0, y: brakeY)
+        bg.zPosition = 51
+        bg.name      = "brakeBtn"
+        addChild(bg)
+        brakeButtonNode = bg
+
+        // 4px gold border (4 sharp sprites)
+        let borders: [(CGFloat, CGFloat, CGFloat, CGFloat)] = [
+            (-bw / 2 + 2, 0,            4,  bh),
+            ( bw / 2 - 2, 0,            4,  bh),
+            ( 0,           bh / 2 - 2,  bw, 4),
+            ( 0,          -bh / 2 + 2,  bw, 4),
+        ]
+        for (dx, dy, w, h) in borders {
+            let edge = SKSpriteNode(color: Self.dsSecondaryGold,
+                                    size: CGSize(width: w, height: h))
+            edge.position  = CGPoint(x: dx, y: brakeY + dy)
+            edge.zPosition = 52
+            edge.name      = "brakeBtn"
+            addChild(edge)
+        }
+
+        let lbl = SKLabelNode(fontNamed: "PressStart2P-Regular")
+        lbl.text      = "BRAKE"
+        lbl.fontSize  = 12
+        lbl.fontColor = Self.dsOnErrorContainer
+        lbl.horizontalAlignmentMode = .center
+        lbl.verticalAlignmentMode   = .center
+        lbl.position  = CGPoint(x: 0, y: brakeY - 1)
+        lbl.zPosition = 53
+        lbl.name      = "brakeBtn"
+        addChild(lbl)
     }
 
     private func refreshHUD() {
         let m = Int(elapsed) / 60, s = Int(elapsed) % 60
-        distLabel.text  = String(format: "%.2fmi", max(0, pr.distanceRemaining))
-        timeLabel.text  = String(format: "%d:%02d", m, s)
-        var h = ""
-        for i in 0..<pr.maxHearts { h += i < pr.hearts ? "♥" : "♡" }
-        heartsLabel.text = h
+        distLabel.text = String(format: "%.2fmi", max(0, pr.distanceRemaining))
+        timeLabel.text = String(format: "%d:%02d", m, s)
+
+        for (i, h) in heartSprites.enumerated() {
+            let filled = i < pr.hearts
+            h.text      = filled ? "♥" : "♡"
+            h.fontColor = filled ? Self.dsHeartRed : Self.dsIronGray
+        }
     }
 
     // MARK: - Minimap
     private func setupMinimap() {
-        let barW: CGFloat = 10
+        // 4px track per design spec (sharp pixel-art, no rounded corners)
+        let barW: CGFloat = 4
         mmHeight = H * 0.68; mmBottom = -mmHeight / 2
-        let barX = W/2 - 24
+        let barX = W / 2 - 22
 
-        minimapBG = SKShapeNode(rect: CGRect(x: barX - barW/2, y: mmBottom - 2,
-                                             width: barW, height: mmHeight + 4), cornerRadius: 3)
-        minimapBG.fillColor = SKColor(white: 0, alpha: 0.50)
-        minimapBG.strokeColor = SKColor(white: 0.6, alpha: 0.4)
-        minimapBG.lineWidth = 1; minimapBG.zPosition = 50; addChild(minimapBG)
+        minimapBG = SKShapeNode(rect: CGRect(x: barX - barW / 2, y: mmBottom - 2,
+                                             width: barW, height: mmHeight + 4))
+        minimapBG.fillColor   = Self.dsIronGray
+        minimapBG.strokeColor = Self.dsSecondaryGold.withAlphaComponent(0.5)
+        minimapBG.lineWidth   = 1
+        minimapBG.zPosition   = 50
+        addChild(minimapBG)
 
+        // 8×8 square dots — player slightly larger (10×10) with gold outline
         let dotColors: [SKColor] = [
-            SKColor(red: 0.10, green: 0.85, blue: 0.90, alpha: 1),
-            SKColor(red: 0.95, green: 0.30, blue: 0.60, alpha: 1),
-            SKColor(red: 0.20, green: 0.85, blue: 0.35, alpha: 1),
+            Self.dsTimerBlue,                                                // player
+            SKColor(red: 1.0, green: 0.412, blue: 0.706, alpha: 1),          // pink rival #ff69b4
+            SKColor(red: 0.196, green: 0.804, blue: 0.196, alpha: 1),        // green rival #32cd32
         ]
         for (i, col) in dotColors.enumerated() {
-            let dot = SKShapeNode(circleOfRadius: i == 0 ? 5 : 4)
-            dot.fillColor = col; dot.zPosition = 52
-            dot.strokeColor = i == 0 ? .white : .clear
-            dot.lineWidth   = i == 0 ? 1.5 : 0
+            let s: CGFloat = i == 0 ? 10 : 8
+            let dot = SKShapeNode(rect: CGRect(x: -s / 2, y: -s / 2, width: s, height: s))
+            dot.fillColor   = col
+            dot.strokeColor = i == 0 ? Self.dsSecondaryGold : .black
+            dot.lineWidth   = i == 0 ? 2 : 1
             dot.position    = CGPoint(x: barX, y: mmBottom)
+            dot.zPosition   = 52
             addChild(dot); mmDots.append(dot)
         }
     }
 
     private func updateMinimap() {
-        let barX = W/2 - 24
+        let barX = W / 2 - 22
         let pairs: [(RacerData, Int)] = [(pr, 0), (pk, 1), (gr, 2)]
         for (racer, i) in pairs {
             let prog = 1.0 - racer.distanceRemaining / 5.0
@@ -404,8 +519,10 @@ final class BikeDodgeScene: SKScene {
 
         ov.addChild(label("BEANBAG BIKE",     font: "PressStart2P-Regular", size: min(20, W/17), color: .yellow,  at: CGPoint(x:0, y:90)))
         ov.addChild(label("5 MILE RACE",      font: "PressStart2P-Regular", size: min(9, W/40),  color: .white,   at: CGPoint(x:0, y:48)))
-        ov.addChild(label("HOLD LEFT / RIGHT HALF TO STEER", font: "PressStart2P-Regular",
-                          size: min(7, W/50), color: SKColor(white:0.7,alpha:1), at: CGPoint(x:0,y:20)))
+        ov.addChild(label("STEER: HOLD LEFT OR RIGHT HALF", font: "PressStart2P-Regular",
+                          size: min(7, W/50), color: SKColor(white:0.7,alpha:1), at: CGPoint(x:0,y:26)))
+        ov.addChild(label("BRAKE: TAP CENTER BOTTOM BUTTON", font: "PressStart2P-Regular",
+                          size: min(7, W/50), color: SKColor(white:0.7,alpha:1), at: CGPoint(x:0,y:9)))
 
         let start = label("▶  TAP TO START", font: "PressStart2P-Regular", size: min(13, W/26), color: .white, at: CGPoint(x:0, y:-40))
         start.name = "startBtn"
@@ -423,15 +540,20 @@ final class BikeDodgeScene: SKScene {
 
     // MARK: - Tutorial
     private func presentBikeTutorial(autoTriggered: Bool) {
-        let steeringY = -H / 2 + H * 0.18   // pointer near the bottom steer-zone area
-        let topInset  = self.view?.safeAreaInsets.top ?? 0
-        let heartsY   = H / 2 - topInset - 22  // hearts label position in HUD
+        let steeringY = -H / 2 + H * 0.18
+        let topInset    = self.view?.safeAreaInsets.top ?? 0
+        let bottomInset = self.view?.safeAreaInsets.bottom ?? 0
+        let heartsY   = H / 2 - topInset - 22
+        let brakeHintY = -H / 2 + bottomInset + 36
         let steps: [TutorialStep] = [
             .card(title: "BEANBAG BIKE",
                   body:  "RACE 5 MILES! FINISH 1ST OUT OF 3 RIDERS TO WIN THE PRIZE."),
             .hint(at: CGPoint(x: 0, y: steeringY),
                   title: "STEERING",
                   body:  "HOLD THE LEFT OR RIGHT HALF OF THE SCREEN TO STEER YOUR BIKE."),
+            .hint(at: CGPoint(x: 0, y: brakeHintY),
+                  title: "BRAKE",
+                  body:  "TAP THE BRAKE BUTTON TO SLOW DOWN. HOLD IT TO STOP COMPLETELY!"),
             .hint(at: CGPoint(x: 0, y: heartsY),
                   title: "HEARTS",
                   body:  "AVOID CARS AND BEANBAGS! EACH CRASH COSTS A HEART. RUN OUT AND YOUR RACE IS OVER."),
@@ -467,6 +589,7 @@ final class BikeDodgeScene: SKScene {
 
     // MARK: - Update
     override func update(_ currentTime: TimeInterval) {
+        if isPausedGame { lastTime = currentTime; return }
         let dt = CGFloat(lastTime == 0 ? 0.016 : min(currentTime - lastTime, 0.033))
         lastTime = currentTime
         switch gState {
@@ -519,7 +642,11 @@ final class BikeDodgeScene: SKScene {
         if !pr.isCrashing {
             let jumpCap: CGFloat = pr.isJumping ? (maxSpeed + streakBonus) * 1.8 : maxSpeed + streakBonus
             let cap = pr.isBoosting ? (maxSpeed + streakBonus) * boostMult : jumpCap
-            pr.speed = min(cap, pr.speed + playerAccel * dt)
+            if isBraking {
+                pr.speed = max(0, pr.speed - brakeDecel * dt)
+            } else {
+                pr.speed = min(cap, pr.speed + playerAccel * dt)
+            }
             pr.distanceRemaining = max(0, pr.distanceRemaining - pr.speed * distPerPx * dt)
         }
         // AI uses a fixed accel independent of player's no-crash streak.
@@ -1523,8 +1650,10 @@ final class BikeDodgeScene: SKScene {
         pinkBoostNode?.removeFromParent();   pinkBoostNode   = nil
         greenBoostNode?.removeFromParent();  greenBoostNode  = nil
         overlayNode?.removeFromParent();     overlayNode     = nil
+        pauseOverlayNode?.removeFromParent(); pauseOverlayNode = nil
         finishLineNode?.removeFromParent();  finishLineNode  = nil
         finishLineSpawned = false
+        isPausedGame = false
 
         pr = RacerData(kind: .player); pk = RacerData(kind: .pink); gr = RacerData(kind: .green)
         pr.x = laneCenter[1]; pr.speed = baseSpeed
@@ -1650,12 +1779,40 @@ final class BikeDodgeScene: SKScene {
                 presentBikeTutorial(autoTriggered: false); return
             }
 
+            // Pause overlay resume/tutorial buttons
+            if isPausedGame {
+                for n in nodes(at: loc) {
+                    let name = n.name ?? n.parent?.name ?? ""
+                    if name == "resumeBtn" { resumeGame(); return }
+                    if TutorialHelpButton.wasTapped(n) { presentBikeTutorial(autoTriggered: false); return }
+                }
+                return
+            }
+
+            // Close button (always active) — replaces the old UIKit close button
+            if nodes(at: loc).contains(where: { $0.name == "closeBtn" }) {
+                dismissToMenu(); return
+            }
+
+            // Pause button (always active during racing/countdown)
+            if nodes(at: loc).contains(where: { $0.name == "pauseBtn" }) && gState == .racing {
+                pauseGame(); return
+            }
+
             switch gState {
             case .menu: startCountdown(); return
             case .countdown: return
             case .racing:
-                if loc.x < 0 { leftTouches.insert(t); steerLeft = true }
-                else          { rightTouches.insert(t); steerRight = true }
+                let hitBrake = nodes(at: loc).contains { $0.name == "brakeBtn" }
+                if hitBrake {
+                    brakeTouches.insert(t)
+                    isBraking = true
+                    brakeButtonNode?.color = SKColor(red: 0.741, green: 0.0, blue: 0.039, alpha: 1)  // brighter on press
+                } else if loc.x < 0 {
+                    leftTouches.insert(t); steerLeft = true
+                } else {
+                    rightTouches.insert(t); steerRight = true
+                }
             case .gameOver, .victory:
                 // Use nodes(at:) — atPoint can return the full-screen bg shape over the labels
                 for n in nodes(at: loc) {
@@ -1668,6 +1825,11 @@ final class BikeDodgeScene: SKScene {
     }
 
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+        brakeTouches.subtract(touches)
+        isBraking = !brakeTouches.isEmpty
+        if !isBraking {
+            brakeButtonNode?.color = Self.dsErrorContainer
+        }
         leftTouches.subtract(touches); rightTouches.subtract(touches)
         steerLeft = !leftTouches.isEmpty; steerRight = !rightTouches.isEmpty
     }
@@ -1679,6 +1841,87 @@ final class BikeDodgeScene: SKScene {
     private func dismissToMenu() {
         bikeDodgeDelegate?.bikeDodgeSceneDidRequestDismiss(self)
         onComplete?(false)
+    }
+
+    // MARK: - Pause / Resume
+    private func pauseGame() {
+        guard gState == .racing, !isPausedGame else { return }
+        isPausedGame = true
+        steerLeft = false; steerRight = false; isBraking = false
+        leftTouches.removeAll(); rightTouches.removeAll(); brakeTouches.removeAll()
+        brakeButtonNode?.color = Self.dsErrorContainer
+        showPauseOverlay()
+    }
+
+    private func resumeGame() {
+        guard isPausedGame else { return }
+        isPausedGame = false
+        lastTime = 0
+        pauseOverlayNode?.removeFromParent()
+        pauseOverlayNode = nil
+    }
+
+    private func showPauseOverlay() {
+        let ov = SKNode()
+        ov.zPosition = 80
+        pauseOverlayNode = ov
+        addChild(ov)
+
+        let dim = SKShapeNode(rect: CGRect(x: -W / 2, y: -H / 2, width: W, height: H))
+        dim.fillColor = SKColor(white: 0, alpha: 0.65)
+        dim.strokeColor = .clear
+        ov.addChild(dim)
+
+        let panelW: CGFloat = min(W - 48, 280)
+        let panelH: CGFloat = 200
+        let panel = SKShapeNode(rect: CGRect(x: -panelW / 2, y: -panelH / 2, width: panelW, height: panelH), cornerRadius: 10)
+        panel.fillColor   = SKColor(red: 0.10, green: 0.04, blue: 0.02, alpha: 0.97)
+        panel.strokeColor = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 0.8)
+        panel.lineWidth   = 2
+        ov.addChild(panel)
+
+        let title = SKLabelNode(fontNamed: "PressStart2P-Regular")
+        title.text      = "PAUSED"
+        title.fontSize  = 16
+        title.fontColor = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 1)
+        title.horizontalAlignmentMode = .center
+        title.verticalAlignmentMode   = .center
+        title.position  = CGPoint(x: 0, y: 56)
+        ov.addChild(title)
+
+        // Resume button
+        let btnW: CGFloat = panelW - 40, btnH: CGFloat = 44
+        let resumeBg = SKShapeNode(rect: CGRect(x: -btnW / 2, y: -btnH / 2, width: btnW, height: btnH), cornerRadius: 8)
+        resumeBg.fillColor   = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 0.20)
+        resumeBg.strokeColor = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 0.80)
+        resumeBg.lineWidth   = 1.5
+        resumeBg.position    = CGPoint(x: 0, y: 6)
+        resumeBg.name        = "resumeBtn"
+        ov.addChild(resumeBg)
+
+        let resumeLbl = SKLabelNode(fontNamed: "PressStart2P-Regular")
+        resumeLbl.text      = "RESUME"
+        resumeLbl.fontSize  = 11
+        resumeLbl.fontColor = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 1)
+        resumeLbl.horizontalAlignmentMode = .center
+        resumeLbl.verticalAlignmentMode   = .center
+        resumeLbl.position  = CGPoint(x: 0, y: -1)
+        resumeLbl.name      = "resumeBtn"
+        resumeBg.addChild(resumeLbl)
+
+        // Tutorial (?) help button inside pause panel
+        let help = TutorialHelpButton.make()
+        help.position = CGPoint(x: 0, y: -62)
+        ov.addChild(help)
+
+        let helpHint = SKLabelNode(fontNamed: "PressStart2P-Regular")
+        helpHint.text      = "TUTORIAL"
+        helpHint.fontSize  = 7
+        helpHint.fontColor = SKColor(white: 0.6, alpha: 0.8)
+        helpHint.horizontalAlignmentMode = .center
+        helpHint.verticalAlignmentMode   = .top
+        helpHint.position  = CGPoint(x: 0, y: -80)
+        ov.addChild(helpHint)
     }
 }
 

@@ -53,6 +53,9 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
 
     private var isTransitioning = false
     private var menuButtonPosition: CGPoint = .zero
+    private var isPausedGame = false
+    private var pauseOverlayNode: SKNode?
+    private var pauseBtnPosition: CGPoint = .zero
     /// Half the player sprite's size in world units. Used to clamp the player at world boundaries.
     private let playerHalfExtent: CGFloat = 24
     /// Magnification of the world. Larger = sprites/tiles appear bigger and
@@ -259,6 +262,15 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         menuBtn.name      = "menuButton"
         cameraNode.addChild(menuBtn)
         menuButtonPosition = menuBtn.position
+
+        // Pause button — top-left of HUD bar, before the hearts.
+        let pauseBtn = SKSpriteNode(imageNamed: "pauseIcon")
+        pauseBtn.size = CGSize(width: 20, height: 20)
+        pauseBtn.position = CGPoint(x: -size.width / 2 + hudPadding + 10, y: hudY)
+        pauseBtn.zPosition = 10_001
+        pauseBtn.name = "pauseBtn"
+        cameraNode.addChild(pauseBtn)
+        pauseBtnPosition = pauseBtn.position
     }
 
     /// Vertical center for the controls — within the bottom chrome but above
@@ -1002,6 +1014,21 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         guard !isTransitioning else { return }
         let pInCam = touch.location(in: cameraNode)
 
+        // Pause overlay routing
+        if isPausedGame {
+            for n in nodes(at: touch.location(in: self)) {
+                let name = n.name ?? n.parent?.name ?? ""
+                if name == "resumeBtn" { resumeGame(); return }
+            }
+            return
+        }
+
+        // Pause button (top-left of HUD).
+        let pauseHit: CGFloat = 20
+        if distanceSquared(pInCam, pauseBtnPosition) < pauseHit * pauseHit {
+            pauseGame(); return
+        }
+
         // Menu button (top chrome).
         let menuHit: CGFloat = 24
         if distanceSquared(pInCam, menuButtonPosition) < menuHit * menuHit {
@@ -1141,6 +1168,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     override func update(_ currentTime: TimeInterval) {
         let dt = lastUpdateTime == 0 ? 0 : currentTime - lastUpdateTime
         lastUpdateTime = currentTime
+        if isPausedGame { return }
         if !isTransitioning {
             player?.update(dt: dt)
             updateDogs(dt: dt)
@@ -1433,6 +1461,57 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
                 view.presentScene(fresh, transition: .fade(withDuration: 0.50))
             },
         ]))
+    }
+
+    // MARK: - Pause / Resume
+
+    private func pauseGame() {
+        guard !isPausedGame, !isTransitioning else { return }
+        isPausedGame = true
+        showPauseOverlay()
+    }
+
+    private func resumeGame() {
+        guard isPausedGame else { return }
+        isPausedGame = false
+        lastUpdateTime = 0
+        pauseOverlayNode?.removeFromParent()
+        pauseOverlayNode = nil
+    }
+
+    private func showPauseOverlay() {
+        let W = size.width, H = size.height
+        let ov = SKNode(); ov.zPosition = 15_000
+        pauseOverlayNode = ov
+        cameraNode.addChild(ov)
+
+        let dim = SKShapeNode(rect: CGRect(x: -W / 2, y: -H / 2, width: W, height: H))
+        dim.fillColor = SKColor(white: 0, alpha: 0.65); dim.strokeColor = .clear; ov.addChild(dim)
+
+        let panelW: CGFloat = min(W - 48, 280), panelH: CGFloat = 160
+        let panel = SKShapeNode(rect: CGRect(x: -panelW / 2, y: -panelH / 2, width: panelW, height: panelH), cornerRadius: 10)
+        panel.fillColor   = SKColor(red: 0.10, green: 0.04, blue: 0.02, alpha: 0.97)
+        panel.strokeColor = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 0.80)
+        panel.lineWidth   = 2; ov.addChild(panel)
+
+        let title = SKLabelNode(fontNamed: "PressStart2P-Regular")
+        title.text = "PAUSED"; title.fontSize = 16
+        title.fontColor = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 1)
+        title.horizontalAlignmentMode = .center; title.verticalAlignmentMode = .center
+        title.position = CGPoint(x: 0, y: 40); ov.addChild(title)
+
+        let btnW = panelW - 40, btnH: CGFloat = 44
+        let resumeBg = SKShapeNode(rect: CGRect(x: -btnW / 2, y: -btnH / 2, width: btnW, height: btnH), cornerRadius: 8)
+        resumeBg.fillColor   = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 0.20)
+        resumeBg.strokeColor = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 0.80)
+        resumeBg.lineWidth   = 1.5; resumeBg.position = CGPoint(x: 0, y: -12)
+        resumeBg.name = "resumeBtn"; ov.addChild(resumeBg)
+
+        let resumeLbl = SKLabelNode(fontNamed: "PressStart2P-Regular")
+        resumeLbl.text = "RESUME"; resumeLbl.fontSize = 11
+        resumeLbl.fontColor = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 1)
+        resumeLbl.horizontalAlignmentMode = .center; resumeLbl.verticalAlignmentMode = .center
+        resumeLbl.position = CGPoint(x: 0, y: -1); resumeLbl.name = "resumeBtn"; resumeBg.addChild(resumeLbl)
     }
 
     private func returnToMainMenu() {

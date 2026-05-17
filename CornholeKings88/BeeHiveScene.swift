@@ -12,7 +12,7 @@ final class BeeHiveScene: SKScene {
     // MARK: - Public contract (mirrors CornholeMiniGameScene pattern)
     var previousScene: SKScene?
     var onComplete: ((Bool) -> Void)?
-    private var closeUIButton: UIButton?
+    private var closeUIButton: UIButton? = nil  // unused; replaced by SK closeBtn
     /// Set by GameScene before presenting — reflects player's current hearts.
     var startingHearts: Int = 3
     /// Written before onComplete fires; GameScene reads this to sync the main HUD.
@@ -95,6 +95,8 @@ final class BeeHiveScene: SKScene {
     private var beesHit:      Int = 0
     private let totalBees:    Int = 10
     private var isGameOver    = false
+    private var isPausedGame = false
+    private var pauseOverlayNode: SKNode?
     private var gameResult    = false
     private var spawnPending  = false
 
@@ -129,7 +131,6 @@ final class BeeHiveScene: SKScene {
         computeLayout()
         setupGameWorld()
         setupUI()
-        pushCloseButton(to: view)
         if TutorialManager.shared.hasSeen(TutorialManager.beehive) {
             startGame()
         } else {
@@ -139,8 +140,7 @@ final class BeeHiveScene: SKScene {
     }
 
     override func willMove(from view: SKView) {
-        closeUIButton?.removeFromSuperview()
-        closeUIButton = nil
+        // no UIKit close button to remove
     }
 
     private func preloadAssets() {
@@ -357,81 +357,65 @@ final class BeeHiveScene: SKScene {
     // MARK: - UI
 
     private func setupUI() {
-        let topH    = size.height * 0.135
-        let bottomH = size.height * 0.085
+        // Bit-Wood Brawler design-system colors
+        let dsPrimary   = SKColor(red: 0.102, green: 0.039, blue: 0.016, alpha: 1) // #1a0a04
+        let dsGold      = SKColor(red: 0.941, green: 0.753, blue: 0.376, alpha: 1) // #f0c060
+        let dsTimerBlue = SKColor(red: 0.353, green: 0.612, blue: 0.831, alpha: 1) // #5a9cd4
+        let dsHeartRed  = SKColor(red: 0.831, green: 0.267, blue: 0.118, alpha: 1) // #d4441e
+        let dsIronGray  = SKColor(red: 0.349, green: 0.349, blue: 0.349, alpha: 1) // #595959
+        let W = size.width, H = size.height
 
-        addChrome(y:  size.height / 2 - topH    / 2, h: topH)
-        addChrome(y: -size.height / 2 + bottomH / 2, h: bottomH)
+        let topInset: CGFloat = view?.safeAreaInsets.top ?? 0
+        let topH: CGFloat    = 48
+        let bottomH: CGFloat = max(40, H * 0.07)
+        let panelTopY = H / 2 - topInset
+        let topBarY   = panelTopY - topH / 2
+        let botBarY   = -H / 2 + bottomH / 2
 
-        let barCenterY = size.height / 2 - topH / 2
-        let btnSize: CGFloat = min(44, topH * 0.88)
+        // ── Top HUD ribbon ────────────────────────────────────────────────
+        let totalTopH = topH + topInset
+        let topBar = SKSpriteNode(color: dsPrimary,
+                                  size: CGSize(width: W, height: totalTopH))
+        topBar.position  = CGPoint(x: 0, y: H / 2 - totalTopH / 2)
+        topBar.zPosition = 500
+        addChild(topBar)
 
-        // ── HUD chip — spans the top bar, leaving 60pt on right for UIKit close button ──
-        let chipLeft:   CGFloat = -size.width / 2 + 8
-        let chipRight:  CGFloat =  size.width / 2 - 60
-        let chipWidth              = chipRight - chipLeft
-        let chipCenterX            = chipLeft + chipWidth / 2
+        let topBorder = SKSpriteNode(color: dsGold,
+                                     size: CGSize(width: W, height: 2))
+        topBorder.position  = CGPoint(x: 0, y: topBarY - topH / 2)
+        topBorder.zPosition = 501
+        addChild(topBorder)
 
-        let chip = makeHudChip(width: chipWidth, height: btnSize)
-        chip.position  = CGPoint(x: chipCenterX, y: barCenterY)
-        chip.zPosition = 600
-        addChild(chip)
+        // Zone A (left): pause icon + HIT count
+        let pauseBtn = SKSpriteNode(imageNamed: "pauseIcon")
+        pauseBtn.size      = CGSize(width: 22, height: 22)
+        pauseBtn.position  = CGPoint(x: -W / 2 + 22, y: topBarY)
+        pauseBtn.zPosition = 502
+        pauseBtn.name      = "pauseBtn"
+        addChild(pauseBtn)
 
-        // Content inside chip — three sections: HIT | timer | hearts
-        let halfW = chipWidth / 2
-        let pad: CGFloat = 10
-
-        // Section 1 — HIT count (gold, left-aligned)
-        let hitLbl = makeLabel(text: "HIT:0", size: 8,
-                               color: SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 1))
+        let hitLbl = makeLabel(text: "HIT: 0", size: 9, color: dsGold)
         hitLbl.horizontalAlignmentMode = .left
-        hitLbl.position  = CGPoint(x: -halfW + pad, y: 0)
-        hitLbl.zPosition = 601
-        chip.addChild(hitLbl)
+        hitLbl.position  = CGPoint(x: -W / 2 + 50, y: topBarY)
+        hitLbl.zPosition = 502
+        addChild(hitLbl)
         beesRemainingLabel = hitLbl
 
-        // Divider 1
-        let div1 = SKSpriteNode(
-            color: SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 0.28),
-            size: CGSize(width: 1, height: btnSize * 0.50))
-        div1.position  = CGPoint(x: -halfW + chipWidth * 0.36, y: 0)
-        div1.zPosition = 601
-        chip.addChild(div1)
-
-        // Section 2 — elapsed timer (blue, centered)
-        let tLbl = makeLabel(text: "0:00", size: 8,
-                             color: SKColor(red: 0.35, green: 0.61, blue: 0.83, alpha: 1))
-        tLbl.horizontalAlignmentMode = .center
-        tLbl.position  = CGPoint(x: -halfW + chipWidth * 0.52, y: 0)
-        tLbl.zPosition = 601
-        chip.addChild(tLbl)
-        timerLabel = tLbl
-
-        // Divider 2
-        let div2 = SKSpriteNode(
-            color: SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 0.28),
-            size: CGSize(width: 1, height: btnSize * 0.50))
-        div2.position  = CGPoint(x: -halfW + chipWidth * 0.68, y: 0)
-        div2.zPosition = 601
-        chip.addChild(div2)
-
-        // Section 3 — hearts (3 slots, right side; color changes on loss, no remove)
-        let totalSlots = playerHearts   // show exactly as many as the player started with
-        let heartSpacing: CGFloat = 16
-        let heartsWidth = CGFloat(totalSlots - 1) * heartSpacing
-        let heartsStartX = halfW - pad - heartsWidth
-
-        let hContainer = SKNode()
-        hContainer.position  = CGPoint(x: heartsStartX, y: 0)
-        hContainer.zPosition = 601
-        chip.addChild(hContainer)
+        // Zone B (center): hearts row
+        let totalSlots    = playerHearts
+        let heartSpacing: CGFloat = 20
+        let heartsWidth   = CGFloat(totalSlots - 1) * heartSpacing
+        let hContainer    = SKNode()
+        hContainer.position  = CGPoint(x: -heartsWidth / 2, y: topBarY)
+        hContainer.zPosition = 502
+        addChild(hContainer)
         heartsNode = hContainer
         heartLabels.removeAll()
         for i in 0..<totalSlots {
             let lbl = SKLabelNode(text: "♥")
-            lbl.fontName = "AvenirNext-Heavy"
-            lbl.fontSize = 15
-            lbl.fontColor = SKColor(red: 0.831, green: 0.267, blue: 0.118, alpha: 1.0)
+            lbl.fontName                = "AvenirNext-Heavy"
+            lbl.fontSize                = 18
+            lbl.fontColor               = dsHeartRed
             lbl.verticalAlignmentMode   = .center
             lbl.horizontalAlignmentMode = .left
             lbl.position = CGPoint(x: CGFloat(i) * heartSpacing, y: 0)
@@ -439,151 +423,55 @@ final class BeeHiveScene: SKScene {
             heartLabels.append(lbl)
         }
 
-        // Bottom chrome hint
-        // Tutorial help button — bottom chrome, left side. Replaces the old
-        // "SWIPE TO THROW" hint (the tutorial now explains controls).
+        // Zone C (right): timer + close icon
+        let tLbl = makeLabel(text: "0:00", size: 9, color: dsTimerBlue)
+        tLbl.horizontalAlignmentMode = .right
+        tLbl.position  = CGPoint(x: W / 2 - 50, y: topBarY)
+        tLbl.zPosition = 502
+        addChild(tLbl)
+        timerLabel = tLbl
+
+        let closeBtn = SKSpriteNode(imageNamed: "closeIcon")
+        closeBtn.size      = CGSize(width: 22, height: 22)
+        closeBtn.position  = CGPoint(x: W / 2 - 22, y: topBarY)
+        closeBtn.zPosition = 502
+        closeBtn.name      = "closeButton"
+        addChild(closeBtn)
+
+        // Iron bolts — ribbon corners
+        addIronBolt(at: CGPoint(x: -W / 2 + 5, y: topBarY + topH / 2 - 5), color: dsIronGray)
+        addIronBolt(at: CGPoint(x:  W / 2 - 5, y: topBarY + topH / 2 - 5), color: dsIronGray)
+        addIronBolt(at: CGPoint(x: -W / 2 + 5, y: topBarY - topH / 2 + 5), color: dsIronGray)
+        addIronBolt(at: CGPoint(x:  W / 2 - 5, y: topBarY - topH / 2 + 5), color: dsIronGray)
+
+        // ── Bottom bar ────────────────────────────────────────────────────
+        let botBar = SKSpriteNode(color: dsPrimary,
+                                  size: CGSize(width: W, height: bottomH))
+        botBar.position  = CGPoint(x: 0, y: botBarY)
+        botBar.zPosition = 500
+        addChild(botBar)
+
+        let botBorder = SKSpriteNode(color: dsGold,
+                                     size: CGSize(width: W, height: 2))
+        botBorder.position  = CGPoint(x: 0, y: botBarY + bottomH / 2)
+        botBorder.zPosition = 501
+        addChild(botBorder)
+
+        // Tutorial help button — bottom bar, left
         let help = TutorialHelpButton.make()
-        help.position = CGPoint(x: -size.width / 2 + 24,
-                                y: -size.height / 2 + bottomH / 2)
+        help.position = CGPoint(x: -W / 2 + 24, y: botBarY)
         addChild(help)
+
+        // Iron bolts — bottom corners
+        addIronBolt(at: CGPoint(x: -W / 2 + 5, y: botBarY + bottomH / 2 - 5), color: dsIronGray)
+        addIronBolt(at: CGPoint(x:  W / 2 - 5, y: botBarY + bottomH / 2 - 5), color: dsIronGray)
     }
 
-    private func pushCloseButton(to view: SKView) {
-        let sz: CGFloat = 66
-        let safeTop = view.safeAreaInsets.top
-        let btn = UIButton(type: .custom)
-        btn.frame = CGRect(x: view.bounds.width - sz - 8,
-                           y: max(safeTop + 4, 4),
-                           width: sz, height: sz)
-        btn.setImage(UIImage(named: "closeIcon"), for: .normal)
-        btn.imageView?.contentMode = .scaleAspectFit
-        btn.addTarget(self, action: #selector(closeButtonTapped), for: .touchUpInside)
-        view.addSubview(btn)
-        closeUIButton = btn
-    }
-
-    @objc private func closeButtonTapped() {
-        showConfirmQuit()
-    }
-
-    // Metal close button matching design spec (iron gradient + rivets + red X)
-    private func makeMetalCloseButton(size s: CGFloat) -> SKNode {
-        let container = SKNode()
-
-        // Iron gray background
-        let bg = SKSpriteNode(color: SKColor(red: 0.22, green: 0.22, blue: 0.22, alpha: 1),
-                              size: CGSize(width: s, height: s))
-        bg.zPosition = 0
-        container.addChild(bg)
-
-        // Top highlight bevel (iron sheen)
-        let bevel = SKSpriteNode(color: SKColor(white: 1.0, alpha: 0.12),
-                                 size: CGSize(width: s - 4, height: 3))
-        bevel.position  = CGPoint(x: 0, y: s / 2 - 4)
-        bevel.zPosition = 1
-        container.addChild(bevel)
-
-        // Border outline
-        let border = SKShapeNode(rect: CGRect(x: -s/2, y: -s/2, width: s, height: s),
-                                 cornerRadius: 5)
-        border.strokeColor = SKColor(white: 0.07, alpha: 1)
-        border.fillColor   = .clear
-        border.lineWidth   = 2
-        border.zPosition   = 2
-        container.addChild(border)
-
-        // Red X mark
-        let xPath = CGMutablePath()
-        let inset: CGFloat = s * 0.28
-        xPath.move(to: CGPoint(x: -s/2 + inset, y: -s/2 + inset))
-        xPath.addLine(to: CGPoint(x:  s/2 - inset, y:  s/2 - inset))
-        xPath.move(to: CGPoint(x:  s/2 - inset, y: -s/2 + inset))
-        xPath.addLine(to: CGPoint(x: -s/2 + inset, y:  s/2 - inset))
-        let xShape = SKShapeNode(path: xPath)
-        xShape.strokeColor = SKColor(red: 0.831, green: 0.267, blue: 0.118, alpha: 1)
-        xShape.lineWidth   = 3
-        xShape.lineCap     = .square
-        xShape.zPosition   = 3
-        container.addChild(xShape)
-
-        // Corner rivets
-        for (rx, ry): (CGFloat, CGFloat) in [
-            (-s/2 + 5,  s/2 - 5),
-            ( s/2 - 5,  s/2 - 5),
-            (-s/2 + 5, -s/2 + 5),
-            ( s/2 - 5, -s/2 + 5),
-        ] {
-            let rivet = SKShapeNode(circleOfRadius: 2)
-            rivet.fillColor   = SKColor(white: 0.55, alpha: 1)
-            rivet.strokeColor = SKColor(white: 0.25, alpha: 1)
-            rivet.lineWidth   = 0.5
-            rivet.position    = CGPoint(x: rx, y: ry)
-            rivet.zPosition   = 4
-            container.addChild(rivet)
-        }
-
-        return container
-    }
-
-    // Dark HUD chip panel (design: dark bg + inner gold border + corner rivets)
-    private func makeHudChip(width w: CGFloat, height h: CGFloat) -> SKNode {
-        let container = SKNode()
-
-        let bg = SKSpriteNode(
-            color: SKColor(red: 0.06, green: 0.04, blue: 0.02, alpha: 0.96),
-            size: CGSize(width: w, height: h))
-        bg.zPosition = 0
-        container.addChild(bg)
-
-        // Inner gold border inset
-        let border = SKShapeNode(rect: CGRect(x: -w/2 + 1, y: -h/2 + 1, width: w - 2, height: h - 2),
-                                 cornerRadius: 4)
-        border.strokeColor = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 0.22)
-        border.fillColor   = .clear
-        border.lineWidth   = 1
-        border.zPosition   = 1
-        container.addChild(border)
-
-        // Outer dark border
-        let outer = SKShapeNode(rect: CGRect(x: -w/2, y: -h/2, width: w, height: h),
-                                cornerRadius: 5)
-        outer.strokeColor = SKColor(red: 0.10, green: 0.06, blue: 0.02, alpha: 1)
-        outer.fillColor   = .clear
-        outer.lineWidth   = 2
-        outer.zPosition   = 2
-        container.addChild(outer)
-
-        // Corner rivets (4px diameter)
-        for (rx, ry): (CGFloat, CGFloat) in [
-            (-w/2 + 5,  h/2 - 5),
-            ( w/2 - 5,  h/2 - 5),
-            (-w/2 + 5, -h/2 + 5),
-            ( w/2 - 5, -h/2 + 5),
-        ] {
-            let rivet = SKShapeNode(circleOfRadius: 2)
-            rivet.fillColor   = SKColor(white: 0.50, alpha: 1)
-            rivet.strokeColor = SKColor(white: 0.22, alpha: 1)
-            rivet.lineWidth   = 0.5
-            rivet.position    = CGPoint(x: rx, y: ry)
-            rivet.zPosition   = 3
-            container.addChild(rivet)
-        }
-
-        return container
-    }
-
-    private func addChrome(y: CGFloat, h: CGFloat) {
-        let bar = SKSpriteNode(color: SKColor(red: 0.09, green: 0.07, blue: 0.05, alpha: 0.88),
-                               size: CGSize(width: size.width, height: h))
-        bar.position  = CGPoint(x: 0, y: y)
-        bar.zPosition = 500
-        addChild(bar)
-
-        let border = SKSpriteNode(color: SKColor(red: 0.35, green: 0.23, blue: 0.09, alpha: 1),
-                                  size: CGSize(width: size.width, height: 2))
-        border.position  = CGPoint(x: 0, y: y + (y > 0 ? -h / 2 : h / 2))
-        border.zPosition = 501
-        addChild(border)
+    private func addIronBolt(at pt: CGPoint, color: SKColor) {
+        let bolt = SKSpriteNode(color: color, size: CGSize(width: 4, height: 4))
+        bolt.position  = pt
+        bolt.zPosition = 503
+        addChild(bolt)
     }
 
     private func makeLabel(text: String, size: CGFloat, color: SKColor) -> SKLabelNode {
@@ -664,7 +552,7 @@ final class BeeHiveScene: SKScene {
     // MARK: - Update loop
 
     override func update(_ currentTime: TimeInterval) {
-        guard !isGameOver else { return }
+        guard !isGameOver, !isPausedGame else { return }
         let dt: CGFloat = 1.0 / 60.0
 
         // Pause the elapsed timer while the tutorial overlay is up.
@@ -914,6 +802,18 @@ final class BeeHiveScene: SKScene {
         for n in nodes(at: loc) where TutorialHelpButton.wasTapped(n) {
             presentTutorial(autoTriggered: false); return
         }
+
+        // Pause overlay routing
+        if isPausedGame {
+            for n in nodes(at: loc) {
+                let name = n.name ?? n.parent?.name ?? ""
+                if name == "resumeBtn" { resumeGame(); return }
+                if TutorialHelpButton.wasTapped(n) { presentTutorial(autoTriggered: false); return }
+            }
+            return
+        }
+        if nodes(at: loc).contains(where: { $0.name == "pauseBtn" }) { pauseGame(); return }
+
         if confirmingQuit || isGameOver { handleButtonTap(at: loc); return }
         if handleButtonTap(at: loc) { return }
 
@@ -1026,18 +926,20 @@ final class BeeHiveScene: SKScene {
 
     private func updateBeesLabel() {
         let star = beesHit >= totalBees ? "★" : ""
-        beesRemainingLabel?.text = "HIT:\(beesHit)\(star)"
+        beesRemainingLabel?.text = "HIT: \(beesHit)\(star)"
     }
 
     private func rebuildHearts() {
         heartsNode?.removeAllChildren()
         heartLabels.removeAll()
-        let heartSpacing: CGFloat = 16
+        let heartSpacing: CGFloat = 20
+        let heartsWidth = CGFloat(max(0, playerHearts - 1)) * heartSpacing
+        heartsNode?.position.x = -heartsWidth / 2
         for i in 0..<playerHearts {
             let lbl = SKLabelNode(text: "♥")
-            lbl.fontName = "AvenirNext-Heavy"
-            lbl.fontSize = 15
-            lbl.fontColor = SKColor(red: 0.831, green: 0.267, blue: 0.118, alpha: 1.0)
+            lbl.fontName                = "AvenirNext-Heavy"
+            lbl.fontSize                = 18
+            lbl.fontColor               = SKColor(red: 0.831, green: 0.267, blue: 0.118, alpha: 1.0)
             lbl.verticalAlignmentMode   = .center
             lbl.horizontalAlignmentMode = .left
             lbl.position = CGPoint(x: CGFloat(i) * heartSpacing, y: 0)
@@ -1241,6 +1143,64 @@ final class BeeHiveScene: SKScene {
         confirmingQuit = false
         confirmPanel?.run(.sequence([.fadeOut(withDuration: 0.15), .removeFromParent()]))
         confirmPanel = nil
+    }
+
+    // MARK: - Pause / Resume
+
+    private func pauseGame() {
+        guard !isPausedGame, !isGameOver else { return }
+        isPausedGame = true
+        showPauseOverlay()
+    }
+
+    private func resumeGame() {
+        guard isPausedGame else { return }
+        isPausedGame = false
+        pauseOverlayNode?.removeFromParent()
+        pauseOverlayNode = nil
+    }
+
+    private func showPauseOverlay() {
+        let W = size.width, H = size.height
+        let ov = SKNode(); ov.zPosition = 5000
+        pauseOverlayNode = ov; addChild(ov)
+
+        let dim = SKShapeNode(rect: CGRect(x: -W / 2, y: -H / 2, width: W, height: H))
+        dim.fillColor = SKColor(white: 0, alpha: 0.65); dim.strokeColor = .clear; ov.addChild(dim)
+
+        let panelW: CGFloat = min(W - 48, 280), panelH: CGFloat = 200
+        let panel = SKShapeNode(rect: CGRect(x: -panelW / 2, y: -panelH / 2, width: panelW, height: panelH), cornerRadius: 10)
+        panel.fillColor   = SKColor(red: 0.10, green: 0.04, blue: 0.02, alpha: 0.97)
+        panel.strokeColor = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 0.80)
+        panel.lineWidth   = 2; ov.addChild(panel)
+
+        let title = SKLabelNode(fontNamed: "PressStart2P-Regular")
+        title.text = "PAUSED"; title.fontSize = 16
+        title.fontColor = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 1)
+        title.horizontalAlignmentMode = .center; title.verticalAlignmentMode = .center
+        title.position = CGPoint(x: 0, y: 56); ov.addChild(title)
+
+        let btnW = panelW - 40, btnH: CGFloat = 44
+        let resumeBg = SKShapeNode(rect: CGRect(x: -btnW / 2, y: -btnH / 2, width: btnW, height: btnH), cornerRadius: 8)
+        resumeBg.fillColor   = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 0.20)
+        resumeBg.strokeColor = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 0.80)
+        resumeBg.lineWidth   = 1.5; resumeBg.position = CGPoint(x: 0, y: 6)
+        resumeBg.name = "resumeBtn"; ov.addChild(resumeBg)
+
+        let resumeLbl = SKLabelNode(fontNamed: "PressStart2P-Regular")
+        resumeLbl.text = "RESUME"; resumeLbl.fontSize = 11
+        resumeLbl.fontColor = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 1)
+        resumeLbl.horizontalAlignmentMode = .center; resumeLbl.verticalAlignmentMode = .center
+        resumeLbl.position = CGPoint(x: 0, y: -1); resumeLbl.name = "resumeBtn"; resumeBg.addChild(resumeLbl)
+
+        let help = TutorialHelpButton.make()
+        help.position = CGPoint(x: 0, y: -62); ov.addChild(help)
+
+        let helpHint = SKLabelNode(fontNamed: "PressStart2P-Regular")
+        helpHint.text = "TUTORIAL"; helpHint.fontSize = 7
+        helpHint.fontColor = SKColor(white: 0.6, alpha: 0.8)
+        helpHint.horizontalAlignmentMode = .center; helpHint.verticalAlignmentMode = .top
+        helpHint.position = CGPoint(x: 0, y: -80); ov.addChild(helpHint)
     }
 
     // MARK: - Dismiss

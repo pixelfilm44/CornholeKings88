@@ -11,10 +11,12 @@ final class BridgePiranhaScene: SKScene {
     // MARK: - Public API
     var previousScene: SKScene?
     var onComplete: ((Bool) -> Void)?
-    private var closeUIButton: UIButton?
+    private var closeUIButton: UIButton? = nil  // unused; replaced by SK closeBtn
 
     // MARK: - Layout
     private var W: CGFloat = 0, H: CGFloat = 0
+    private var isPausedGame = false
+    private var pauseOverlayNode: SKNode?
     private var riverMinY: CGFloat = 0      // bottom edge of river
     private var riverMaxY: CGFloat = 0      // top edge of river
     private var throwLineY: CGFloat = 0     // player throw position
@@ -112,7 +114,6 @@ final class BridgePiranhaScene: SKScene {
         computeLayout()
         setupScene()
         setupUI()
-        pushCloseButton(to: view)
         piranhaIdleDelay = Double.random(in: 5.0...9.0)
         if !TutorialManager.shared.hasSeen(TutorialManager.piranha) {
             presentTutorial(autoTriggered: true)
@@ -120,8 +121,7 @@ final class BridgePiranhaScene: SKScene {
     }
 
     override func willMove(from view: SKView) {
-        closeUIButton?.removeFromSuperview()
-        closeUIButton = nil
+        // no UIKit close button to remove
     }
 
     // MARK: - Layout
@@ -300,48 +300,78 @@ final class BridgePiranhaScene: SKScene {
     // MARK: - UI
 
     private func setupUI() {
-        let topH: CGFloat = max(44, H * 0.09)
-        let topY = H / 2 - topH / 2
+        // Bit-Wood Brawler design-system colors
+        let dsPrimary  = SKColor(red: 0.102, green: 0.039, blue: 0.016, alpha: 1) // #1a0a04
+        let dsGold     = SKColor(red: 0.941, green: 0.753, blue: 0.376, alpha: 1) // #f0c060
+        let dsIronGray = SKColor(red: 0.349, green: 0.349, blue: 0.349, alpha: 1) // #595959
 
-        let topBar = SKSpriteNode(
-            color: SKColor(red: 0.09, green: 0.07, blue: 0.05, alpha: 0.92),
-            size: CGSize(width: W, height: topH))
-        topBar.position  = CGPoint(x: 0, y: topY)
+        let topInset: CGFloat = view?.safeAreaInsets.top ?? 0
+        let topH: CGFloat     = 48
+        let panelTopY = H / 2 - topInset
+        let topY      = panelTopY - topH / 2
+
+        // Top ribbon — extends through safe area
+        let totalTopH = topH + topInset
+        let topBar = SKSpriteNode(color: dsPrimary,
+                                  size: CGSize(width: W, height: totalTopH))
+        topBar.position  = CGPoint(x: 0, y: H / 2 - totalTopH / 2)
         topBar.zPosition = 500
         addChild(topBar)
 
-        let border = SKSpriteNode(
-            color: SKColor(red: 0.50, green: 0.35, blue: 0.15, alpha: 0.70),
-            size: CGSize(width: W, height: 1))
+        // 2px gold bottom border
+        let border = SKSpriteNode(color: dsGold,
+                                  size: CGSize(width: W, height: 2))
         border.position  = CGPoint(x: 0, y: topY - topH / 2)
         border.zPosition = 501
         addChild(border)
 
-        // Tutorial help button — top-left of the top bar.
+        // Zone A (left): pause + help
+        let pauseBtn = SKSpriteNode(imageNamed: "pauseIcon")
+        pauseBtn.size      = CGSize(width: 22, height: 22)
+        pauseBtn.position  = CGPoint(x: -W / 2 + 22, y: topY)
+        pauseBtn.zPosition = 502
+        pauseBtn.name      = "pauseBtn"
+        addChild(pauseBtn)
+
         let help = TutorialHelpButton.make()
-        help.position = CGPoint(x: -W / 2 + 24, y: topY)
+        help.position = CGPoint(x: -W / 2 + 52, y: topY)
         addChild(help)
 
-        let bagsLbl = makeLabel(
-            text: "BAGS:12",
-            size: min(10, W / 32),
-            color: SKColor(red: 0.95, green: 0.76, blue: 0.22, alpha: 1))
-        bagsLbl.horizontalAlignmentMode = .left
-        bagsLbl.position  = CGPoint(x: -W / 2 + 48, y: topY)
+        // Zone B (center): BAGS and BRIDGE stats
+        let bagsLbl = makeLabel(text: "BAGS: 12", size: 9, color: dsGold)
+        bagsLbl.horizontalAlignmentMode = .right
+        bagsLbl.position  = CGPoint(x: -8, y: topY)
         bagsLbl.zPosition = 502
         addChild(bagsLbl)
         bagsLabel = bagsLbl
 
-        let progLbl = makeLabel(
-            text: "BRIDGE:0/8",
-            size: min(10, W / 32),
-            color: SKColor(red: 0.55, green: 0.92, blue: 0.42, alpha: 1))
-        progLbl.horizontalAlignmentMode = .right
-        progLbl.position  = CGPoint(x: W / 2 - 16, y: topY)
+        let progLbl = makeLabel(text: "BRIDGE: 0/8", size: 9, color: dsGold)
+        progLbl.horizontalAlignmentMode = .left
+        progLbl.position  = CGPoint(x: 8, y: topY)
         progLbl.zPosition = 502
         addChild(progLbl)
         progressLabel = progLbl
 
+        // Zone C (right): close icon
+        let closeBtn = SKSpriteNode(imageNamed: "closeIcon")
+        closeBtn.size      = CGSize(width: 22, height: 22)
+        closeBtn.position  = CGPoint(x: W / 2 - 22, y: topY)
+        closeBtn.zPosition = 502
+        closeBtn.name      = "closeButton"
+        addChild(closeBtn)
+
+        // Iron bolts — ribbon corners
+        addIronBolt(at: CGPoint(x: -W / 2 + 5, y: topY + topH / 2 - 5), color: dsIronGray)
+        addIronBolt(at: CGPoint(x:  W / 2 - 5, y: topY + topH / 2 - 5), color: dsIronGray)
+        addIronBolt(at: CGPoint(x: -W / 2 + 5, y: topY - topH / 2 + 5), color: dsIronGray)
+        addIronBolt(at: CGPoint(x:  W / 2 - 5, y: topY - topH / 2 + 5), color: dsIronGray)
+    }
+
+    private func addIronBolt(at pt: CGPoint, color: SKColor) {
+        let bolt = SKSpriteNode(color: color, size: CGSize(width: 4, height: 4))
+        bolt.position  = pt
+        bolt.zPosition = 503
+        addChild(bolt)
     }
 
     // MARK: - Tutorial
@@ -363,21 +393,6 @@ final class BridgePiranhaScene: SKScene {
         addChild(overlay)
     }
 
-    private func pushCloseButton(to view: SKView) {
-        let sz: CGFloat = 66
-        let btn = UIButton(type: .custom)
-        btn.frame = CGRect(x: view.bounds.width - sz - 8, y: 8, width: sz, height: sz)
-        btn.setImage(UIImage(named: "closeIcon"), for: .normal)
-        btn.imageView?.contentMode = .scaleAspectFit
-        btn.addTarget(self, action: #selector(closeButtonTapped), for: .touchUpInside)
-        view.addSubview(btn)
-        closeUIButton = btn
-    }
-
-    @objc private func closeButtonTapped() {
-        if gameOver { dismissScene(won: gameResult) } else { dismissScene(won: false) }
-    }
-
     private func makeLabel(text: String, size: CGFloat, color: SKColor) -> SKLabelNode {
         let l = SKLabelNode(fontNamed: "PressStart2P-Regular")
         l.text     = text
@@ -391,6 +406,7 @@ final class BridgePiranhaScene: SKScene {
 
     override func update(_ currentTime: TimeInterval) {
         guard !gameOver else { return }
+        if isPausedGame { lastUpdateTime = currentTime; return }
         if lastUpdateTime == 0 { lastUpdateTime = currentTime }
         let dt = min(currentTime - lastUpdateTime, 0.05)
         lastUpdateTime = currentTime
@@ -772,8 +788,8 @@ final class BridgePiranhaScene: SKScene {
     // MARK: - HUD
 
     private func updateHUD() {
-        bagsLabel?.text    = "BAGS:\(bagsRemaining)"
-        progressLabel?.text = "BRIDGE:\(filledCount)/8"
+        bagsLabel?.text     = "BAGS: \(bagsRemaining)"
+        progressLabel?.text = "BRIDGE: \(filledCount)/8"
     }
 
     private func floatText(_ text: String, at pos: CGPoint) {
@@ -896,6 +912,21 @@ final class BridgePiranhaScene: SKScene {
             presentTutorial(autoTriggered: false); return
         }
 
+        // Pause overlay routing
+        if isPausedGame {
+            for n in nodes(at: loc) {
+                let name = n.name ?? n.parent?.name ?? ""
+                if name == "resumeBtn" { resumeGame(); return }
+                if TutorialHelpButton.wasTapped(n) { presentTutorial(autoTriggered: false); return }
+            }
+            return
+        }
+        if nodes(at: loc).contains(where: { $0.name == "pauseBtn" }) { pauseGame(); return }
+        if nodes(at: loc).contains(where: { $0.name == "closeButton" }) {
+            if gameOver { dismissScene(won: gameResult) } else { dismissScene(won: false) }
+            return
+        }
+
         if gameOver {
             let tapped = nodes(at: loc).compactMap { $0.name }.contains("continueBtn")
             if tapped { dismissScene(won: gameResult) }
@@ -950,6 +981,64 @@ final class BridgePiranhaScene: SKScene {
         aimingLine?.removeFromParent()
         aimingLine = nil
         touchStart = nil
+    }
+
+    // MARK: - Pause / Resume
+
+    private func pauseGame() {
+        guard !isPausedGame, !gameOver else { return }
+        isPausedGame = true
+        showPauseOverlay()
+    }
+
+    private func resumeGame() {
+        guard isPausedGame else { return }
+        isPausedGame = false
+        lastUpdateTime = 0
+        pauseOverlayNode?.removeFromParent()
+        pauseOverlayNode = nil
+    }
+
+    private func showPauseOverlay() {
+        let ov = SKNode(); ov.zPosition = 5000
+        pauseOverlayNode = ov; addChild(ov)
+
+        let dim = SKShapeNode(rect: CGRect(x: -W / 2, y: -H / 2, width: W, height: H))
+        dim.fillColor = SKColor(white: 0, alpha: 0.65); dim.strokeColor = .clear; ov.addChild(dim)
+
+        let panelW: CGFloat = min(W - 48, 280), panelH: CGFloat = 200
+        let panel = SKShapeNode(rect: CGRect(x: -panelW / 2, y: -panelH / 2, width: panelW, height: panelH), cornerRadius: 10)
+        panel.fillColor   = SKColor(red: 0.10, green: 0.04, blue: 0.02, alpha: 0.97)
+        panel.strokeColor = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 0.80)
+        panel.lineWidth   = 2; ov.addChild(panel)
+
+        let title = SKLabelNode(fontNamed: "PressStart2P-Regular")
+        title.text = "PAUSED"; title.fontSize = 16
+        title.fontColor = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 1)
+        title.horizontalAlignmentMode = .center; title.verticalAlignmentMode = .center
+        title.position = CGPoint(x: 0, y: 56); ov.addChild(title)
+
+        let btnW = panelW - 40, btnH: CGFloat = 44
+        let resumeBg = SKShapeNode(rect: CGRect(x: -btnW / 2, y: -btnH / 2, width: btnW, height: btnH), cornerRadius: 8)
+        resumeBg.fillColor   = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 0.20)
+        resumeBg.strokeColor = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 0.80)
+        resumeBg.lineWidth   = 1.5; resumeBg.position = CGPoint(x: 0, y: 6)
+        resumeBg.name = "resumeBtn"; ov.addChild(resumeBg)
+
+        let resumeLbl = SKLabelNode(fontNamed: "PressStart2P-Regular")
+        resumeLbl.text = "RESUME"; resumeLbl.fontSize = 11
+        resumeLbl.fontColor = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 1)
+        resumeLbl.horizontalAlignmentMode = .center; resumeLbl.verticalAlignmentMode = .center
+        resumeLbl.position = CGPoint(x: 0, y: -1); resumeLbl.name = "resumeBtn"; resumeBg.addChild(resumeLbl)
+
+        let help = TutorialHelpButton.make()
+        help.position = CGPoint(x: 0, y: -62); ov.addChild(help)
+
+        let helpHint = SKLabelNode(fontNamed: "PressStart2P-Regular")
+        helpHint.text = "TUTORIAL"; helpHint.fontSize = 7
+        helpHint.fontColor = SKColor(white: 0.6, alpha: 0.8)
+        helpHint.horizontalAlignmentMode = .center; helpHint.verticalAlignmentMode = .top
+        helpHint.position = CGPoint(x: 0, y: -80); ov.addChild(helpHint)
     }
 
     // MARK: - Dismiss

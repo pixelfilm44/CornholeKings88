@@ -11,7 +11,7 @@ final class BeachBallCornholeScene: SKScene {
     // MARK: - Public API
     var previousScene: SKScene?
     var onComplete: ((Bool) -> Void)?
-    private var closeUIButton: UIButton?
+    private var closeUIButton: UIButton? = nil  // unused; replaced by SK closeBtn
 
     // MARK: - Types
 
@@ -56,6 +56,8 @@ final class BeachBallCornholeScene: SKScene {
 
     // MARK: - Layout
     private var W: CGFloat = 0, H: CGFloat = 0
+    private var isPausedGame = false
+    private var pauseOverlayNode: SKNode?
     private var boardY: CGFloat = 0
     private var throwLineY: CGFloat = 0
     private var boardHalfW: CGFloat = 0
@@ -147,7 +149,6 @@ final class BeachBallCornholeScene: SKScene {
         setupBoard()
         setupUI()
         setupReadyIndicator()
-        pushCloseButton(to: view)
         warmUpSounds()
         boardDriftVx = 18.0 * (Bool.random() ? 1 : -1)
         driftVarianceTimer = Double.random(in: 1.5...3.0)
@@ -179,8 +180,7 @@ final class BeachBallCornholeScene: SKScene {
     }
 
     override func willMove(from view: SKView) {
-        closeUIButton?.removeFromSuperview()
-        closeUIButton = nil
+        // no UIKit close button to clean up
     }
 
     // MARK: - Countdown
@@ -411,126 +411,165 @@ final class BeachBallCornholeScene: SKScene {
     // MARK: - UI
 
     private func setupUI() {
-        let topH: CGFloat = max(48, H * 0.09)
-        let botH: CGFloat = max(36, H * 0.07)
-        let topBarY = H / 2 - topH / 2
-        let botBarY = -H / 2 + botH / 2
+        // Bit-Wood Brawler design-system colors
+        let dsPrimary  = SKColor(red: 0.102, green: 0.039, blue: 0.016, alpha: 1) // #1a0a04
+        let dsGold     = SKColor(red: 0.941, green: 0.753, blue: 0.376, alpha: 1) // #f0c060
+        let dsTimerBlue = SKColor(red: 0.353, green: 0.612, blue: 0.831, alpha: 1) // #5a9cd4
+        let dsIronGray = SKColor(red: 0.349, green: 0.349, blue: 0.349, alpha: 1) // #595959
 
-        addChrome(y: topBarY, h: topH)
-        addChrome(y: botBarY, h: botH)
+        let topInset: CGFloat = view?.safeAreaInsets.top ?? 0
+        let topH: CGFloat = 48
+        let botH: CGFloat = max(40, H * 0.07)
+        let panelTopY = H / 2 - topInset
+        let topBarY   = panelTopY - topH / 2
+        let botBarY   = -H / 2 + botH / 2
 
-        // Game title in top bar
-        let titleLbl = makeLabel(text: "BEACH BALL", size: min(11, W / 28),
-                                 color: SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 1))
-        titleLbl.horizontalAlignmentMode = .center
-        titleLbl.position = CGPoint(x: 0, y: topBarY)
-        titleLbl.zPosition = 600
-        addChild(titleLbl)
+        // ── Top HUD ribbon ────────────────────────────────────────────────
+        let totalTopH = topH + topInset
+        let topBar = SKSpriteNode(color: dsPrimary,
+                                  size: CGSize(width: W, height: totalTopH))
+        topBar.position  = CGPoint(x: 0, y: H / 2 - totalTopH / 2)
+        topBar.zPosition = 500
+        addChild(topBar)
 
-        // Score chip
-        let chipW: CGFloat = min(W * 0.64, 240)
-        let chipH: CGFloat = 34
-        let chipY = H / 2 - topH - chipH / 2 - 6
+        let topBorder = SKSpriteNode(color: dsGold,
+                                     size: CGSize(width: W, height: 2))
+        topBorder.position  = CGPoint(x: 0, y: topBarY - topH / 2)
+        topBorder.zPosition = 501
+        addChild(topBorder)
 
-        let chipBg = SKSpriteNode(
-            color: SKColor(red: 0.02, green: 0.06, blue: 0.16, alpha: 0.92),
-            size: CGSize(width: chipW, height: chipH))
-        chipBg.position = CGPoint(x: 0, y: chipY)
-        chipBg.zPosition = 600
-        addChild(chipBg)
+        // Zone A (left): pause icon + help button
+        let pauseBtn = SKSpriteNode(imageNamed: "pauseIcon")
+        pauseBtn.size      = CGSize(width: 22, height: 22)
+        pauseBtn.position  = CGPoint(x: -W / 2 + 22, y: topBarY)
+        pauseBtn.zPosition = 502
+        pauseBtn.name      = "pauseBtn"
+        addChild(pauseBtn)
 
-        let pLabel = makeLabel(text: "YOU: 0", size: 9,
+        let help = TutorialHelpButton.make()
+        help.position = CGPoint(x: -W / 2 + 52, y: topBarY)
+        addChild(help)
+
+        // Zone B (center): YOU score | timer chip | BOT score
+        let pLabel = makeLabel(text: "YOU: 0", size: 8,
                                color: SKColor(red: 0.97, green: 0.42, blue: 0.22, alpha: 1))
-        pLabel.horizontalAlignmentMode = .left
-        pLabel.position = CGPoint(x: -chipW / 2 + 10, y: chipY)
-        pLabel.zPosition = 602
+        pLabel.horizontalAlignmentMode = .right
+        pLabel.position  = CGPoint(x: -38, y: topBarY)
+        pLabel.zPosition = 502
         addChild(pLabel)
         playerScoreLabel = pLabel
 
-        let divider = SKSpriteNode(
-            color: SKColor(red: 0.40, green: 0.80, blue: 1.00, alpha: 0.35),
-            size: CGSize(width: 1, height: 20))
-        divider.position = CGPoint(x: 0, y: chipY)
-        divider.zPosition = 602
-        addChild(divider)
+        // Timer chip — gold-bordered box in the center
+        let timerChipW: CGFloat = 60
+        let timerChipH: CGFloat = 28
+        let timerBg = SKSpriteNode(color: SKColor(red: 0.04, green: 0.02, blue: 0.01, alpha: 1),
+                                   size: CGSize(width: timerChipW, height: timerChipH))
+        timerBg.position  = CGPoint(x: 0, y: topBarY)
+        timerBg.zPosition = 501
+        addChild(timerBg)
+        // 2px gold border strips around timer chip
+        for (dx, sz) in [(CGFloat(0), CGSize(width: timerChipW, height: 2)),
+                         (CGFloat(0), CGSize(width: timerChipW, height: 2)),
+                         (CGFloat(-timerChipW / 2), CGSize(width: 2, height: timerChipH)),
+                         (CGFloat( timerChipW / 2), CGSize(width: 2, height: timerChipH))] {
+            let strip = SKSpriteNode(color: dsGold, size: sz)
+            let dy: CGFloat = sz.height == 2
+                ? (dx == 0 && strip.position == .zero ? timerChipH / 2 : -timerChipH / 2)
+                : 0
+            _ = dy
+            strip.zPosition = 502
+            timerBg.addChild(strip)
+        }
+        // Simpler: four border lines
+        timerBg.removeAllChildren()
+        let tTop = SKSpriteNode(color: dsGold, size: CGSize(width: timerChipW, height: 2))
+        tTop.position = CGPoint(x: 0, y: timerChipH / 2 - 1); tTop.zPosition = 1; timerBg.addChild(tTop)
+        let tBot = SKSpriteNode(color: dsGold, size: CGSize(width: timerChipW, height: 2))
+        tBot.position = CGPoint(x: 0, y: -timerChipH / 2 + 1); tBot.zPosition = 1; timerBg.addChild(tBot)
+        let tLeft = SKSpriteNode(color: dsGold, size: CGSize(width: 2, height: timerChipH))
+        tLeft.position = CGPoint(x: -timerChipW / 2 + 1, y: 0); tLeft.zPosition = 1; timerBg.addChild(tLeft)
+        let tRight = SKSpriteNode(color: dsGold, size: CGSize(width: 2, height: timerChipH))
+        tRight.position = CGPoint(x: timerChipW / 2 - 1, y: 0); tRight.zPosition = 1; timerBg.addChild(tRight)
 
-        let aLabel = makeLabel(text: "BOT: 0", size: 9,
+        let tl = makeLabel(text: "1:30", size: 11, color: dsTimerBlue)
+        tl.horizontalAlignmentMode = .center
+        tl.position  = CGPoint(x: 0, y: topBarY)
+        tl.zPosition = 503
+        addChild(tl)
+        timerLabel = tl
+
+        let aLabel = makeLabel(text: "BOT: 0", size: 8,
                                color: SKColor(red: 0.28, green: 0.75, blue: 1.00, alpha: 1))
-        aLabel.horizontalAlignmentMode = .right
-        aLabel.position = CGPoint(x: chipW / 2 - 10, y: chipY)
-        aLabel.zPosition = 602
+        aLabel.horizontalAlignmentMode = .left
+        aLabel.position  = CGPoint(x: 38, y: topBarY)
+        aLabel.zPosition = 502
         addChild(aLabel)
         aiScoreLabel = aLabel
 
-        // Timer — sits directly below the score chip
-        let timerBgH: CGFloat = 28
-        let timerY = chipY - chipH / 2 - timerBgH / 2 - 4
+        // Zone C (right): close icon
+        let closeBtn = SKSpriteNode(imageNamed: "closeIcon")
+        closeBtn.size      = CGSize(width: 22, height: 22)
+        closeBtn.position  = CGPoint(x: W / 2 - 22, y: topBarY)
+        closeBtn.zPosition = 502
+        closeBtn.name      = "closeButton"
+        addChild(closeBtn)
 
-        let timerBg = SKSpriteNode(
-            color: SKColor(red: 0.02, green: 0.06, blue: 0.16, alpha: 0.85),
-            size: CGSize(width: chipW * 0.52, height: timerBgH))
-        timerBg.position = CGPoint(x: 0, y: timerY)
-        timerBg.zPosition = 600
-        addChild(timerBg)
+        // Iron bolts — corners of the visible ribbon
+        addIronBolt(at: CGPoint(x: -W / 2 + 5, y: topBarY + topH / 2 - 5), color: dsIronGray)
+        addIronBolt(at: CGPoint(x:  W / 2 - 5, y: topBarY + topH / 2 - 5), color: dsIronGray)
+        addIronBolt(at: CGPoint(x: -W / 2 + 5, y: topBarY - topH / 2 + 5), color: dsIronGray)
+        addIronBolt(at: CGPoint(x:  W / 2 - 5, y: topBarY - topH / 2 + 5), color: dsIronGray)
 
-        let tl = makeLabel(text: "1:30", size: min(13, W / 24),
-                           color: SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 1))
-        tl.horizontalAlignmentMode = .center
-        tl.position = CGPoint(x: 0, y: timerY)
-        tl.zPosition = 602
-        addChild(tl)
-        timerLabel = tl
+        // ── Bottom bar ────────────────────────────────────────────────────
+        let botBar = SKSpriteNode(color: dsPrimary,
+                                  size: CGSize(width: W, height: botH))
+        botBar.position  = CGPoint(x: 0, y: botBarY)
+        botBar.zPosition = 500
+        addChild(botBar)
+
+        let botBorder = SKSpriteNode(color: dsGold,
+                                     size: CGSize(width: W, height: 2))
+        botBorder.position  = CGPoint(x: 0, y: botBarY + botH / 2)
+        botBorder.zPosition = 501
+        addChild(botBorder)
 
         // Cooldown bar (shows when player can throw again)
         let barW = min(W * 0.52, 170)
         let barH: CGFloat = 7
 
-        let barBg = SKSpriteNode(
-            color: SKColor(white: 0.12, alpha: 0.88),
-            size: CGSize(width: barW, height: barH))
-        barBg.position = CGPoint(x: 0, y: botBarY + 4)
-        barBg.zPosition = 600
+        let barBg = SKSpriteNode(color: dsIronGray,
+                                 size: CGSize(width: barW, height: barH))
+        barBg.position  = CGPoint(x: 0, y: botBarY + 6)
+        barBg.zPosition = 601
         addChild(barBg)
         cooldownBarBg = barBg
 
-        let bar = SKSpriteNode(
-            color: SKColor(red: 0.12, green: 0.72, blue: 0.45, alpha: 1),
-            size: CGSize(width: barW, height: barH))
+        let bar = SKSpriteNode(color: SKColor(red: 0.12, green: 0.72, blue: 0.45, alpha: 1),
+                               size: CGSize(width: barW, height: barH))
         bar.anchorPoint = CGPoint(x: 0, y: 0.5)
-        bar.position = CGPoint(x: -barW / 2, y: botBarY + 4)
-        bar.zPosition = 601
+        bar.position    = CGPoint(x: -barW / 2, y: botBarY + 6)
+        bar.zPosition   = 602
         addChild(bar)
         cooldownBar = bar
 
-        let readyLbl = makeLabel(text: "READY", size: 5,
-                                 color: SKColor(white: 0.55, alpha: 1))
+        let readyLbl = makeLabel(text: "READY", size: 5, color: dsGold)
         readyLbl.horizontalAlignmentMode = .center
-        readyLbl.position = CGPoint(x: 0, y: botBarY - 6)
-        readyLbl.zPosition = 600
+        readyLbl.position  = CGPoint(x: 0, y: botBarY - 6)
+        readyLbl.zPosition = 601
         addChild(readyLbl)
 
-        // Tutorial help button — top-right (close button is at top-LEFT here).
-        let help = TutorialHelpButton.make()
-        help.position = CGPoint(x: W / 2 - 28, y: topBarY)
-        addChild(help)
+        // Iron bolts — bottom corners
+        addIronBolt(at: CGPoint(x: -W / 2 + 5, y: botBarY + botH / 2 - 5), color: dsIronGray)
+        addIronBolt(at: CGPoint(x:  W / 2 - 5, y: botBarY + botH / 2 - 5), color: dsIronGray)
 
         addCrtOverlay()
     }
 
-    private func addChrome(y: CGFloat, h: CGFloat) {
-        let panel = SKSpriteNode(
-            color: SKColor(red: 0.04, green: 0.015, blue: 0.008, alpha: 0.96),
-            size: CGSize(width: W, height: h))
-        panel.position = CGPoint(x: 0, y: y)
-        panel.zPosition = 500
-        addChild(panel)
-
-        let rule = SKSpriteNode(
-            color: SKColor(red: 0.22, green: 0.58, blue: 0.82, alpha: 0.48),
-            size: CGSize(width: W, height: 1))
-        rule.position = CGPoint(x: 0, y: y - h / 2)
-        rule.zPosition = 501
-        addChild(rule)
+    private func addIronBolt(at pt: CGPoint, color: SKColor) {
+        let bolt = SKSpriteNode(color: color, size: CGSize(width: 4, height: 4))
+        bolt.position  = pt
+        bolt.zPosition = 503
+        addChild(bolt)
     }
 
     private func makeLabel(text: String, size: CGFloat, color: SKColor) -> SKLabelNode {
@@ -542,20 +581,6 @@ final class BeachBallCornholeScene: SKScene {
         lbl.horizontalAlignmentMode = .center
         return lbl
     }
-
-    // MARK: - Close Button
-
-    private func pushCloseButton(to view: UIView) {
-        let btn = UIButton(type: .custom)
-        btn.frame = CGRect(x: 12, y: 12, width: 66, height: 66)
-        btn.setImage(UIImage(named: "closeIcon"), for: .normal)
-        btn.imageView?.contentMode = .scaleAspectFit
-        btn.addTarget(self, action: #selector(closeButtonTapped), for: .touchUpInside)
-        view.addSubview(btn)
-        closeUIButton = btn
-    }
-
-    @objc private func closeButtonTapped() { showConfirmQuit() }
 
     // MARK: - CRT overlay
 
@@ -680,6 +705,7 @@ final class BeachBallCornholeScene: SKScene {
     // MARK: - Update
 
     override func update(_ currentTime: TimeInterval) {
+        if isPausedGame { lastUpdateTime = currentTime; return }
         let fixedDt: CGFloat = 1.0 / 60.0
 
         if lastUpdateTime == 0 { lastUpdateTime = currentTime; return }
@@ -897,75 +923,105 @@ final class BeachBallCornholeScene: SKScene {
     }
 
     private func spawnDolphinNose() {
-        // Spawn near a screen edge, on whichever side of the board has more clearance.
-        // The board drifts, so picking the side with more room guarantees the snout never
-        // overlaps the board (and always reads as "by the pool wall").
+        // Spawn on whichever side of the board has more clearance. Use a larger inset
+        // (55–85 px) so the nose lands well inside the CRT vignette dark zone at screen edges.
         let leftRoom  = abs((-W / 2) - (boardDriftX - boardHalfW))
         let rightRoom = abs(( W / 2) - (boardDriftX + boardHalfW))
         let side: CGFloat = leftRoom > rightRoom ? -1 : 1
-        let edgeInset = CGFloat.random(in: 22...44)
+        let edgeInset = CGFloat.random(in: 55...85)
         var spawnX = side > 0 ? (W / 2 - edgeInset) : (-W / 2 + edgeInset)
-        // Safety clamp: keep at least 24 px outside the board's horizontal footprint.
-        let boardClear: CGFloat = 24
+        let boardClear: CGFloat = 28
         if side > 0 {
             spawnX = max(spawnX, boardDriftX + boardHalfW + boardClear)
         } else {
             spawnX = min(spawnX, boardDriftX - boardHalfW - boardClear)
         }
+        // Clamp so the sprite is never further than 90 px from screen edge (avoids vignette)
+        let maxInset = W / 2 - 55
+        spawnX = max(-maxInset, min(maxInset, spawnX))
         let pos = CGPoint(x: spawnX,
-                          y: boardY + CGFloat.random(in: -boardHalfH * 0.3...boardHalfH * 0.3))
+                          y: boardY + CGFloat.random(in: -boardHalfH * 0.25...boardHalfH * 0.25))
         dolphinNosePos = pos
 
         let nose = SKNode()
         nose.position = pos
-        nose.zPosition = 18
+        nose.zPosition = 20    // above balls so nothing occludes it
 
+        // ── Pulsing teal glow behind the snout — high contrast vs dark blue water ──
+        let glow = SKShapeNode(circleOfRadius: 36)
+        glow.fillColor   = SKColor(red: 0.10, green: 0.65, blue: 0.90, alpha: 0.20)
+        glow.strokeColor = SKColor(red: 0.30, green: 0.90, blue: 1.00, alpha: 0.70)
+        glow.lineWidth   = 3
+        glow.zPosition   = -1
+        glow.run(.repeatForever(.sequence([
+            .group([.scale(to: 1.25, duration: 0.40), .fadeAlpha(to: 0.90, duration: 0.40)]),
+            .group([.scale(to: 0.90, duration: 0.40), .fadeAlpha(to: 0.50, duration: 0.40)]),
+        ])))
+        nose.addChild(glow)
+
+        // ── Snout sprite ──
         let snout = SKSpriteNode(texture: makeDolphinNoseTexture(),
-                                 size: CGSize(width: 36, height: 18))
+                                 size: CGSize(width: 52, height: 30))
         snout.zPosition = 1
-        // Face the board: if nose is to the LEFT of the board (side = -1), the snout should
-        // point RIGHT — flip xScale when side == 1 so the snout faces left toward the board.
+        // Beak points toward board center: flip when on right side so it faces left.
         snout.xScale = (side > 0) ? -1 : 1
         nose.addChild(snout)
 
-        // Tiny water ripple under the snout
-        for i in 0..<2 {
-            let ring = SKShapeNode(ellipseOf: CGSize(width: 30, height: 10))
-            ring.strokeColor = SKColor(red: 0.40, green: 0.80, blue: 1.0, alpha: 0.55)
-            ring.lineWidth = 1
+        // ── Splash rings expanding from the waterline ──
+        for i in 0..<3 {
+            let ring = SKShapeNode(ellipseOf: CGSize(width: 38, height: 12))
+            ring.strokeColor = SKColor(red: 0.50, green: 0.90, blue: 1.0, alpha: 0.70)
+            ring.lineWidth = 1.5
             ring.fillColor = .clear
-            ring.position = CGPoint(x: 0, y: -8)
+            ring.position = CGPoint(x: 0, y: -10)
             ring.zPosition = 0
             ring.alpha = 0
             nose.addChild(ring)
             ring.run(.repeatForever(.sequence([
-                .wait(forDuration: Double(i) * 0.5),
+                .wait(forDuration: Double(i) * 0.45),
                 .group([
-                    .sequence([.fadeAlpha(to: 0.6, duration: 0.6),
-                               .fadeAlpha(to: 0.0, duration: 0.5)]),
-                    .scale(to: 1.6, duration: 1.1),
+                    .sequence([.fadeAlpha(to: 0.75, duration: 0.5),
+                               .fadeAlpha(to: 0.0, duration: 0.55)]),
+                    .scale(to: 1.8, duration: 1.05),
                 ]),
                 .scale(to: 1.0, duration: 0),
             ])))
         }
 
-        // Subtle bob to suggest the snout breathing at the surface
+        // ── Gentle bob animation ──
         snout.run(.repeatForever(.sequence([
-            .moveBy(x: 0, y: 1.5, duration: 0.45),
-            .moveBy(x: 0, y: -1.5, duration: 0.45),
+            .moveBy(x: 0, y: 2, duration: 0.40),
+            .moveBy(x: 0, y: -2, duration: 0.40),
         ])))
 
-        // Entry pop
-        nose.setScale(0.4); nose.alpha = 0
+        // ── "★ DOLPHIN" hint label — fades after 1.5 s ──
+        let hint = SKLabelNode(fontNamed: "PressStart2P-Regular")
+        hint.text      = "★ DOLPHIN"
+        hint.fontSize  = min(8, W / 44)
+        hint.fontColor = SKColor(red: 0.40, green: 0.95, blue: 1.00, alpha: 1)
+        hint.horizontalAlignmentMode = .center
+        hint.verticalAlignmentMode   = .center
+        hint.position  = CGPoint(x: 0, y: 28)
+        hint.zPosition = 5
+        nose.addChild(hint)
+        hint.run(.sequence([
+            .fadeIn(withDuration: 0.15),
+            .wait(forDuration: 1.0),
+            .group([.fadeOut(withDuration: 0.40), .moveBy(x: 0, y: 8, duration: 0.40)]),
+            .removeFromParent(),
+        ]))
+
+        // ── Entry pop ──
+        nose.setScale(0.35); nose.alpha = 0
         nose.run(.group([
-            .scale(to: 1.0, duration: 0.18),
-            .fadeIn(withDuration: 0.18),
+            .scale(to: 1.0, duration: 0.22),
+            .fadeIn(withDuration: 0.22),
         ]))
 
         gameWorldNode.addChild(nose)
         dolphinNoseNode = nose
         dolphinActive = true
-        dolphinHideTimer = Double.random(in: 4.5...6.5)
+        dolphinHideTimer = Double.random(in: 5.0...7.0)
     }
 
     private func hideDolphinNose() {
@@ -1023,7 +1079,7 @@ final class BeachBallCornholeScene: SKScene {
 
         // Build the dolphin sprite and arc it through the hole
         let dolphin = SKSpriteNode(texture: makeDolphinTexture(),
-                                   size: CGSize(width: 64, height: 32))
+                                   size: CGSize(width: 88, height: 46))
         dolphin.zPosition = 60
         let startPos = dolphinNosePos
         let endPos   = CGPoint(x: holeCenterX, y: holeCenterY)
@@ -1115,100 +1171,255 @@ final class BeachBallCornholeScene: SKScene {
         ]))
     }
 
-    // Programmatic snout: gray oval body + dark nostril dot + soft highlight
+    // Dolphin head/snout peeking from water — beak points RIGHT, flipped in scene by xScale.
+    // Palette sampled from the reference pixel-art: steel blue-gray body, navy outline, amber eye.
     private func makeDolphinNoseTexture() -> SKTexture {
         if let t = dolphinTexture { return t }
-        let sz = CGSize(width: 36, height: 18)
+        let sz = CGSize(width: 52, height: 30)
         let fmt = UIGraphicsImageRendererFormat(); fmt.scale = 1
         let img = UIGraphicsImageRenderer(size: sz, format: fmt).image { ctx in
             let c = ctx.cgContext
-            // Body — snout pointing right
-            c.setFillColor(UIColor(red: 0.42, green: 0.55, blue: 0.66, alpha: 1).cgColor)
-            c.fillEllipse(in: CGRect(x: 0, y: 2, width: 34, height: 14))
-            // Underbelly lighter
-            c.setFillColor(UIColor(red: 0.78, green: 0.84, blue: 0.90, alpha: 0.85).cgColor)
-            c.fillEllipse(in: CGRect(x: 4, y: 8, width: 26, height: 7))
-            // Top specular
-            c.setFillColor(UIColor(white: 1.0, alpha: 0.35).cgColor)
-            c.fillEllipse(in: CGRect(x: 6, y: 3, width: 18, height: 3))
-            // Nostril
-            c.setFillColor(UIColor(white: 0.05, alpha: 1).cgColor)
-            c.fillEllipse(in: CGRect(x: 8, y: 5, width: 2, height: 2))
-            // Tip darker
-            c.setFillColor(UIColor(red: 0.30, green: 0.40, blue: 0.50, alpha: 1).cgColor)
-            c.fillEllipse(in: CGRect(x: 28, y: 6, width: 6, height: 6))
+
+            let navy     = UIColor(red: 0.05, green: 0.08, blue: 0.18, alpha: 1).cgColor
+            let bodyDark = UIColor(red: 0.26, green: 0.34, blue: 0.44, alpha: 1).cgColor
+            let bodyMid  = UIColor(red: 0.44, green: 0.54, blue: 0.64, alpha: 1).cgColor
+            let bodyHigh = UIColor(red: 0.58, green: 0.67, blue: 0.76, alpha: 1).cgColor
+            let belly    = UIColor(red: 0.82, green: 0.88, blue: 0.94, alpha: 1).cgColor
+            let amber    = UIColor(red: 0.60, green: 0.38, blue: 0.12, alpha: 1).cgColor
+
+            // ── Outline silhouette ──
+            c.setFillColor(navy)
+            c.fillEllipse(in: CGRect(x: 0, y: 2, width: 36, height: 26))   // head oval
+            let bkOut = UIBezierPath()
+            bkOut.move(to: CGPoint(x: 34, y: 9))
+            bkOut.addLine(to: CGPoint(x: 52, y: 15))
+            bkOut.addLine(to: CGPoint(x: 34, y: 22))
+            bkOut.close()
+            c.addPath(bkOut.cgPath); c.fillPath()
+
+            // ── Main body (medium blue-gray) ──
+            c.setFillColor(bodyMid)
+            c.fillEllipse(in: CGRect(x: 2, y: 4, width: 32, height: 22))
+            let bkFill = UIBezierPath()
+            bkFill.move(to: CGPoint(x: 33, y: 10))
+            bkFill.addLine(to: CGPoint(x: 50, y: 15))
+            bkFill.addLine(to: CGPoint(x: 33, y: 21))
+            bkFill.close()
+            c.addPath(bkFill.cgPath); c.fillPath()
+
+            // ── Dark upper back (top third of head) ──
+            c.setFillColor(bodyDark)
+            c.fillEllipse(in: CGRect(x: 3, y: 4, width: 28, height: 10))
+
+            // ── Highlight streak along upper body ──
+            c.setFillColor(bodyHigh)
+            c.fillEllipse(in: CGRect(x: 8, y: 8, width: 16, height: 4))
+
+            // ── Belly (light lower jaw / throat) ──
+            c.setFillColor(belly)
+            c.fillEllipse(in: CGRect(x: 6, y: 19, width: 24, height: 8))
+
+            // ── Mouth crease along beak ──
+            c.setFillColor(navy)
+            c.fill(CGRect(x: 32, y: 14, width: 17, height: 1))
+
+            // ── Eye: outer ring → amber iris → dark pupil → white shine ──
+            c.setFillColor(navy);   c.fillEllipse(in: CGRect(x: 28, y: 11, width: 8, height: 8))
+            c.setFillColor(amber);  c.fillEllipse(in: CGRect(x: 29, y: 12, width: 6, height: 6))
+            c.setFillColor(navy);   c.fillEllipse(in: CGRect(x: 30, y: 13, width: 4, height: 4))
+            c.setFillColor(UIColor(white: 1, alpha: 0.80).cgColor)
+            c.fillEllipse(in: CGRect(x: 30, y: 13, width: 2, height: 2))
         }
         let tex = SKTexture(image: img); tex.filteringMode = .nearest
         dolphinTexture = tex
         return tex
     }
 
-    // Full leaping dolphin sprite (snout facing right by default)
+    // Full leaping dolphin — tail LEFT, beak RIGHT. Canvas 88×46 matched to sprite display size.
+    // Colors from reference: dark navy outline, steel blue-gray body, lighter mid-stripe, white belly, amber eye.
     private func makeDolphinTexture() -> SKTexture {
-        let sz = CGSize(width: 64, height: 32)
+        let sz = CGSize(width: 88, height: 46)
         let fmt = UIGraphicsImageRendererFormat(); fmt.scale = 1
         let img = UIGraphicsImageRenderer(size: sz, format: fmt).image { ctx in
             let c = ctx.cgContext
-            // Body — curved teardrop
-            c.setFillColor(UIColor(red: 0.38, green: 0.52, blue: 0.64, alpha: 1).cgColor)
-            let bodyPath = UIBezierPath()
-            bodyPath.move(to: CGPoint(x: 2, y: 18))
-            bodyPath.addCurve(to: CGPoint(x: 58, y: 14),
-                              controlPoint1: CGPoint(x: 22, y: 4),
-                              controlPoint2: CGPoint(x: 50, y: 6))
-            bodyPath.addCurve(to: CGPoint(x: 2, y: 18),
-                              controlPoint1: CGPoint(x: 50, y: 26),
-                              controlPoint2: CGPoint(x: 22, y: 30))
-            bodyPath.close()
-            c.addPath(bodyPath.cgPath); c.fillPath()
 
-            // Belly
-            c.setFillColor(UIColor(red: 0.82, green: 0.88, blue: 0.92, alpha: 1).cgColor)
-            let bellyPath = UIBezierPath()
-            bellyPath.move(to: CGPoint(x: 10, y: 22))
-            bellyPath.addCurve(to: CGPoint(x: 50, y: 18),
-                               controlPoint1: CGPoint(x: 25, y: 30),
-                               controlPoint2: CGPoint(x: 42, y: 26))
-            bellyPath.addCurve(to: CGPoint(x: 10, y: 22),
-                               controlPoint1: CGPoint(x: 42, y: 22),
-                               controlPoint2: CGPoint(x: 25, y: 24))
-            bellyPath.close()
-            c.addPath(bellyPath.cgPath); c.fillPath()
+            let navy     = UIColor(red: 0.05, green: 0.08, blue: 0.18, alpha: 1).cgColor
+            let bodyDark = UIColor(red: 0.26, green: 0.34, blue: 0.44, alpha: 1).cgColor
+            let bodyMid  = UIColor(red: 0.44, green: 0.54, blue: 0.64, alpha: 1).cgColor
+            let bodyHigh = UIColor(red: 0.58, green: 0.67, blue: 0.76, alpha: 1).cgColor
+            let bodyBri  = UIColor(red: 0.70, green: 0.78, blue: 0.84, alpha: 1).cgColor
+            let belly    = UIColor(red: 0.82, green: 0.88, blue: 0.94, alpha: 1).cgColor
+            let amber    = UIColor(red: 0.60, green: 0.38, blue: 0.12, alpha: 1).cgColor
 
-            // Dorsal fin
-            c.setFillColor(UIColor(red: 0.32, green: 0.44, blue: 0.56, alpha: 1).cgColor)
-            let fin = UIBezierPath()
-            fin.move(to: CGPoint(x: 32, y: 6))
-            fin.addLine(to: CGPoint(x: 38, y: 0))
-            fin.addLine(to: CGPoint(x: 42, y: 8))
-            fin.close()
-            c.addPath(fin.cgPath); c.fillPath()
+            // ── OUTLINE PASS ──
+            c.setFillColor(navy)
 
-            // Tail fluke
-            let tail = UIBezierPath()
-            tail.move(to: CGPoint(x: 2, y: 18))
-            tail.addLine(to: CGPoint(x: -2, y: 8))
-            tail.addLine(to: CGPoint(x: 8, y: 16))
-            tail.addLine(to: CGPoint(x: -2, y: 28))
-            tail.close()
-            c.addPath(tail.cgPath); c.fillPath()
+            let outBody = UIBezierPath()
+            outBody.move(to: CGPoint(x: 9, y: 24))
+            outBody.addCurve(to: CGPoint(x: 80, y: 18),
+                             controlPoint1: CGPoint(x: 26, y: 8),
+                             controlPoint2: CGPoint(x: 64, y: 10))
+            outBody.addLine(to: CGPoint(x: 88, y: 22))
+            outBody.addLine(to: CGPoint(x: 80, y: 26))
+            outBody.addCurve(to: CGPoint(x: 9, y: 30),
+                             controlPoint1: CGPoint(x: 62, y: 40),
+                             controlPoint2: CGPoint(x: 26, y: 38))
+            outBody.close()
+            c.addPath(outBody.cgPath); c.fillPath()
 
-            // Eye
-            c.setFillColor(UIColor(white: 0.05, alpha: 1).cgColor)
-            c.fillEllipse(in: CGRect(x: 48, y: 12, width: 2.5, height: 2.5))
+            // Upper tail fluke
+            let outUT = UIBezierPath()
+            outUT.move(to: CGPoint(x: 10, y: 24))
+            outUT.addLine(to: CGPoint(x: 0, y: 12))
+            outUT.addLine(to: CGPoint(x: 5, y: 28))
+            outUT.close()
+            c.addPath(outUT.cgPath); c.fillPath()
 
-            // Specular along top
-            c.setFillColor(UIColor(white: 1, alpha: 0.30).cgColor)
-            let spec = UIBezierPath()
-            spec.move(to: CGPoint(x: 14, y: 8))
-            spec.addCurve(to: CGPoint(x: 46, y: 9),
-                          controlPoint1: CGPoint(x: 26, y: 4),
-                          controlPoint2: CGPoint(x: 38, y: 5))
-            spec.addCurve(to: CGPoint(x: 14, y: 8),
-                          controlPoint1: CGPoint(x: 38, y: 11),
-                          controlPoint2: CGPoint(x: 26, y: 11))
-            spec.close()
-            c.addPath(spec.cgPath); c.fillPath()
+            // Lower tail fluke
+            let outLT = UIBezierPath()
+            outLT.move(to: CGPoint(x: 10, y: 30))
+            outLT.addLine(to: CGPoint(x: 0, y: 42))
+            outLT.addLine(to: CGPoint(x: 5, y: 28))
+            outLT.close()
+            c.addPath(outLT.cgPath); c.fillPath()
+
+            // Dorsal fin outline
+            let outDorsal = UIBezierPath()
+            outDorsal.move(to: CGPoint(x: 36, y: 16))
+            outDorsal.addCurve(to: CGPoint(x: 58, y: 14),
+                               controlPoint1: CGPoint(x: 44, y: 0),
+                               controlPoint2: CGPoint(x: 56, y: 4))
+            outDorsal.addLine(to: CGPoint(x: 60, y: 16))
+            outDorsal.close()
+            c.addPath(outDorsal.cgPath); c.fillPath()
+
+            // ── MAIN BODY FILL (medium blue-gray) ──
+            c.setFillColor(bodyMid)
+            let fillBody = UIBezierPath()
+            fillBody.move(to: CGPoint(x: 10, y: 24))
+            fillBody.addCurve(to: CGPoint(x: 79, y: 19),
+                              controlPoint1: CGPoint(x: 27, y: 9),
+                              controlPoint2: CGPoint(x: 63, y: 11))
+            fillBody.addLine(to: CGPoint(x: 86, y: 22))
+            fillBody.addLine(to: CGPoint(x: 79, y: 25))
+            fillBody.addCurve(to: CGPoint(x: 10, y: 30),
+                              controlPoint1: CGPoint(x: 61, y: 39),
+                              controlPoint2: CGPoint(x: 27, y: 37))
+            fillBody.close()
+            c.addPath(fillBody.cgPath); c.fillPath()
+
+            // Tail flukes (body color)
+            let utail = UIBezierPath()
+            utail.move(to: CGPoint(x: 11, y: 24)); utail.addLine(to: CGPoint(x: 1, y: 13))
+            utail.addLine(to: CGPoint(x: 6, y: 27)); utail.close()
+            c.addPath(utail.cgPath); c.fillPath()
+
+            let ltail = UIBezierPath()
+            ltail.move(to: CGPoint(x: 11, y: 30)); ltail.addLine(to: CGPoint(x: 1, y: 41))
+            ltail.addLine(to: CGPoint(x: 6, y: 27)); ltail.close()
+            c.addPath(ltail.cgPath); c.fillPath()
+
+            // ── DARK UPPER BACK (dorsal coloration) ──
+            c.setFillColor(bodyDark)
+            let darkTop = UIBezierPath()
+            darkTop.move(to: CGPoint(x: 10, y: 24))
+            darkTop.addCurve(to: CGPoint(x: 79, y: 19),
+                             controlPoint1: CGPoint(x: 27, y: 9),
+                             controlPoint2: CGPoint(x: 63, y: 11))
+            darkTop.addCurve(to: CGPoint(x: 10, y: 24),
+                             controlPoint1: CGPoint(x: 63, y: 18),
+                             controlPoint2: CGPoint(x: 27, y: 20))
+            darkTop.close()
+            c.addPath(darkTop.cgPath); c.fillPath()
+
+            // ── DORSAL FIN ──
+            c.setFillColor(bodyDark)
+            let dorsal = UIBezierPath()
+            dorsal.move(to: CGPoint(x: 37, y: 16))
+            dorsal.addCurve(to: CGPoint(x: 57, y: 15),
+                            controlPoint1: CGPoint(x: 45, y: 1),
+                            controlPoint2: CGPoint(x: 55, y: 5))
+            dorsal.addLine(to: CGPoint(x: 59, y: 16)); dorsal.close()
+            c.addPath(dorsal.cgPath); c.fillPath()
+
+            // Dorsal fin highlight
+            c.setFillColor(bodyMid)
+            let dorsalHi = UIBezierPath()
+            dorsalHi.move(to: CGPoint(x: 39, y: 16))
+            dorsalHi.addCurve(to: CGPoint(x: 52, y: 15),
+                              controlPoint1: CGPoint(x: 44, y: 5),
+                              controlPoint2: CGPoint(x: 51, y: 8))
+            dorsalHi.addLine(to: CGPoint(x: 55, y: 16)); dorsalHi.close()
+            c.addPath(dorsalHi.cgPath); c.fillPath()
+
+            // ── MID HIGHLIGHT STREAK ──
+            c.setFillColor(bodyHigh)
+            let midHi = UIBezierPath()
+            midHi.move(to: CGPoint(x: 18, y: 22))
+            midHi.addCurve(to: CGPoint(x: 70, y: 20),
+                            controlPoint1: CGPoint(x: 36, y: 18),
+                            controlPoint2: CGPoint(x: 58, y: 18))
+            midHi.addCurve(to: CGPoint(x: 18, y: 22),
+                            controlPoint1: CGPoint(x: 58, y: 22),
+                            controlPoint2: CGPoint(x: 36, y: 24))
+            midHi.close()
+            c.addPath(midHi.cgPath); c.fillPath()
+
+            // ── BRIGHT UPPER STRIP ──
+            c.setFillColor(bodyBri)
+            let brightHi = UIBezierPath()
+            brightHi.move(to: CGPoint(x: 24, y: 21))
+            brightHi.addCurve(to: CGPoint(x: 62, y: 20),
+                               controlPoint1: CGPoint(x: 40, y: 19),
+                               controlPoint2: CGPoint(x: 56, y: 19))
+            brightHi.addCurve(to: CGPoint(x: 24, y: 21),
+                               controlPoint1: CGPoint(x: 56, y: 21),
+                               controlPoint2: CGPoint(x: 40, y: 22))
+            brightHi.close()
+            c.addPath(brightHi.cgPath); c.fillPath()
+
+            // ── BELLY (lightest zone) ──
+            c.setFillColor(belly)
+            let bel = UIBezierPath()
+            bel.move(to: CGPoint(x: 15, y: 28))
+            bel.addCurve(to: CGPoint(x: 64, y: 24),
+                          controlPoint1: CGPoint(x: 30, y: 38),
+                          controlPoint2: CGPoint(x: 54, y: 34))
+            bel.addCurve(to: CGPoint(x: 15, y: 28),
+                          controlPoint1: CGPoint(x: 54, y: 25),
+                          controlPoint2: CGPoint(x: 30, y: 26))
+            bel.close()
+            c.addPath(bel.cgPath); c.fillPath()
+
+            // ── PECTORAL FIN ──
+            c.setFillColor(bodyDark)
+            let pec = UIBezierPath()
+            pec.move(to: CGPoint(x: 54, y: 26))
+            pec.addLine(to: CGPoint(x: 58, y: 38))
+            pec.addLine(to: CGPoint(x: 68, y: 30))
+            pec.addLine(to: CGPoint(x: 64, y: 23))
+            pec.close()
+            c.addPath(pec.cgPath); c.fillPath()
+
+            c.setFillColor(bodyMid)
+            let pecHi = UIBezierPath()
+            pecHi.move(to: CGPoint(x: 56, y: 27))
+            pecHi.addLine(to: CGPoint(x: 59, y: 35))
+            pecHi.addLine(to: CGPoint(x: 65, y: 29))
+            pecHi.addLine(to: CGPoint(x: 62, y: 24))
+            pecHi.close()
+            c.addPath(pecHi.cgPath); c.fillPath()
+
+            // ── MOUTH LINE ──
+            c.setFillColor(navy)
+            c.fill(CGRect(x: 76, y: 22, width: 9, height: 1))
+
+            // ── EYE: outer ring → amber → pupil → shine ──
+            c.setFillColor(navy);   c.fillEllipse(in: CGRect(x: 68, y: 17, width: 8, height: 8))
+            c.setFillColor(amber);  c.fillEllipse(in: CGRect(x: 69, y: 18, width: 6, height: 6))
+            c.setFillColor(navy);   c.fillEllipse(in: CGRect(x: 70, y: 19, width: 4, height: 4))
+            c.setFillColor(UIColor(white: 1, alpha: 0.82).cgColor)
+            c.fillEllipse(in: CGRect(x: 70, y: 19, width: 2, height: 2))
         }
         let tex = SKTexture(image: img); tex.filteringMode = .nearest
         return tex
@@ -1410,6 +1621,17 @@ final class BeachBallCornholeScene: SKScene {
         for n in nodes(at: loc) where TutorialHelpButton.wasTapped(n) {
             presentTutorial(autoTriggered: false); return
         }
+
+        // Pause overlay routing
+        if isPausedGame {
+            for n in nodes(at: loc) {
+                let name = n.name ?? n.parent?.name ?? ""
+                if name == "resumeBtn" { resumeGame(); return }
+                if TutorialHelpButton.wasTapped(n) { presentTutorial(autoTriggered: false); return }
+            }
+            return
+        }
+        if nodes(at: loc).contains(where: { $0.name == "pauseBtn" }) { pauseGame(); return }
 
         if confirmingQuit { handleButtonTap(at: loc); return }
         if gameOver       { handleButtonTap(at: loc); return }
@@ -1622,6 +1844,64 @@ final class BeachBallCornholeScene: SKScene {
         dolphinNoseNode?.removeFromParent(); dolphinNoseNode = nil
         dolphinActive = false; dolphinJumping = false
         dolphinSpawnTimer = 7.0; dolphinHideTimer = 0
+    }
+
+    // MARK: - Pause / Resume
+
+    private func pauseGame() {
+        guard !isPausedGame, !gameOver else { return }
+        isPausedGame = true
+        showPauseOverlay()
+    }
+
+    private func resumeGame() {
+        guard isPausedGame else { return }
+        isPausedGame = false
+        lastUpdateTime = 0
+        pauseOverlayNode?.removeFromParent()
+        pauseOverlayNode = nil
+    }
+
+    private func showPauseOverlay() {
+        let ov = SKNode(); ov.zPosition = 5000
+        pauseOverlayNode = ov; addChild(ov)
+
+        let dim = SKShapeNode(rect: CGRect(x: -W / 2, y: -H / 2, width: W, height: H))
+        dim.fillColor = SKColor(white: 0, alpha: 0.65); dim.strokeColor = .clear; ov.addChild(dim)
+
+        let panelW: CGFloat = min(W - 48, 280), panelH: CGFloat = 200
+        let panel = SKShapeNode(rect: CGRect(x: -panelW / 2, y: -panelH / 2, width: panelW, height: panelH), cornerRadius: 10)
+        panel.fillColor   = SKColor(red: 0.10, green: 0.04, blue: 0.02, alpha: 0.97)
+        panel.strokeColor = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 0.80)
+        panel.lineWidth   = 2; ov.addChild(panel)
+
+        let title = SKLabelNode(fontNamed: "PressStart2P-Regular")
+        title.text = "PAUSED"; title.fontSize = 16
+        title.fontColor = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 1)
+        title.horizontalAlignmentMode = .center; title.verticalAlignmentMode = .center
+        title.position = CGPoint(x: 0, y: 56); ov.addChild(title)
+
+        let btnW = panelW - 40, btnH: CGFloat = 44
+        let resumeBg = SKShapeNode(rect: CGRect(x: -btnW / 2, y: -btnH / 2, width: btnW, height: btnH), cornerRadius: 8)
+        resumeBg.fillColor   = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 0.20)
+        resumeBg.strokeColor = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 0.80)
+        resumeBg.lineWidth   = 1.5; resumeBg.position = CGPoint(x: 0, y: 6)
+        resumeBg.name = "resumeBtn"; ov.addChild(resumeBg)
+
+        let resumeLbl = SKLabelNode(fontNamed: "PressStart2P-Regular")
+        resumeLbl.text = "RESUME"; resumeLbl.fontSize = 11
+        resumeLbl.fontColor = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 1)
+        resumeLbl.horizontalAlignmentMode = .center; resumeLbl.verticalAlignmentMode = .center
+        resumeLbl.position = CGPoint(x: 0, y: -1); resumeLbl.name = "resumeBtn"; resumeBg.addChild(resumeLbl)
+
+        let help = TutorialHelpButton.make()
+        help.position = CGPoint(x: 0, y: -62); ov.addChild(help)
+
+        let helpHint = SKLabelNode(fontNamed: "PressStart2P-Regular")
+        helpHint.text = "TUTORIAL"; helpHint.fontSize = 7
+        helpHint.fontColor = SKColor(white: 0.6, alpha: 0.8)
+        helpHint.horizontalAlignmentMode = .center; helpHint.verticalAlignmentMode = .top
+        helpHint.position = CGPoint(x: 0, y: -80); ov.addChild(helpHint)
     }
 
     // MARK: - Dismiss

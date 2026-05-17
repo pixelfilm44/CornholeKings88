@@ -11,7 +11,6 @@ final class BikeDodgeViewController: UIViewController {
 
     private var skView: SKView!
     var onDismiss: (() -> Void)?
-    private weak var closeButton: UIButton?
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -25,17 +24,6 @@ final class BikeDodgeViewController: UIViewController {
         skView.layer.magnificationFilter = .nearest
         skView.layer.minificationFilter = .nearest
         view.addSubview(skView)
-
-        let btn = buildCloseButton()
-        view.addSubview(btn)
-        NSLayoutConstraint.activate([
-            btn.widthAnchor.constraint(equalToConstant: 66),
-            btn.heightAnchor.constraint(equalToConstant: 66),
-            btn.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -10),
-            btn.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 6)
-        ])
-        view.bringSubviewToFront(btn)
-        closeButton = btn
     }
 
     override func viewWillAppear(_ animated: Bool) {
@@ -55,20 +43,6 @@ final class BikeDodgeViewController: UIViewController {
         scene.scaleMode = .resizeFill
         scene.bikeDodgeDelegate = self
         skView.presentScene(scene)
-    }
-
-    private func buildCloseButton() -> UIButton {
-        let btn = UIButton(type: .custom)
-        btn.translatesAutoresizingMaskIntoConstraints = false
-        btn.setImage(UIImage(named: "closeIcon"), for: .normal)
-        btn.imageView?.contentMode = .scaleAspectFit
-        btn.addTarget(self, action: #selector(closeTapped), for: .touchUpInside)
-        return btn
-    }
-
-    @objc private func closeTapped() {
-        dismiss(animated: true)
-        onDismiss?()
     }
 
     override var prefersStatusBarHidden: Bool { true }
