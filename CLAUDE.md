@@ -56,9 +56,25 @@ The visible play area is a square "stage" (`stageSize = scene.width`). Chrome ba
 Maps are authored in **Tiled** (.tmx format, CSV encoding) and loaded by `TMXLoader`. The loader:
 1. Parses the `.tmx` XML to find tileset references and layer data.
 2. Resolves each `.tsx` tileset to its PNG by lowercasing the basename (e.g., `Grass.tsx` → `grass.png`). **Both the .tmx and all PNG files must be in the Xcode target's Copy Bundle Resources phase**; `.tsx` files are not needed at runtime.
-3. Builds `SKSpriteNode` tiles for each layer, returned as a `TMXMap` struct containing `layerGIDs` (raw GID grid per layer name) and `layerNodes` (the rendered `SKNode` per layer).
+3. Builds `SKSpriteNode` tiles for each layer, returned as a `TMXMap` struct containing:
+   - `layerGIDs` — raw GID grid per layer name
+   - `layerNodes` — rendered `SKNode` per layer
+   - `tilesetRanges: [(name: String, gidRange: ClosedRange<Int>)]` — every loaded tileset's lowercased basename and its assigned GID range
 
-`GameScene` uses `layerGIDs` to detect special tiles (collision, cornhole boards, baseball zones, trees) by GID range rather than by object layers.
+`GameScene` uses `tilesetRanges` to detect special tiles **by tileset name** (case-insensitive `contains`), not by hardcoded GID ranges. This means adding a new tileset in Tiled never requires touching code as long as the name contains the expected keyword. Detection mapping:
+
+| Tileset name contains | Triggers |
+|-----------------------|----------|
+| `cornhole`            | Classic cornhole mini-game (board tiles are 2×2 groups) |
+| `baseball`            | Beanbag baseball mini-game |
+| `tree` (but not `apple`) | Tree climbing (safe zone) |
+| `apple`               | Apple tree → cornhole vs. Tree Spirit |
+| `bee`                 | Beehive battle mini-game |
+| `pool`                | Beach-ball cornhole |
+| `bridge_stone`        | Beach-ball cornhole (same mini-game, different trigger) |
+| `chest`               | Open chest → 50/50 heart refill or dog biscuit |
+
+Collision tiles still come from the `Collisions` layer (any non-zero GID); water collisions still come from explicit GID ranges in `buildPhysics(from:)`.
 
 ### Physics
 
@@ -75,9 +91,23 @@ Maps are authored in **Tiled** (.tmx format, CSV encoding) and loaded by `TMXLoa
 
 Press A near a tree tile to climb it. While in a tree the player is stationary and safe from enemies (`enemyBit` removed from physics masks). A green leaf canopy is drawn over the player as a visual indicator. Press A again to descend, or use the d-pad — any directional input auto-descends and resumes normal movement. Walking out of tree proximity also auto-descends.
 
-The proximity radius is 20 world units (`treeRadius` in `checkBoardProximity()`). Tree tiles are detected from the `treeGIDRange` constant (currently `923...930`, matching `trees.tsx` firstgid=923, tilecount=8). The `▲A` prompt appears when in range.
+The proximity radius is 20 world units (`treeRadius` in `checkBoardProximity()`). Tree tiles are detected by tileset name — any tileset whose lowercased basename contains `"tree"` and does **not** contain `"apple"` is treated as climbable (e.g. `Big_Oak_Tree.tsx`, `Medium_Spruce_Tree.tsx`, `Big_Birch_Tree.tsx`). The `▲A` prompt appears when in range.
 
-**GID overlap warning:** when adding new tilesets, verify their firstgid + tilecount does not overlap with `baseballGIDRange` (921–922) or `treeGIDRange` (923–930). Tiled assigns firstgids sequentially so always check `World1.tmx` after adding a tileset.
+### Apple Tree
+
+Tilesets whose name contains `"apple"` (e.g. `Apple_Tree.tsx`) are detected separately by `extractAppleTreePositions(from:)` and excluded from climbing detection. Walking near one and pressing A launches `CornholeMiniGameScene` with `preSelectedOpponent = .spirit`, skipping the opponent picker. The interaction radius is 26 world units.
+
+### Bridge Stone
+
+Tilesets whose name contains `"bridge_stone"` (e.g. `Bridge_Stone_Vertical.tsx`) launch the beach-ball cornhole mini-game when the player presses A nearby. Interaction radius is 36 world units. Same entry path as the pool tile trigger.
+
+### Chest
+
+Tilesets whose name contains `"chest"` (e.g. `Golden_Chest_Anim.tsx`) become one-time interactable rewards. On A-press:
+1. The chest's tile sprite is hidden in every layer at that world position (`hideChestTile(at:)`).
+2. A 50/50 roll grants either `HeartsManager.shared.gain()` or `inventory.collect(.dogBiscuit, count: 1)`.
+3. A floating `+ HEART` / `+ DOG BISCUIT` pickup label animates from the chest.
+4. The opened position is tracked in `openedChestKeys: Set<String>` (key = `"<intX>,<intY>"`) so proximity detection skips it for the rest of the session. Memory is **not** persisted to `UserDefaults`.
 
 ### Mini-Game Pattern
 
@@ -94,7 +124,7 @@ var onComplete: ((Bool) -> Void)?
 
 ### Cornhole Opponents
 
-`CornholeMiniGameScene` supports four opponents selected via `OpponentPickerNode` before the game starts:
+`CornholeMiniGameScene` supports four opponents selected via `OpponentPickerNode` before the game starts. The host scene can bypass the picker by setting `mini.preSelectedOpponent = .spirit` (etc.) before presenting — used by the apple tree world trigger to drop the player straight into a Tree Spirit match.
 
 | Opponent | Enum | Win score | Special rules |
 |----------|------|-----------|---------------|
@@ -146,10 +176,10 @@ Navigation: `◄ BACK` strip at top (push-down transition back to `MainMenuScene
 
 Items scattered in the world can be walked over to collect them. The system has four files:
 
-- **`Item.swift`** — `ItemType` enum (`coin`, `bag`, `star`, `honeyBag`, `bombBag`, `magicBag`, `fireBag`) with `color`, `displayName`, and `hudSymbol`.
+- **`Item.swift`** — `ItemType` enum (`coin`, `bag`, `star`, `honeyBag`, `bombBag`, `magicBag`, `fireBag`, `goldenBag`, `dogBiscuit`) with `color`, `displayName`, and `hudSymbol`.
 - **`InventoryManager.swift`** — holds `[ItemType: Int]` counts; fires an `onChanged` closure when any item is collected. `GameScene` owns the instance.
 - **`CollectibleNode.swift`** — `SKNode` subclass placed in the map's `mapNode`. Draws an 8×8 colored tile + glow ring, bobs gently, and pops/fades out on contact. Physics body is a sensor (`collisionBitMask = 0`, `contactTestBitMask = PlayerNode.categoryBit`). Uses `collectibleBit = 0x1 << 2`.
-- **`InventoryHUDNode.swift`** — `SKNode` attached to `cameraNode`. Renders a horizontal row of dark pill slots (colored icon + `×N` count label) in the bottom chrome, vertically centered between the top of the D-pad cross and the stage bottom border. Call `refresh(counts:)` to redraw.
+- **`InventoryHUDNode.swift`** — `SKNode` attached to `cameraNode`. Renders a horizontal row of dark pill slots (colored icon + `×N` count label) in the bottom chrome, vertically centered between the top of the D-pad cross and the stage bottom border. Call `refresh(counts:)` to redraw. Each slot container is named `"slot_<rawValue>"` (e.g. `"slot_dogBiscuit"`); `GameScene.handleTouchBegan` walks `nodes(at:)` for that prefix and routes the tap to `handleInventoryTap(_:)` for per-item world-use actions.
 
 **Collection flow in `GameScene`:**
 1. `setupPlayer()` ORs `CollectibleNode.collectibleBit` into the player's `contactTestBitMask`.
@@ -164,11 +194,14 @@ Items scattered in the world can be walked over to collect them. The system has 
 
 `GameScene` passes `availableBombBags` / `availableMagicBags` / `availableFireBags` into `CornholeMiniGameScene` before presenting it, then deducts used counts and adds earned counts in the `onComplete` closure. `MiniGamePickerScene` reads the same `InventoryManager` (via a local instance) when launching cornhole directly from the picker.
 
+**World-use items** (placed in the open world by tapping the inventory slot):
+- **`dogBiscuit`** — earned from chests (50/50 with heart refill). Tapping the inventory slot calls `placeDogBiscuit()`, which decrements the count and spawns a bone-shaped `SKNode` at `player.position` (added to `map.mapNode`, tracked in `placedBiscuits: [PlacedBiscuit]`). In `updateDogs(dt:)`, any non-fleeing dog without a `biscuitTarget` checks for an unclaimed biscuit within an 80-unit sniff radius; first match wins and is claimed. The dog walks to the biscuit, eats for 3 seconds (`eatDuration` in `DogNode`), then `onFinishedEating` fires — the biscuit node pops/fades out and is removed from `placedBiscuits`. After eating, the dog resumes chasing the player.
+
 **Fire bag round state** — reset at the start of each round in `startRound()`: `boardOnFire`, `holeFire`, `fireBoardOverlay`, `fireBoardEmitter` node (named `"fireBoardEmitter"`), and `fireBoardLabel` node (named `"fireBoardLabel"`).
 
 **Losing to the Tree Spirit** — the game-over panel shows a green hint: *"SPECIAL BAGS MAY HELP AGAINST SUCH A FOE..."* to guide the player toward using magic/fire bags.
 
-**To add more item types:** add a case to `ItemType`, give it a `color`/`displayName`/`hudSymbol`, and drop `CollectibleNode(type: .newType)` nodes in `spawnCollectibles(in:)`.
+**To add more item types:** add a case to `ItemType`, give it a `color`/`displayName`/`hudSymbol`, and drop `CollectibleNode(type: .newType)` nodes in `spawnCollectibles(in:)`. If the item should be usable from the inventory HUD, add a case to `GameScene.handleInventoryTap(_:)` for its world-use action.
 
 ### Hearts System
 
@@ -214,15 +247,13 @@ for n in nodes(at: loc) where TutorialHelpButton.wasTapped(n) {
 | Symbol | File | Value | Meaning |
 |--------|------|-------|---------|
 | `worldZoom` | GameScene | 2.0 | Camera zoom multiplier |
-| `cornholeBoardGIDRange` | GameScene | 917...920 | GIDs that trigger cornhole mini-game |
-| `baseballGIDRange` | GameScene | 921...922 | GIDs that trigger baseball mini-game |
-| `treeGIDRange` | GameScene | 923...930 | GIDs that trigger tree climbing |
-| `beehiveGIDRange` | GameScene | 931...934 | GIDs that trigger beehive mini-game |
-| `poolGIDRange` | GameScene | 935...938 | GIDs that trigger beach-ball cornhole (tileset not yet added) |
 | `moveSpeed` | PlayerNode | 120.0 | Player world-units per second |
 | `totalCycles` / `pitchesPerHalf` | CornholeBaseballScene | 3 / 3 | Baseball game length |
+| `eatDuration` | DogNode | 3.0 | Seconds a dog spends eating a placed biscuit |
 | `collectibleBit` | CollectibleNode | `0x1 << 2` | Physics category for collectible items |
 | `enemyBit` | PlayerNode | `0x1 << 3` | Physics category reserved for enemies |
+
+Hardcoded GID ranges for world-trigger tiles are gone — see the "tileset name contains" table in the **Map System** section above for the current detection contract.
 
 ### BeachBall Cornhole
 
@@ -240,7 +271,7 @@ classic striped beachballs at a floating, drifting cornhole board in a pool.
 
 **Entry points:**
 - `MiniGamePickerScene` → `"beachball"` card
-- World trigger — walk near a pool tile (GID 935–938) and press A. No pool tileset exists in `World1.tmx` yet; add one at firstgid=935, tilecount=4 when ready.
+- World trigger — walk near any tile from a tileset whose name contains `"pool"` or `"bridge_stone"` (e.g. `Bridge_Stone_Vertical.tsx`) and press A.
 
 **Beachball texture** is drawn programmatically in `BeachBallCornholeScene.makeBeachBallTexture(diameter:)` — no image asset needed.
 
