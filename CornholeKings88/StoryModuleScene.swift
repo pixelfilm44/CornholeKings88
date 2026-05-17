@@ -201,15 +201,6 @@ final class StoryModuleScene: SKScene {
         border.zPosition = 19
         addChild(border)
 
-        // Zone A (left): pause icon — tapping skips typewriter or exits story
-        let pauseNode = SKSpriteNode(imageNamed: "pauseIcon")
-        pauseNode.size = CGSize(width: 22, height: 22)
-        pauseNode.texture?.filteringMode = .nearest
-        pauseNode.position  = CGPoint(x: -W / 2 + 22, y: contentY)
-        pauseNode.name      = "backToMenu"
-        pauseNode.zPosition = 22
-        addChild(pauseNode)
-
         // Zone C (right): close icon — exits to main menu
         let closeNode = SKSpriteNode(imageNamed: "closeIcon")
         closeNode.size = CGSize(width: 22, height: 22)
