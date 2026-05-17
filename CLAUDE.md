@@ -248,6 +248,85 @@ classic striped beachballs at a floating, drifting cornhole board in a pool.
 
 `StoryModuleScene` displays story chapter text over a full-screen panel. Body text `fontSize` is capped at `min(14, W / 17)` — keep this value at 14 to match the pixel-art scale.
 
+### HUD Design System (Bit-Wood Brawler)
+
+Every mini-game, picker, and stats scene uses a standardized top ribbon. When building or modifying any HUD, follow these rules exactly.
+
+#### Color constants
+
+| Role | Hex | Usage |
+|------|-----|-------|
+| Primary (dark wood) | `#1a0a04` | Ribbon background |
+| Gold | `#f0c060` | Bottom border, active labels, titles |
+| Heart red | `#d4441e` | Heart sprites, health indicators |
+| Timer blue | `#5a9cd4` | Countdown timers, time labels |
+| Iron gray | `#595959` | Inactive elements, bolt corners |
+
+#### Top ribbon layout
+
+Every scene has a 48pt ribbon that extends through the Dynamic Island / notch using the safe-area inset:
+
+```swift
+let topInset  = view?.safeAreaInsets.top ?? 0
+let topH: CGFloat = 48
+let totalTopH = topH + topInset
+
+// Bar background extends through the notch
+let bar = SKSpriteNode(color: dsPrimary, size: CGSize(width: W, height: totalTopH))
+bar.position = CGPoint(x: 0, y: H / 2 - totalTopH / 2)
+
+// 2px gold bottom border
+let border = SKSpriteNode(color: dsGold, size: CGSize(width: W, height: 2))
+border.position = CGPoint(x: 0, y: H / 2 - totalTopH + 1)
+
+// Content centered in the visible 48pt band (below the notch)
+let contentY = H / 2 - topInset - topH / 2
+```
+
+#### Three-zone structure
+
+- **Zone A (left, x = −W/2 + 22):** `pauseIcon` PNG sprite, 22×22 pt, named `"pauseBtn"`
+- **Zone B (center):** game state — hearts, scores, timers, or title label
+- **Zone C (right, x = W/2 − 22):** `closeIcon` PNG sprite, 22×22 pt, named `"closeButton"` (or `"back"` on non-game scenes)
+
+Always use the bundled `pauseIcon.png` and `closeIcon.png` assets. Never draw pause/close UI from scratch.
+
+#### Touch routing
+
+Use `nodes(at: loc)` — never `atPoint(loc)` — so the CRT overlay (highest zPosition) does not shadow named nodes:
+
+```swift
+// Correct
+if nodes(at: loc).contains(where: { $0.name == "pauseBtn" }) { pauseGame(); return }
+
+// Wrong — atPoint returns the topmost node (CRT overlay) which has no name
+let name = atPoint(loc).name  // ← never do this for HUD routing
+```
+
+#### CRT overlay
+
+Every scene adds a full-screen CRT scanline sprite via `addCrtOverlay()` at `zPosition = 100` (or higher). It must sit above all game content but have `isUserInteractionEnabled = false`.
+
+**`CornholeBaseballScene` special case** — because a `UIHostingController` (SwiftUI HUD) is added as a UIKit subview on top of the `SKView`, the SK CRT sprite is invisible over the HUD area. A matching UIKit `UIView` CRT overlay is added as the topmost subview in `injectHUD(into:)` and removed in `willMove(from:)`. See `makeCRTView(frame:)` in `CornholeBaseballScene.swift`.
+
+#### Baseball scene (SwiftUI HUD)
+
+`CornholeBaseballScene` is the only scene with a SwiftUI overlay (`BaseballHUDView` via `UIHostingController`). Because all UIKit subviews render above the SK layer:
+
+- The SwiftUI view covers the entire screen but only has opaque content in the top ribbon area; the rest is transparent so SK game content shows through.
+- Pause and close buttons are `UIButton` instances (not SK sprites) added to the `SKView` above the hosting controller. They are sized to 44×48 pt tap targets with the icon image explicitly resized to 22×22 pt via `resizedIcon(named:to:)`.
+- A UIKit CRT `UIView` is added last (`bringSubviewToFront`) so it sits above the buttons and SwiftUI view.
+- `pushHUD()` updates the `BaseballHUDViewModel` on the main queue; the SwiftUI view observes and redraws automatically.
+- All UIKit subviews (hosting controller, pause button, close button, CRT view) are stored as `private var` optionals and removed in `willMove(from:)`.
+
+#### Adding a HUD to a new mini-game
+
+1. Follow the safe-area ribbon pattern above in `setupHUD()` or equivalent.
+2. Add `pauseIcon` (Zone A) and `closeIcon` (Zone C) at 22×22 pt.
+3. Add a `TutorialHelpButton.make()` just right of the pause icon (x = −W/2 + 52).
+4. Call `addCrtOverlay()` last so scanlines sit on top of all game content.
+5. In `touchesBegan`, use `nodes(at:)` and check for `"pauseBtn"` before any other game input.
+
 ### Asset Notes
 
 - All PNGs and the `.tmx` file must be added to **Copy Bundle Resources** in Xcode. Xcode's "synchronized folders" setting does not copy `.tsx` files, so tilesets are resolved purely from PNGs at runtime.
