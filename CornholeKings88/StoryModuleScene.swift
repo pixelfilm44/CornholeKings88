@@ -29,6 +29,7 @@ final class StoryModuleScene: SKScene {
     private var panelW: CGFloat = 0
     private var panelH: CGFloat = 0
     private var imageAreaH: CGFloat = 0
+    private var ribbonBottomY: CGFloat = 0   // scene-Y of bottom edge of the top ribbon
 
     // MARK: - Typewriter
     private var fullText: String = ""
@@ -61,8 +62,8 @@ final class StoryModuleScene: SKScene {
             return
         }
         hasSetup = true
+        buildTopBar()   // sets ribbonBottomY first so buildPanel can position below it
         buildPanel()
-        buildTopBar()
         addCrtOverlay()
         if let m = currentModule { showModule(m) }
     }
@@ -70,12 +71,14 @@ final class StoryModuleScene: SKScene {
     // MARK: - Panel construction (one-time)
     private func buildPanel() {
         panelW = W * 0.88
-        // Slightly shorter panel; offset downward so the top bar has clear breathing room
-        panelH = H * 0.79
+        // Fill the space between ribbon bottom and screen bottom (8pt gap each side)
+        let availableH = ribbonBottomY + H / 2 - 16
+        panelH = min(H * 0.82, availableH)
         imageAreaH = panelH * 0.40
 
         panelNode = SKNode()
-        panelNode.position = CGPoint(x: 0, y: -H * 0.025)
+        // Center the panel in the available space below the ribbon
+        panelNode.position = CGPoint(x: 0, y: ribbonBottomY - 8 - panelH / 2)
         panelNode.zPosition = 10
         addChild(panelNode)
 
@@ -173,55 +176,48 @@ final class StoryModuleScene: SKScene {
         panelNode.addChild(choiceContainer)
     }
 
-    /// Top bar with 44pt Close (✕, left) and Skip (right) buttons.
+    /// Top ribbon — DS standard: #1a0a04 + 2px gold border, safe-area aware.
+    /// Sets ribbonBottomY so buildPanel() can position below it.
     private func buildTopBar() {
-        let barH: CGFloat = max(54, H * 0.075)
-        let barY = H / 2 - barH / 2
-        let btnH: CGFloat = 44
-        let font = "PressStart2P-Regular"
+        let dsPrimary = SKColor(red: 0.102, green: 0.039, blue: 0.016, alpha: 1) // #1a0a04
+        let dsGold    = SKColor(red: 0.941, green: 0.753, blue: 0.376, alpha: 1) // #f0c060
 
-        // Iron bar background
-        let bar = SKSpriteNode(color: SKColor(red: 0.07, green: 0.05, blue: 0.03, alpha: 0.88),
-                               size: CGSize(width: W, height: barH))
-        bar.position  = CGPoint(x: 0, y: barY)
+        let topInset  = view?.safeAreaInsets.top ?? 0
+        let topH: CGFloat = 48
+        let totalTopH = topH + topInset
+        let topBarY   = H / 2 - totalTopH / 2
+        let contentY  = H / 2 - topInset - topH / 2
+        ribbonBottomY = H / 2 - totalTopH
+
+        // Background bar (extends through notch)
+        let bar = SKSpriteNode(color: dsPrimary, size: CGSize(width: W, height: totalTopH))
+        bar.position  = CGPoint(x: 0, y: topBarY)
         bar.zPosition = 18
         addChild(bar)
 
-        // 1px warm border at bottom of bar
-        let border = SKSpriteNode(color: SKColor(red: 0.50, green: 0.35, blue: 0.15, alpha: 0.6),
-                                  size: CGSize(width: W, height: 1))
-        border.position  = CGPoint(x: 0, y: barY - barH / 2)
+        // 2px gold bottom border
+        let border = SKSpriteNode(color: dsGold, size: CGSize(width: W, height: 2))
+        border.position  = CGPoint(x: 0, y: ribbonBottomY + 1)
         border.zPosition = 19
         addChild(border)
 
+        // Zone A (left): pause icon — tapping skips typewriter or exits story
+        let pauseNode = SKSpriteNode(imageNamed: "pauseIcon")
+        pauseNode.size = CGSize(width: 22, height: 22)
+        pauseNode.texture?.filteringMode = .nearest
+        pauseNode.position  = CGPoint(x: -W / 2 + 22, y: contentY)
+        pauseNode.name      = "backToMenu"
+        pauseNode.zPosition = 22
+        addChild(pauseNode)
+
+        // Zone C (right): close icon — exits to main menu
         let closeNode = SKSpriteNode(imageNamed: "closeIcon")
-        let closeSz = btnH * 1.5
-        closeNode.size = CGSize(width: closeSz, height: closeSz)
+        closeNode.size = CGSize(width: 22, height: 22)
         closeNode.texture?.filteringMode = .nearest
-        closeNode.position  = CGPoint(x: -W / 2 + closeSz / 2 + 6, y: barY)
+        closeNode.position  = CGPoint(x: W / 2 - 22, y: contentY)
         closeNode.name      = "backToMenu"
         closeNode.zPosition = 22
         addChild(closeNode)
-
-        // Skip button — RIGHT, warm wood tone
-        let skipW: CGFloat = max(72, W * 0.22)
-        let skipNode = SKNode()
-        let skipBg = SKSpriteNode(color: SKColor(red: 0.27, green: 0.13, blue: 0.05, alpha: 0.95),
-                                  size: CGSize(width: skipW, height: btnH))
-        skipBg.zPosition = 0
-        skipNode.addChild(skipBg)
-        let skipLbl = SKLabelNode(fontNamed: font)
-        skipLbl.text                    = "SKIP"
-        skipLbl.fontSize                = min(10, W / 30)
-        skipLbl.fontColor               = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 1)
-        skipLbl.verticalAlignmentMode   = .center
-        skipLbl.horizontalAlignmentMode = .center
-        skipLbl.zPosition               = 1
-        skipNode.addChild(skipLbl)
-        skipNode.position  = CGPoint(x: W / 2 - skipW / 2 - 6, y: barY)
-        skipNode.name      = "backToMenu"
-        skipNode.zPosition = 22
-        addChild(skipNode)
     }
 
     private func addPanelRivet(at pos: CGPoint, radius: CGFloat) {
