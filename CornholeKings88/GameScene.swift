@@ -41,7 +41,8 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     private var bridgeWoodPositions: [CGPoint] = []
     private var nearbyBridgeWoodPosition: CGPoint?
     private var bridgePhysicsNodes: [SKNode] = []
-    private let bridgeUnlockedKey = "bridgeUnlocked_v1"
+    private let bridgeUnlockedKey   = "bridgeUnlocked_v1"
+    private let baseballUnlockedKey = "baseballUnlocked_v1"
 
     // Chest interaction
     private var chestPositions: [CGPoint] = []
@@ -481,6 +482,8 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         m.layerNodes["Interactions"]?.zPosition = 0
         m.layerNodes["ImaginationFX"]?.zPosition = 1000
         m.layerNodes["ImaginationFX"]?.isHidden = true
+        m.layerNodes["Baseball"]?.zPosition = 500
+        m.layerNodes["Baseball"]?.isHidden = true
 
         gameWorld.addChild(m.mapNode)
 
@@ -498,6 +501,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         ySortStaticLayers(in: m)
 
         if UserDefaults.standard.bool(forKey: bridgeUnlockedKey) { unlockBridge() }
+        if CornholeStatsManager.shared.baseballUnlocked { unlockBaseball() }
     }
 
     // MARK: - Cornhole Board Detection
@@ -871,10 +875,12 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
                 bestDist = d; bestBoard = nil; bestChest = nil; bestBridgeStone = pos
             }
         }
-        for pos in baseballPositions {
-            let d = hypot(player.position.x - pos.x, player.position.y - pos.y)
-            if d < baseballRadius && d < bestDist {
-                bestDist = d; bestBoard = nil; bestChest = nil; bestBridgeStone = nil; bestBaseball = pos
+        if CornholeStatsManager.shared.baseballUnlocked {
+            for pos in baseballPositions {
+                let d = hypot(player.position.x - pos.x, player.position.y - pos.y)
+                if d < baseballRadius && d < bestDist {
+                    bestDist = d; bestBoard = nil; bestChest = nil; bestBridgeStone = nil; bestBaseball = pos
+                }
             }
         }
         for pos in treePositions {
@@ -1089,6 +1095,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
             if let earned = mini?.bombBagsEarned,  earned > 0 { self?.inventory.collect(.bombBag,  count: earned) }
             if let earned = mini?.magicBagsEarned, earned > 0 { self?.inventory.collect(.magicBag, count: earned) }
             if let earned = mini?.fireBagsEarned,  earned > 0 { self?.inventory.collect(.fireBag,  count: earned) }
+            if CornholeStatsManager.shared.baseballUnlocked { self?.unlockBaseball() }
             self?.isTransitioning = false
         }
 
@@ -1187,6 +1194,10 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         map?.layerNodes["ImaginationFX"]?.isHidden = false
         bridgePhysicsNodes.forEach { $0.removeFromParent() }
         bridgePhysicsNodes.removeAll()
+    }
+
+    private func unlockBaseball() {
+        map?.layerNodes["Baseball"]?.isHidden = false
     }
 
     /// Walks playerHearts down to `remaining`, animating each lost heart in the HUD.

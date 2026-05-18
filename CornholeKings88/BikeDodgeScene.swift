@@ -129,6 +129,7 @@ final class BikeDodgeScene: SKScene {
     private var jumpTruckInterval: CGFloat = 20.0   // first truck after ~20s
     private var jumpTrucksSpawned: Int     = 0
     private let maxJumpTrucks:     Int     = 2
+    private var jumpBagsEarned:    Int     = 0
     private let jumpDuration:      CGFloat = 1.6
 
     // MARK: - Spawn timers
@@ -155,6 +156,9 @@ final class BikeDodgeScene: SKScene {
     private var minimapBG:       SKShapeNode!
     private var mmDots:          [SKShapeNode] = []
     private var brakeButtonNode: SKSpriteNode?
+    private var brakeFrame:      CGRect = .zero
+    private var pauseBtnFrame:   CGRect = .zero
+    private var closeBtnFrame:   CGRect = .zero
     private var mmBottom:    CGFloat = 0, mmHeight: CGFloat = 0
 
     // MARK: - Pause
@@ -354,6 +358,10 @@ final class BikeDodgeScene: SKScene {
         closeBtn.name      = "closeBtn"
         addChild(closeBtn)
 
+        // Cache 44pt-min tap targets for O(1) hit-testing in touchesBegan
+        pauseBtnFrame = CGRect(x: -W / 2,        y: hudY - 24, width: 60, height: 48)
+        closeBtnFrame = CGRect(x:  W / 2 - 60,   y: hudY - 24, width: 60, height: 48)
+
         // Zone B — Hearts row, centered; dist left of hearts, time right
         let heartSpacing: CGFloat = 20
         let heartFs: CGFloat = 18
@@ -411,7 +419,7 @@ final class BikeDodgeScene: SKScene {
     private func setupBrakeButton() {
         let bw: CGFloat = 144, bh: CGFloat = 48
         let bottomInset = self.view?.safeAreaInsets.bottom ?? 0
-        let brakeY = -H / 2 + bottomInset + 48 + bh / 2 + 16  // above bottom HUD ribbon
+        let brakeY = -H / 2 + bottomInset + 48 + bh / 2 + 16 - 75  // above bottom HUD ribbon
 
         // Drop-shadow rectangle (offset 4,-4) — primary-container color
         let shadow = SKSpriteNode(color: Self.dsPrimaryContainer,
@@ -455,6 +463,9 @@ final class BikeDodgeScene: SKScene {
         lbl.zPosition = 53
         lbl.name      = "brakeBtn"
         addChild(lbl)
+
+        // Cache for O(1) hit-testing in touchesBegan (avoids nodes(at:) traversal per tap)
+        brakeFrame = CGRect(x: -bw / 2, y: brakeY - bh / 2, width: bw, height: bh)
     }
 
     private func refreshHUD() {
@@ -601,6 +612,9 @@ final class BikeDodgeScene: SKScene {
     }
 
     private func updateRacing(dt: CGFloat) {
+        // Self-heal stuck touches — iOS occasionally drops touchesEnded for rapid taps,
+        // which left both steer flags true and made forces cancel out.
+        pruneStaleTouches()
         elapsed += dt
         updateSpeeds(dt: dt)
         updateRoad(dt: dt)
@@ -785,11 +799,11 @@ final class BikeDodgeScene: SKScene {
         bagTimer += dt
         if bagTimer >= bagInterval {
             bagTimer = 0
-            // Interval shrinks from [2.0, 3.5]s → [0.55, 1.10]s as the race progresses.
-            bagInterval = CGFloat.random(in: lerp(2.0, 0.55, p)...lerp(3.5, 1.10, p))
+            // Interval shrinks from [2.0, 3.5]s → [0.80, 1.40]s as the race progresses.
+            bagInterval = CGFloat.random(in: lerp(2.0, 0.80, p)...lerp(3.5, 1.40, p))
             spawnBeanBag()
-            // Past 45% distance a second bag can fly in the same tick.
-            if p > 0.45 && Float.random(in: 0...1) < Float((p - 0.45) * 2.0) { spawnBeanBag() }
+            // Past 70% distance a second bag can fly in the same tick (max ~45% chance).
+            if p > 0.70 && Float.random(in: 0...1) < Float((p - 0.70) * 1.5) { spawnBeanBag() }
         }
 
         // Jump truck — up to 2 per race, first appears after 20% progress
@@ -1407,6 +1421,25 @@ final class BikeDodgeScene: SKScene {
         return sprite
     }
 
+    private func makeAirGoldBagNode() -> SKNode {
+        let container = SKNode()
+        let body = SKShapeNode(rectOf: CGSize(width: 14, height: 14), cornerRadius: 3)
+        body.fillColor   = SKColor(red: 1.0, green: 0.75, blue: 0.0, alpha: 1)
+        body.strokeColor = SKColor(red: 0.7, green: 0.50, blue: 0.0, alpha: 1)
+        body.lineWidth   = 1.5
+        container.addChild(body)
+        let glow = SKShapeNode(rectOf: CGSize(width: 22, height: 22), cornerRadius: 5)
+        glow.fillColor   = .clear
+        glow.strokeColor = SKColor(red: 1.0, green: 0.84, blue: 0.0, alpha: 0.85)
+        glow.lineWidth   = 2
+        glow.run(.repeatForever(.sequence([
+            .fadeAlpha(to: 0.2, duration: 0.25),
+            .fadeAlpha(to: 1.0, duration: 0.25),
+        ])))
+        container.addChild(glow)
+        return container
+    }
+
     private func updateJumpTrucks(dt: CGFloat) {
         for i in jumpTrucks.indices {
             guard jumpTrucks[i].isActive else { continue }
@@ -1497,6 +1530,42 @@ final class BikeDodgeScene: SKScene {
             .removeFromParent(),
         ]))
 
+        // Gold bag floating in the air — auto-caught at jump peak
+        let airBag = makeAirGoldBagNode()
+        let bagStartX = pr.x + CGFloat.random(in: -12...12)
+        airBag.position = CGPoint(x: bagStartX, y: playerScreenY + 155)
+        airBag.zPosition = 155
+        airBag.alpha = 0
+        airBag.setScale(1.4)
+        addChild(airBag)
+        airBag.run(.sequence([
+            .wait(forDuration: 0.20),
+            .group([
+                .fadeIn(withDuration: 0.15),
+                .scale(to: 1.0, duration: 0.15),
+            ]),
+            .wait(forDuration: 0.22),
+            .group([
+                .move(to: CGPoint(x: pr.x, y: playerScreenY + 12), duration: 0.22),
+                .sequence([
+                    .wait(forDuration: 0.08),
+                    .group([
+                        .scale(to: 0, duration: 0.14),
+                        .fadeOut(withDuration: 0.14),
+                    ]),
+                ]),
+            ]),
+            .run { [weak self] in
+                guard let self else { return }
+                self.jumpBagsEarned += 1
+                HeartsManager.shared.refill()
+                self.pr.hearts = HeartsManager.shared.currentHearts
+                self.refreshHUD()
+                self.showJumpBagPickup()
+            },
+            .removeFromParent(),
+        ]))
+
         let haptic = UIImpactFeedbackGenerator(style: .heavy)
         haptic.prepare(); haptic.impactOccurred(intensity: 1.0)
     }
@@ -1509,6 +1578,24 @@ final class BikeDodgeScene: SKScene {
         animY.duration = 0.25
         view.layer.add(animY, forKey: "landingShake")
         UIImpactFeedbackGenerator(style: .medium).impactOccurred(intensity: 0.7)
+    }
+
+    private func showJumpBagPickup() {
+        let lbl = label("+1 GOLD BAG", font: "PressStart2P-Regular",
+                        size: min(10, W / 34),
+                        color: SKColor(red: 1.0, green: 0.84, blue: 0.0, alpha: 1),
+                        at: CGPoint(x: pr.x, y: playerScreenY + 90))
+        lbl.zPosition = 160
+        addChild(lbl)
+        lbl.run(.sequence([
+            .group([
+                .moveBy(x: 0, y: 28, duration: 0.65),
+                .sequence([.scale(to: 1.15, duration: 0.15), .scale(to: 1.0, duration: 0.20)]),
+            ]),
+            .wait(forDuration: 0.20),
+            .fadeOut(withDuration: 0.30),
+            .removeFromParent(),
+        ]))
     }
 
     // MARK: - Finish line
@@ -1594,13 +1681,17 @@ final class BikeDodgeScene: SKScene {
     private func showVictory() {
         guard gState == .racing else { return }
         gState = .victory
-        InventoryManager().collect(.goldenBag, count: 3)
+        let bagCount = jumpBagsEarned
+        if bagCount > 0 { InventoryManager().collect(.goldenBag, count: bagCount) }
         let m = Int(elapsed)/60, s = Int(elapsed)%60
         let timeStr = String(format: "TIME  %d:%02d", m, s)
+        let rewardText: String? = bagCount > 0
+            ? "YOU EARNED \(bagCount) GOLDEN BAG\(bagCount == 1 ? "" : "S")!"
+            : nil
         let ov = buildEndOverlay(title: "1ST PLACE!",
                                  subtitle: timeStr,
                                  titleColor: SKColor(red:0.95,green:0.85,blue:0.10,alpha:1),
-                                 reward: "YOU EARNED 3 GOLDEN BAGS!")
+                                 reward: rewardText)
         onComplete?(true); addChild(ov); overlayNode = ov
     }
 
@@ -1645,7 +1736,7 @@ final class BikeDodgeScene: SKScene {
         pickups.forEach    { $0.node.removeFromParent() }
         jumpTrucks.forEach { $0.node.removeFromParent() }
         cars.removeAll(); bags.removeAll(); pickups.removeAll(); jumpTrucks.removeAll()
-        jumpTruckTimer = 0; jumpTruckInterval = 20.0; jumpTrucksSpawned = 0
+        jumpTruckTimer = 0; jumpTruckInterval = 20.0; jumpTrucksSpawned = 0; jumpBagsEarned = 0
         playerBoostNode?.removeFromParent(); playerBoostNode = nil
         pinkBoostNode?.removeFromParent();   pinkBoostNode   = nil
         greenBoostNode?.removeFromParent();  greenBoostNode  = nil
@@ -1774,12 +1865,8 @@ final class BikeDodgeScene: SKScene {
             if let overlay = TutorialOverlay.active(in: self) {
                 overlay.advance(); return
             }
-            // HUD help button (any state outside the overlay) re-presents the tutorial.
-            for n in nodes(at: loc) where TutorialHelpButton.wasTapped(n) {
-                presentBikeTutorial(autoTriggered: false); return
-            }
 
-            // Pause overlay resume/tutorial buttons
+            // Pause overlay — uses nodes(at:) since the panel has overlay-only buttons.
             if isPausedGame {
                 for n in nodes(at: loc) {
                     let name = n.name ?? n.parent?.name ?? ""
@@ -1789,30 +1876,45 @@ final class BikeDodgeScene: SKScene {
                 return
             }
 
-            // Close button (always active) — replaces the old UIKit close button
-            if nodes(at: loc).contains(where: { $0.name == "closeBtn" }) {
-                dismissToMenu(); return
+            // RACING FAST PATH — frame-based hit-testing, zero scene-graph traversal.
+            // The tutorial help button is only present inside the pause overlay (handled above),
+            // so we skip its nodes(at:) scan entirely while racing.
+            if gState == .racing {
+                if brakeFrame.contains(loc) {
+                    brakeTouches.insert(t)
+                    isBraking = true
+                    brakeButtonNode?.color = SKColor(red: 0.741, green: 0.0, blue: 0.039, alpha: 1)
+                    continue
+                }
+                if pauseBtnFrame.contains(loc) { pauseGame(); return }
+                if closeBtnFrame.contains(loc) { dismissToMenu(); return }
+                // Steering — last-input-wins to recover from any stuck opposite touches.
+                // Apply an immediate velocity kick when reversing direction so a brief
+                // tap at high speed produces visible motion within the first frame
+                // (otherwise steerAccel takes ~0.7s to overcome existing momentum).
+                if loc.x < 0 {
+                    rightTouches.removeAll(); steerRight = false
+                    leftTouches.insert(t); steerLeft = true
+                    if !pr.isJumping && pr.xVelocity > 0 {
+                        pr.xVelocity = -maxSteerVel * 0.30
+                    }
+                } else {
+                    leftTouches.removeAll(); steerLeft = false
+                    rightTouches.insert(t); steerRight = true
+                    if !pr.isJumping && pr.xVelocity < 0 {
+                        pr.xVelocity = maxSteerVel * 0.30
+                    }
+                }
+                continue
             }
 
-            // Pause button (always active during racing/countdown)
-            if nodes(at: loc).contains(where: { $0.name == "pauseBtn" }) && gState == .racing {
-                pauseGame(); return
-            }
+            // Non-racing states — keep the slower nodes(at:) paths.
+            if closeBtnFrame.contains(loc) { dismissToMenu(); return }
 
             switch gState {
             case .menu: startCountdown(); return
             case .countdown: return
-            case .racing:
-                let hitBrake = nodes(at: loc).contains { $0.name == "brakeBtn" }
-                if hitBrake {
-                    brakeTouches.insert(t)
-                    isBraking = true
-                    brakeButtonNode?.color = SKColor(red: 0.741, green: 0.0, blue: 0.039, alpha: 1)  // brighter on press
-                } else if loc.x < 0 {
-                    leftTouches.insert(t); steerLeft = true
-                } else {
-                    rightTouches.insert(t); steerRight = true
-                }
+            case .racing: break  // handled above
             case .gameOver, .victory:
                 // Use nodes(at:) — atPoint can return the full-screen bg shape over the labels
                 for n in nodes(at: loc) {
@@ -1832,6 +1934,22 @@ final class BikeDodgeScene: SKScene {
         }
         leftTouches.subtract(touches); rightTouches.subtract(touches)
         steerLeft = !leftTouches.isEmpty; steerRight = !rightTouches.isEmpty
+    }
+
+    /// Drop UITouch references whose phase has moved past .moved.
+    /// Recovers from iOS occasionally not delivering touchesEnded/Cancelled.
+    private func pruneStaleTouches() {
+        let isLive: (UITouch) -> Bool = { $0.phase == .began || $0.phase == .moved || $0.phase == .stationary }
+        let beforeL = leftTouches.count, beforeR = rightTouches.count, beforeB = brakeTouches.count
+        leftTouches  = leftTouches.filter(isLive)
+        rightTouches = rightTouches.filter(isLive)
+        brakeTouches = brakeTouches.filter(isLive)
+        if leftTouches.count  != beforeL { steerLeft  = !leftTouches.isEmpty }
+        if rightTouches.count != beforeR { steerRight = !rightTouches.isEmpty }
+        if brakeTouches.count != beforeB {
+            isBraking = !brakeTouches.isEmpty
+            if !isBraking { brakeButtonNode?.color = Self.dsErrorContainer }
+        }
     }
 
     override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {

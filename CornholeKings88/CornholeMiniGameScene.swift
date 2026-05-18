@@ -3292,6 +3292,8 @@ final class CornholeMiniGameScene: SKScene {
     private func dismissScene(playerWon: Bool) {
         if playerWon { CornholeStatsManager.shared.recordWin() }
         else         { CornholeStatsManager.shared.recordLoss() }
+        if playerWon && selectedOpponent == .tom    { CornholeStatsManager.shared.recordDefeatedTom() }
+        if playerWon && selectedOpponent == .jenny  { CornholeStatsManager.shared.recordDefeatedJenny() }
         if playerWon && selectedOpponent == .billy  { bombBagsEarned  = 3 }
         if playerWon && selectedOpponent == .spirit { magicBagsEarned = 3 }
         onComplete?(playerWon)
