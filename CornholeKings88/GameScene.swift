@@ -77,7 +77,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     private let worldZoom: CGFloat = 2.0
 
     // Layout — square stage in the middle, HUD on top, controls on bottom.
-    private let baseTopChromeHeight: CGFloat = 32
+    private let baseTopChromeHeight: CGFloat = 48
     /// Top safe area inset (e.g. notch / Dynamic Island), in scene units.
     private var topSafeAreaInset: CGFloat { view?.safeAreaInsets.top ?? 0 }
     /// Bottom safe area inset (home indicator).
@@ -96,12 +96,17 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     /// Stage-center Y offset converted to world units (camera is scaled).
     private var stageCenterYWorld: CGFloat { stageCenterY / worldZoom }
 
-    // Chrome / HUD palette (Wood & Steel).
-    private let woodColor = SKColor(red: 0.36, green: 0.20, blue: 0.10, alpha: 1.0)
-    private let woodDarkColor = SKColor(red: 0.23, green: 0.12, blue: 0.04, alpha: 1.0)
-    private let ironColor = SKColor(red: 0.10, green: 0.10, blue: 0.10, alpha: 1.0)
-    private let ironLight = SKColor(red: 0.27, green: 0.27, blue: 0.27, alpha: 1.0)
-    private let amberColor = SKColor(red: 0.78, green: 0.57, blue: 0.16, alpha: 1.0)
+    // Chrome / HUD palette (Bit-Wood Brawler design system).
+    private let woodColor     = SKColor(red: 0.36,  green: 0.20,  blue: 0.10,  alpha: 1.0)
+    private let woodDarkColor = SKColor(red: 0.23,  green: 0.12,  blue: 0.04,  alpha: 1.0)
+    private let ironColor     = SKColor(red: 0.10,  green: 0.10,  blue: 0.10,  alpha: 1.0)
+    private let ironLight     = SKColor(red: 0.27,  green: 0.27,  blue: 0.27,  alpha: 1.0)
+    private let amberColor    = SKColor(red: 0.78,  green: 0.57,  blue: 0.16,  alpha: 1.0)
+    // Design-system constants (match DESIGN.md exactly).
+    private let dsPrimary     = SKColor(red: 0.102, green: 0.039, blue: 0.016, alpha: 1.0) // #1a0a04
+    private let dsGold        = SKColor(red: 0.941, green: 0.753, blue: 0.376, alpha: 1.0) // #f0c060
+    private let dsHeartRed    = SKColor(red: 0.831, green: 0.267, blue: 0.118, alpha: 1.0) // #d4441e
+    private let dsIronGray    = SKColor(red: 0.349, green: 0.349, blue: 0.349, alpha: 0.70) // #595959
     private let crimsonColor = SKColor(red: 0.54, green: 0.13, blue: 0.13, alpha: 1.0)
     private let bronzeColor = SKColor(red: 0.48, green: 0.35, blue: 0.10, alpha: 1.0)
 
@@ -120,6 +125,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     // Action buttons.
     private var btnA: SKShapeNode?
     private var btnB: SKShapeNode?
+    private var btnBiscuit: SKShapeNode?
     private let actionBtnRadius: CGFloat = 26
 
     // HUD elements (so we can update them later).
@@ -185,7 +191,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     // MARK: - Chrome (top + bottom bars covering the world outside the stage)
 
     private func setupChrome() {
-        let topBar = SKSpriteNode(color: woodColor,
+        let topBar = SKSpriteNode(color: dsPrimary,
                                    size: CGSize(width: size.width, height: topChromeHeight))
         topBar.position = CGPoint(x: 0, y: size.height / 2 - topChromeHeight / 2)
         topBar.zPosition = 5_000
@@ -197,8 +203,8 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         bottomBar.zPosition = 5_000
         cameraNode.addChild(bottomBar)
 
-        // Iron borders separating chrome from stage.
-        let topBorder = SKSpriteNode(color: ironColor,
+        // 2px gold border at the bottom edge of the top chrome (design system spec).
+        let topBorder = SKSpriteNode(color: dsGold,
                                       size: CGSize(width: size.width, height: 2))
         topBorder.position = CGPoint(x: 0, y: size.height / 2 - topChromeHeight)
         topBorder.zPosition = 5_001
@@ -211,80 +217,52 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         cameraNode.addChild(bottomBorder)
     }
 
-    // MARK: - HUD (hearts + score + level), anchored to camera, drawn over top chrome
+    // MARK: - HUD (three-zone ribbon), anchored to camera, drawn over top chrome
 
     private func setupHUD() {
-        // HUD content sits in the visible part of the top chrome, BELOW the
-        // safe-area inset (notch / Dynamic Island).
+        // Content Y is centered in the visible 48pt band, below the Dynamic Island inset.
         let hudY = size.height / 2 - topSafeAreaInset - baseTopChromeHeight / 2
-        let hudPadding: CGFloat = 12
+        let W = size.width
 
-        // Hearts on the left — all 5 slots always present; filled vs. empty reflects current health.
+        // Zone A — pause icon (far left, 22×22).
+        let pauseBtn = SKSpriteNode(imageNamed: "pauseIcon")
+        pauseBtn.size = CGSize(width: 22, height: 22)
+        pauseBtn.position = CGPoint(x: -W / 2 + 22, y: hudY)
+        pauseBtn.zPosition = 10_001
+        pauseBtn.name = "pauseBtn"
+        cameraNode.addChild(pauseBtn)
+        pauseBtnPosition = pauseBtn.position
+
+        // Zone B — hearts centered (5 slots, filled vs. empty reflects current health).
         let hearts = SKNode()
-        hearts.position = CGPoint(x: -size.width / 2 + hudPadding, y: hudY)
+        hearts.position = CGPoint(x: 0, y: hudY)
         hearts.zPosition = 10_001
         heartLabels.removeAll()
-        let fullColor  = SKColor(red: 0.85, green: 0.18, blue: 0.18, alpha: 1.0)
-        let emptyColor = SKColor(white: 0.40, alpha: 0.45)
-        for i in 0..<HeartsManager.shared.maxHearts {
+        let maxH = HeartsManager.shared.maxHearts
+        let heartSpacing: CGFloat = 20
+        let heartStartX = -CGFloat(maxH - 1) * heartSpacing / 2
+        for i in 0..<maxH {
             let heart = SKLabelNode(text: i < playerHearts ? "♥" : "♡")
-            heart.fontName = "AvenirNext-Heavy"
-            heart.fontSize = 22
-            heart.fontColor = i < playerHearts ? fullColor : emptyColor
+            heart.fontName = "PressStart2P-Regular"
+            heart.fontSize = 14
+            heart.fontColor = i < playerHearts ? dsHeartRed : dsIronGray
             heart.verticalAlignmentMode = .center
-            heart.horizontalAlignmentMode = .left
-            heart.position = CGPoint(x: CGFloat(i) * 18, y: 0)
+            heart.horizontalAlignmentMode = .center
+            heart.position = CGPoint(x: heartStartX + CGFloat(i) * heartSpacing, y: 0)
             hearts.addChild(heart)
             heartLabels.append(heart)
         }
         cameraNode.addChild(hearts)
         heartsContainer = hearts
 
-        // Score in the center, amber engraved.
-        let score = SKLabelNode(text: "00000")
-        score.fontName = "Menlo-Bold"
-        score.fontSize = 18
-        score.fontColor = amberColor
-        score.verticalAlignmentMode = .center
-        score.horizontalAlignmentMode = .center
-        score.position = CGPoint(x: 0, y: hudY)
-        score.zPosition = 10_001
-        cameraNode.addChild(score)
-        scoreLabel = score
-
-        // Level on the right (shifted left to make room for menu button).
-        let lvl = SKLabelNode(text: "LVL 1")
-        lvl.fontName = "Menlo"
-        lvl.fontSize = 14
-        lvl.fontColor = SKColor(white: 0.6, alpha: 1.0)
-        lvl.verticalAlignmentMode = .center
-        lvl.horizontalAlignmentMode = .right
-        lvl.position = CGPoint(x: size.width / 2 - hudPadding - 32, y: hudY)
-        lvl.zPosition = 10_001
-        cameraNode.addChild(lvl)
-        levelLabel = lvl
-
-        // Menu / home button — top-right corner of the HUD bar.
-        let menuBtn = SKLabelNode(fontNamed: "AvenirNext-Heavy")
-        menuBtn.text = "⌂"
-        menuBtn.fontSize = 20
-        menuBtn.fontColor = SKColor(white: 0.55, alpha: 1.0)
-        menuBtn.verticalAlignmentMode   = .center
-        menuBtn.horizontalAlignmentMode = .right
-        menuBtn.position  = CGPoint(x: size.width / 2 - hudPadding, y: hudY)
+        // Zone C — close/menu icon (far right, 22×22).
+        let menuBtn = SKSpriteNode(imageNamed: "closeIcon")
+        menuBtn.size = CGSize(width: 22, height: 22)
+        menuBtn.position = CGPoint(x: W / 2 - 22, y: hudY)
         menuBtn.zPosition = 10_001
-        menuBtn.name      = "menuButton"
+        menuBtn.name = "menuButton"
         cameraNode.addChild(menuBtn)
         menuButtonPosition = menuBtn.position
-
-        // Pause button — top-left of HUD bar, before the hearts.
-        let pauseBtn = SKSpriteNode(imageNamed: "pauseIcon")
-        pauseBtn.size = CGSize(width: 20, height: 20)
-        pauseBtn.position = CGPoint(x: -size.width / 2 + hudPadding + 10, y: hudY)
-        pauseBtn.zPosition = 10_001
-        pauseBtn.name = "pauseBtn"
-        cameraNode.addChild(pauseBtn)
-        pauseBtnPosition = pauseBtn.position
     }
 
     /// Vertical center for the controls — within the bottom chrome but above
@@ -297,7 +275,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     // MARK: - Beanbag slide control
 
     private func setupDPad() {
-        let cx = -size.width / 2 + beanbagSize / 2 + 22
+        let cx = -size.width / 2 + beanbagSize / 2 + 52
         let cy = controlsY
         beanbagContainer.position = CGPoint(x: cx, y: cy)
         beanbagContainer.zPosition = 10_000
@@ -410,6 +388,38 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         b.isHidden = true   // shown when weapons are implemented
         cameraNode.addChild(b)
         btnB = b
+
+        // Dog biscuit shortcut — shown left of A only when the player has biscuits.
+        let biscuit = SKShapeNode(circleOfRadius: actionBtnRadius)
+        biscuit.fillColor = woodDarkColor
+        biscuit.strokeColor = dsGold
+        biscuit.lineWidth = 2.0
+        biscuit.zPosition = 10_000
+        biscuit.position = CGPoint(x: bX, y: btnY)
+        biscuit.name = "btn_biscuit"
+        biscuit.isHidden = true
+        biscuit.addChild(makeBiscuitButtonContent())
+        cameraNode.addChild(biscuit)
+        btnBiscuit = biscuit
+    }
+
+    private func makeBiscuitButtonContent() -> SKNode {
+        let root = SKNode()
+        root.zPosition = 1
+        let shaft = SKSpriteNode(color: SKColor(red: 0.90, green: 0.75, blue: 0.50, alpha: 1.0),
+                                 size: CGSize(width: 18, height: 5))
+        root.addChild(shaft)
+        for xOff: CGFloat in [-11, 11] {
+            let knob = SKSpriteNode(color: SKColor(red: 0.80, green: 0.62, blue: 0.36, alpha: 1.0),
+                                   size: CGSize(width: 7, height: 7))
+            knob.position = CGPoint(x: xOff, y: 0)
+            root.addChild(knob)
+        }
+        return root
+    }
+
+    private func updateBiscuitButton() {
+        btnBiscuit?.isHidden = inventory.counts[.dogBiscuit, default: 0] == 0
     }
 
     private func makeActionButton(color: SKColor, label: String, labelColor: SKColor) -> SKShapeNode {
@@ -445,7 +455,9 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         inventory.onChanged = { [weak self] in
             guard let self else { return }
             self.inventoryHUD?.refresh(counts: self.inventory.counts)
+            self.updateBiscuitButton()
         }
+        updateBiscuitButton()
 
         // TODO: remove before ship — grants 3 fire bags for testing
         if inventory.counts[.fireBag, default: 0] == 0 {
@@ -1375,6 +1387,10 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
 
         // Action buttons.
         let btnHit = (actionBtnRadius + 6) * (actionBtnRadius + 6)
+        if let biscuit = btnBiscuit, !biscuit.isHidden, distanceSquared(pInCam, biscuit.position) < btnHit {
+            placeDogBiscuit()
+            return
+        }
         if let a = btnA, distanceSquared(pInCam, a.position) < btnHit {
             if nearbyBoardPosition != nil {
                 openCornholeMiniGame()
@@ -1760,7 +1776,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
                 .scale(to: 1.0, duration: 0.18),
                 .run { [weak lost] in
                     lost?.text = "♡"
-                    lost?.fontColor = SKColor(white: 0.40, alpha: 0.45)
+                    lost?.fontColor = self.dsIronGray
                 },
             ]),
         ]), withKey: "heartLost")
@@ -1770,16 +1786,14 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     /// from the bike race or any other modal that may have changed the count off-screen.
     private func resyncHeartsDisplay() {
         playerHearts = HeartsManager.shared.currentHearts
-        let fullColor  = SKColor(red: 0.85, green: 0.18, blue: 0.18, alpha: 1.0)
-        let emptyColor = SKColor(white: 0.40, alpha: 0.45)
         for (i, label) in heartLabels.enumerated() {
             label.removeAllActions()
             label.setScale(1.0)
             label.alpha = 1.0
             if i < playerHearts {
-                label.text = "♥"; label.fontColor = fullColor
+                label.text = "♥"; label.fontColor = dsHeartRed
             } else {
-                label.text = "♡"; label.fontColor = emptyColor
+                label.text = "♡"; label.fontColor = dsIronGray
             }
         }
     }
