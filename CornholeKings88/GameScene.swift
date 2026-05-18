@@ -460,7 +460,11 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         map = m
 
         m.layerNodes["Spawns"]?.isHidden = true
-        m.layerNodes["Ground"]?.zPosition = -1000
+        // Ground must stay below all ySorted Interactions tiles.
+        // ySortStaticLayers assigns zPosition = -position.y; on a 100×100 × 16px map
+        // the topmost tiles reach y≈1592, so their effective z = -1592. Ground must
+        // be below that worst case — use -10_000 for a map-size-independent floor.
+        m.layerNodes["Ground"]?.zPosition = -10_000
         m.layerNodes["Collisions"]?.zPosition = 0
         m.layerNodes["Interactions"]?.zPosition = 0
         m.layerNodes["ImaginationFX"]?.zPosition = 1000
