@@ -323,9 +323,6 @@ final class CornholeMiniGameScene: SKScene {
         setupGameWorld()
         setupBoard()
         setupUI()
-        rollRainScenario()
-        rollThunderstormScenario()
-
         // Picker → tutorial → startRound
         showOpponentPicker()
     }
@@ -2173,7 +2170,7 @@ final class CornholeMiniGameScene: SKScene {
                     aiScore     = 0
                     roundNumber = 0
                     if rainActive { deactivateRain() }
-                    rollRainScenario()
+                    rollWeatherScenarios()
                     startRound()
                     return true
                 case "exitBtn":
@@ -2370,6 +2367,12 @@ final class CornholeMiniGameScene: SKScene {
     }
 
     // MARK: - Rain
+
+    private func rollWeatherScenarios() {
+        guard selectedOpponent == .billy else { return }
+        rollRainScenario()
+        rollThunderstormScenario()
+    }
 
     private func rollRainScenario() {
         rainStartRound = -1
@@ -3131,6 +3134,7 @@ final class CornholeMiniGameScene: SKScene {
             case .spirit: applySpiritSettings()
             default: break
             }
+            rollWeatherScenarios()
             addOpponentPortrait()
             if TutorialManager.shared.hasSeen(TutorialManager.cornhole) {
                 startRound()
@@ -3163,6 +3167,7 @@ final class CornholeMiniGameScene: SKScene {
                 self.selectedOpponent = .spirit
                 self.applySpiritSettings()
             }
+            self.rollWeatherScenarios()
             self.addOpponentPortrait()
             if TutorialManager.shared.hasSeen(TutorialManager.cornhole) {
                 self.startRound()
