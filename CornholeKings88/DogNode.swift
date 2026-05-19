@@ -107,7 +107,7 @@ final class DogNode: SKNode {
     }
 
     func update(dt: TimeInterval, playerPosition: CGPoint, playerInTree: Bool, isBiting: Bool) {
-        zPosition = -position.y
+        zPosition = -(position.y - 3)  // sort by feet (body bottom), not center
 
         // The player's physics body is anchored at the feet (16 px below sprite
         // center). Aim there so the dog's body actually overlaps the player's

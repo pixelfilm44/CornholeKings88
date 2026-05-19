@@ -41,8 +41,9 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     private var bridgeWoodPositions: [CGPoint] = []
     private var nearbyBridgeWoodPosition: CGPoint?
     private var bridgePhysicsNodes: [SKNode] = []
-    private let bridgeUnlockedKey   = "bridgeUnlocked_v1"
-    private let baseballUnlockedKey = "baseballUnlocked_v1"
+    private let bridgeUnlockedKey    = "bridgeUnlocked_v1"
+    private let baseballUnlockedKey  = "baseballUnlocked_v1"
+    private let beachBallBeatenKey   = "beachBallBeaten_v1"
 
     // Chest interaction
     private var chestPositions: [CGPoint] = []
@@ -628,17 +629,15 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
             print("🌳 No tree tilesets found on the map")
             return
         }
-        var seen = Set<String>()
-        for (_, grid) in m.layerGIDs {
-            for r in 0..<m.rows {
-                for c in 0..<m.cols {
-                    let gid = grid[r][c] & 0x0FFF_FFFF
-                    guard treeRanges.contains(where: { $0.contains(gid) }) else { continue }
-                    let key = "\(r),\(c)"
-                    guard !seen.contains(key) else { continue }
-                    seen.insert(key)
-                    treePositions.append(m.tileCenter(col: c, row: r))
-                }
+        guard let grid = m.layerGIDs["Interactions"] else {
+            print("🌳 No Interactions layer found — tree climbing disabled")
+            return
+        }
+        for r in 0..<m.rows {
+            for c in 0..<m.cols {
+                let gid = grid[r][c] & 0x0FFF_FFFF
+                guard treeRanges.contains(where: { $0.contains(gid) }) else { continue }
+                treePositions.append(m.tileCenter(col: c, row: r))
             }
         }
         print("🌳 Found \(treePositions.count) tree(s) on the map")
@@ -654,17 +653,15 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
             print("🍎 No apple_tree tilesets found on the map")
             return
         }
-        var seen = Set<String>()
-        for (_, grid) in m.layerGIDs {
-            for r in 0..<m.rows {
-                for c in 0..<m.cols {
-                    let gid = grid[r][c] & 0x0FFF_FFFF
-                    guard appleRanges.contains(where: { $0.contains(gid) }) else { continue }
-                    let key = "\(r),\(c)"
-                    guard !seen.contains(key) else { continue }
-                    seen.insert(key)
-                    appleTreePositions.append(m.tileCenter(col: c, row: r))
-                }
+        guard let grid = m.layerGIDs["Interactions"] else {
+            print("🍎 No Interactions layer found — apple tree interaction disabled")
+            return
+        }
+        for r in 0..<m.rows {
+            for c in 0..<m.cols {
+                let gid = grid[r][c] & 0x0FFF_FFFF
+                guard appleRanges.contains(where: { $0.contains(gid) }) else { continue }
+                appleTreePositions.append(m.tileCenter(col: c, row: r))
             }
         }
         print("🍎 Found \(appleTreePositions.count) apple tree(s) on the map")
@@ -1159,8 +1156,13 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         let beach = BeachBallCornholeScene(size: self.size)
         beach.scaleMode     = self.scaleMode
         beach.previousScene = self
-        beach.onComplete = { [weak self] _ in
-            self?.isTransitioning = false
+        beach.onComplete = { [weak self] won in
+            guard let self else { return }
+            self.isTransitioning = false
+            if won && !UserDefaults.standard.bool(forKey: self.beachBallBeatenKey) {
+                UserDefaults.standard.set(true, forKey: self.beachBallBeatenKey)
+                self.showHintBanner("You won a bunch of\nfloating bean bags.\nHave fun.")
+            }
         }
 
         let transition = SKTransition.push(with: .up, duration: 0.38)
@@ -1235,7 +1237,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
                 let body = SKPhysicsBody(rectangleOf: m.tileSize)
                 body.isDynamic = false
                 body.categoryBitMask = PlayerNode.worldBit
-                body.collisionBitMask = PlayerNode.categoryBit
+                body.collisionBitMask = PlayerNode.categoryBit | PlayerNode.enemyBit
                 body.contactTestBitMask = PlayerNode.categoryBit
                 blocker.physicsBody = body
                 m.mapNode.addChild(blocker)
@@ -1418,7 +1420,11 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
             } else if nearbyPoolPosition != nil {
                 openBeachBallCornhole()
             } else if nearbyBridgeWoodPosition != nil {
-                openBridgePiranha()
+                if UserDefaults.standard.bool(forKey: beachBallBeatenKey) {
+                    openBridgePiranha()
+                } else {
+                    showHintBanner("You need bean bags\nthat can float\nbefore coming here.")
+                }
             } else if nearbyTreePosition != nil {
                 if player.isInTree { player.descendTree() } else { player.climbTree() }
             }

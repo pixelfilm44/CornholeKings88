@@ -64,6 +64,15 @@ private struct PickupData {
     var isActive: Bool = true
 }
 
+private struct BullyKidData {
+    var screenX: CGFloat
+    var screenY: CGFloat
+    var node: SKNode
+    var armNode: SKSpriteNode
+    var facingRight: Bool   // true = left-side kid faces right (toward road)
+    var isAnimating: Bool = false
+}
+
 // MARK: - Main Scene
 final class BikeDodgeScene: SKScene {
 
@@ -123,6 +132,7 @@ final class BikeDodgeScene: SKScene {
     private var bags:       [BeanBagData]   = []
     private var pickups:    [PickupData]    = []
     private var jumpTrucks: [JumpTruckData] = []
+    private var bullyKids:  [BullyKidData]  = []
 
     // MARK: - Jump truck config
     private var jumpTruckTimer:    CGFloat = 0
@@ -193,6 +203,7 @@ final class BikeDodgeScene: SKScene {
 
         setupRoad()
         setupBikes()
+        setupBullyKids()
         setupHUD()
         setupMinimap()
         showStartMenu()
@@ -623,6 +634,7 @@ final class BikeDodgeScene: SKScene {
         applyBumping()
         updateCarPositions(dt: dt)
         updateJumpTrucks(dt: dt)
+        updateBullyKids(dt: dt)
         updateBagPositions(dt: dt)
         updatePickupPositions(dt: dt)
         updateInvincibility(dt: dt)
@@ -877,27 +889,37 @@ final class BikeDodgeScene: SKScene {
             targetX = targetRacer.x; targetY = ty
         }
 
-        // Spawn from the grass just outside the road edge, ahead of the racer,
-        // as though a bystander is throwing the bag onto the road.
-        let aheadDist = CGFloat.random(in: H * 0.30 ... H * 0.46)
+        // Pick a side, then find an idle kid on that side who is ahead of the target
+        // and currently on-screen.  The bag spawns from the kid's hand position so the
+        // throw animation and projectile origin always match.
         let fromLeft = Bool.random()
-        let sx: CGFloat = fromLeft
-            ? roadLeft  - CGFloat.random(in: 5...22)   // just off left edge (grass)
-            : roadRight + CGFloat.random(in: 5...22)   // just off right edge (grass)
-        let sy = targetY + aheadDist
+        guard let kidIdx = bullyKids.indices.filter({
+            bullyKids[$0].facingRight == fromLeft &&
+            !bullyKids[$0].isAnimating &&
+            bullyKids[$0].screenY > targetY &&          // kid is ahead of (above) the target
+            bullyKids[$0].screenY <  H / 2 + 80         // kid is on or just above screen
+        }).min(by: {
+            abs(bullyKids[$0].screenY - targetY) < abs(bullyKids[$1].screenY - targetY)
+        }) else { return }   // no suitable kid — skip this throw
+
+        // Bag originates from the kid's hand (arm tip ≈ 8 pts below shoulder on the road side)
+        let kid = bullyKids[kidIdx]
+        let sx = kid.screenX + (fromLeft ? 8 : -8)   // offset toward road
+        let sy = kid.screenY - 5                      // hand height
 
         // Aim toward where the racer will be, with a small lateral lead
         let lead = targetRacer.xVelocity * 0.28
         let dx = targetX + lead - sx
-        let dy = targetY - sy          // always negative — bag moves downward
-        let dist = max(1, sqrt(dx*dx + dy*dy))
+        let dy = targetY - sy
+        let dist = max(1, sqrt(dx * dx + dy * dy))
         let spd: CGFloat = 260
 
-        let n = SKSpriteNode(color: SKColor(red:0.15,green:0.40,blue:0.90,alpha:1),
-                             size: CGSize(width:15,height:15))
+        let n = SKSpriteNode(color: SKColor(red: 0.15, green: 0.40, blue: 0.90, alpha: 1),
+                             size: CGSize(width: 15, height: 15))
         n.position = CGPoint(x: sx, y: sy); n.zPosition = 12
         n.run(.repeatForever(.rotate(byAngle: .pi * 4, duration: 0.5))); addChild(n)
-        bags.append(BeanBagData(x: sx, y: sy, vx: dx/dist*spd, vy: dy/dist*spd, node: n))
+        bags.append(BeanBagData(x: sx, y: sy, vx: dx / dist * spd, vy: dy / dist * spd, node: n))
+        triggerBullyThrow(fromLeft: fromLeft, kidIdx: kidIdx)
     }
 
     private func updateBagPositions(dt: CGFloat) {
@@ -911,6 +933,187 @@ final class BikeDodgeScene: SKScene {
             }
         }
         bags.removeAll { !$0.isActive }
+    }
+
+    // MARK: - Bully Kids
+    private func setupBullyKids() {
+        let shirtColors: [UIColor] = [
+            UIColor(red: 0.85, green: 0.15, blue: 0.15, alpha: 1),
+            UIColor(red: 0.15, green: 0.35, blue: 0.80, alpha: 1),
+            UIColor(red: 0.85, green: 0.55, blue: 0.10, alpha: 1),
+            UIColor(red: 0.20, green: 0.65, blue: 0.25, alpha: 1),
+            UIColor(red: 0.65, green: 0.10, blue: 0.65, alpha: 1),
+            UIColor(red: 0.80, green: 0.80, blue: 0.10, alpha: 1),
+        ]
+        // 3 per side; stagger initial y above the screen so they scroll in naturally.
+        let stagger = H / 3
+        var colorIdx = 0
+        for slot in 0..<3 {
+            for facingRight in [true, false] {
+                let kidX: CGFloat = facingRight
+                    ? roadLeft  - CGFloat.random(in: 14...22)
+                    : roadRight + CGFloat.random(in: 14...22)
+                let startY = H / 2 + CGFloat(slot) * stagger + CGFloat.random(in: 0...40)
+                let (container, armNode) = makeBullyKid(
+                    shirtColor: shirtColors[colorIdx % shirtColors.count],
+                    facingRight: facingRight
+                )
+                colorIdx += 1
+                container.position = CGPoint(x: kidX, y: startY)
+                container.zPosition = 8
+                addChild(container)
+                // Arm idle sway only — no position bob (y is driven by updateBullyKids)
+                startArmIdle(armNode: armNode, facingRight: facingRight,
+                             delay: Double.random(in: 0...0.5))
+                bullyKids.append(BullyKidData(screenX: kidX, screenY: startY,
+                                              node: container, armNode: armNode,
+                                              facingRight: facingRight))
+            }
+        }
+    }
+
+    private func updateBullyKids(dt: CGFloat) {
+        let scroll = pr.speed * dt
+        for i in bullyKids.indices {
+            bullyKids[i].screenY -= scroll
+            bullyKids[i].node.position.y = bullyKids[i].screenY
+            // Recycle off-screen kids to a random distance ahead of the screen top.
+            if bullyKids[i].screenY < -H / 2 - 60 {
+                let newY = H / 2 + CGFloat.random(in: 40...160)
+                bullyKids[i].screenY = newY
+                bullyKids[i].node.position.y = newY
+                // Allow the kid to throw again after respawning
+                if bullyKids[i].isAnimating {
+                    bullyKids[i].isAnimating = false
+                    startArmIdle(armNode: bullyKids[i].armNode,
+                                 facingRight: bullyKids[i].facingRight, delay: 0)
+                }
+            }
+        }
+    }
+
+    private func makeBullyKid(shirtColor: UIColor, facingRight: Bool) -> (SKNode, SKSpriteNode) {
+        let container = SKNode()
+        let kw: CGFloat = 14, kh: CGFloat = 22
+        let skin  = UIColor(red: 0.96, green: 0.76, blue: 0.58, alpha: 1)
+        let hair  = UIColor(red: 0.20, green: 0.12, blue: 0.04, alpha: 1)
+        let pants = UIColor(red: 0.14, green: 0.18, blue: 0.45, alpha: 1)
+        let shoe  = UIColor(white: 0.12, alpha: 1)
+        let fmt   = UIGraphicsImageRendererFormat(); fmt.scale = 1
+
+        // Body texture — no road-facing arm (that's a separate animatable node).
+        // Non-throwing arm drawn on the left side of texture so the xScale flip
+        // puts it on the away-from-road side for both kid orientations.
+        let bodyImg = UIGraphicsImageRenderer(
+            size: CGSize(width: kw, height: kh), format: fmt
+        ).image { ctx in
+            let c = ctx.cgContext
+            // Shoes
+            c.setFillColor(shoe.cgColor)
+            c.fill(CGRect(x: 1, y: 0, width: 5, height: 3))
+            c.fill(CGRect(x: 8, y: 0, width: 5, height: 3))
+            // Pants
+            c.setFillColor(pants.cgColor)
+            c.fill(CGRect(x: 2, y: 2, width: 10, height: 6))
+            c.setFillColor(UIColor(red: 0.10, green: 0.14, blue: 0.38, alpha: 1).cgColor)
+            c.fill(CGRect(x: 6, y: 2, width: 2, height: 6))          // crease
+            // Shirt
+            c.setFillColor(shirtColor.cgColor)
+            c.fill(CGRect(x: 2, y: 8, width: 10, height: 7))
+            // Non-throwing arm stub (always on left side of texture)
+            c.setFillColor(shirtColor.cgColor)
+            c.fill(CGRect(x: 0, y: 9, width: 3, height: 5))
+            c.setFillColor(skin.cgColor)
+            c.fill(CGRect(x: 0, y: 8, width: 3, height: 3))          // hand
+            // Neck
+            c.setFillColor(skin.cgColor)
+            c.fill(CGRect(x: 5, y: 15, width: 4, height: 2))
+            // Head
+            c.setFillColor(skin.cgColor)
+            c.fill(CGRect(x: 3, y: 15, width: 8, height: 7))
+            // Hair top + sideburns
+            c.setFillColor(hair.cgColor)
+            c.fill(CGRect(x: 3, y: 20, width: 8, height: 2))
+            c.fill(CGRect(x: 3, y: 18, width: 2, height: 2))
+            c.fill(CGRect(x: 9, y: 18, width: 2, height: 2))
+            // Mean V-shaped eyebrows
+            c.fill(CGRect(x: 3, y: 19, width: 3, height: 1))
+            c.fill(CGRect(x: 8, y: 19, width: 3, height: 1))
+            c.fill(CGRect(x: 5, y: 18, width: 1, height: 1))
+            c.fill(CGRect(x: 8, y: 18, width: 1, height: 1))
+            // Eyes
+            c.setFillColor(UIColor(white: 0.08, alpha: 1).cgColor)
+            c.fill(CGRect(x: 4, y: 17, width: 2, height: 2))
+            c.fill(CGRect(x: 8, y: 17, width: 2, height: 2))
+            // Smirk
+            c.setFillColor(UIColor(red: 0.50, green: 0.15, blue: 0.10, alpha: 1).cgColor)
+            c.fill(CGRect(x: 5, y: 15, width: 5, height: 1))
+            c.fill(CGRect(x: 9, y: 16, width: 1, height: 1))         // smirk lift
+        }
+        let bodyTex = SKTexture(image: bodyImg); bodyTex.filteringMode = .nearest
+        let bodySprite = SKSpriteNode(texture: bodyTex, size: CGSize(width: kw, height: kh))
+        // Flip so the non-throwing stub is always on the away-from-road side
+        if !facingRight { bodySprite.xScale = -1 }
+        container.addChild(bodySprite)
+
+        // Throwing arm — anchor at top (shoulder) so rotation swings the whole arm
+        let aw: CGFloat = 4, ah: CGFloat = 11
+        let armImg = UIGraphicsImageRenderer(
+            size: CGSize(width: aw, height: ah), format: fmt
+        ).image { ctx in
+            let c = ctx.cgContext
+            c.setFillColor(shirtColor.cgColor)
+            c.fill(CGRect(x: 0, y: 5, width: aw, height: 6))         // sleeve
+            c.setFillColor(skin.cgColor)
+            c.fill(CGRect(x: 0, y: 0, width: aw, height: 6))         // forearm + hand
+            c.setFillColor(UIColor(red: 0.85, green: 0.64, blue: 0.46, alpha: 1).cgColor)
+            c.fill(CGRect(x: 0, y: 0, width: 2, height: 2))          // knuckle accent
+            c.fill(CGRect(x: 2, y: 1, width: 2, height: 2))
+        }
+        let armTex = SKTexture(image: armImg); armTex.filteringMode = .nearest
+        let armSprite = SKSpriteNode(texture: armTex, size: CGSize(width: aw, height: ah))
+        armSprite.anchorPoint = CGPoint(x: 0.5, y: 1.0)  // pivot at shoulder (top)
+        // Place at road-facing shoulder. Body kh=22, center at y=11 in texture.
+        // Shirt shoulder at texture y≈14 → container y = 14 - 11 = 3.
+        // Road-facing side: +x for facingRight, -x for !facingRight.
+        armSprite.position = CGPoint(x: facingRight ? 6 : -6, y: 3)
+        armSprite.zPosition = 1
+        container.addChild(armSprite)
+
+        return (container, armSprite)
+    }
+
+    private func startArmIdle(armNode: SKSpriteNode, facingRight: Bool, delay: Double) {
+        let swing: CGFloat = 0.14
+        let dir: CGFloat = facingRight ? 1 : -1
+        armNode.run(.sequence([
+            .wait(forDuration: delay),
+            .repeatForever(.sequence([
+                .rotate(toAngle:  dir * swing, duration: 0.45),
+                .rotate(toAngle: -dir * swing, duration: 0.45)
+            ]))
+        ]))
+    }
+
+    private func triggerBullyThrow(fromLeft: Bool, kidIdx: Int) {
+        let idx = kidIdx
+        bullyKids[idx].isAnimating = true
+        let arm = bullyKids[idx].armNode
+        let facing = bullyKids[idx].facingRight
+        let windUp: CGFloat  = (facing ? 1 : -1) *  CGFloat.pi * 0.50  // arm back
+        let release: CGFloat = (facing ? -1 : 1) *  CGFloat.pi * 0.35  // arm forward
+
+        arm.removeAllActions()
+        arm.run(.sequence([
+            .rotate(toAngle: windUp,  duration: 0.14),   // wind up
+            .rotate(toAngle: release, duration: 0.11),   // throw
+            .rotate(toAngle: 0,       duration: 0.20),   // return to neutral
+            .run { [weak self] in
+                guard let self else { return }
+                self.bullyKids[idx].isAnimating = false
+                self.startArmIdle(armNode: arm, facingRight: facing, delay: 0)
+            }
+        ]))
     }
 
     // MARK: - Pickups
@@ -1192,6 +1395,7 @@ final class BikeDodgeScene: SKScene {
             case .heart:
                 pr.hearts = min(pr.maxHearts, pr.hearts + 1)
                 HeartsManager.shared.gain()
+                triggerHeartPickupHaptic()
             case .boost:
                 triggerBoostHaptics()
                 pr.isBoosting = true; pr.boostTimer = 3.5
@@ -1503,8 +1707,10 @@ final class BikeDodgeScene: SKScene {
                 self?.playerSprite.zPosition = 10
                 self?.pr.isJumping  = false
                 self?.pr.jumpTimer  = 0
-                // Light landing shake
+                self?.pr.isInvincible = true
+                self?.pr.invTimer = 2.5
                 self?.landingShake()
+                self?.knockCarsOnLanding()
             }
         ]), withKey: "jump")
 
@@ -1578,6 +1784,30 @@ final class BikeDodgeScene: SKScene {
         animY.duration = 0.25
         view.layer.add(animY, forKey: "landingShake")
         UIImpactFeedbackGenerator(style: .medium).impactOccurred(intensity: 0.7)
+    }
+
+    private func knockCarsOnLanding() {
+        let knockZone = CGRect(x: pr.x - 18, y: playerScreenY, width: 36, height: H * 0.45)
+        for i in cars.indices {
+            guard cars[i].isActive else { continue }
+            let carCenter = CGPoint(x: cars[i].x, y: cars[i].screenY)
+            guard knockZone.contains(carCenter) else { continue }
+            // Fling the car sideways off the road with a spin + fade
+            let knockDir: CGFloat = cars[i].x >= pr.x ? 1 : -1
+            let exitX = cars[i].x + knockDir * (W * 0.6)
+            cars[i].node.run(.sequence([
+                .group([
+                    .move(to: CGPoint(x: exitX, y: cars[i].screenY - H * 0.15), duration: 0.55),
+                    .rotate(byAngle: knockDir * .pi * 3, duration: 0.55),
+                    .sequence([
+                        .scale(to: 1.2, duration: 0.10),
+                        .fadeOut(withDuration: 0.45),
+                    ])
+                ]),
+                .removeFromParent()
+            ]))
+            cars[i].isActive = false
+        }
     }
 
     private func showJumpBagPickup() {
@@ -1811,6 +2041,12 @@ final class BikeDodgeScene: SKScene {
             let light = UIImpactFeedbackGenerator(style: .light)
             light.impactOccurred(intensity: 0.8)
         }
+    }
+
+    private func triggerHeartPickupHaptic() {
+        let light = UIImpactFeedbackGenerator(style: .light)
+        light.prepare()
+        light.impactOccurred(intensity: 0.6)
     }
 
     private func triggerBagHitHaptics() {
