@@ -264,6 +264,8 @@ for n in nodes(at: loc) where TutorialHelpButton.wasTapped(n) {
 | `eatDuration` | DogNode | 3.0 | Seconds a dog spends eating a placed biscuit |
 | `collectibleBit` | CollectibleNode | `0x1 << 2` | Physics category for collectible items |
 | `enemyBit` | PlayerNode | `0x1 << 3` | Physics category reserved for enemies |
+| `batWorldPosition` | StoryManager | `CGPoint(x:380, y:260)` | World position of story bat pickup — tune to map |
+| `storyBatRadius` | GameScene | 28 | Proximity radius for story bat A-press |
 
 Hardcoded GID ranges for world-trigger tiles are gone — see the "tileset name contains" table in the **Map System** section above for the current detection contract.
 
@@ -287,9 +289,96 @@ classic striped beachballs at a floating, drifting cornhole board in a pool.
 
 **Beachball texture** is drawn programmatically in `BeachBallCornholeScene.makeBeachBallTexture(diameter:)` — no image asset needed.
 
-### Story Module
+### Story System
 
 `StoryModuleScene` displays story chapter text over a full-screen panel. Body text `fontSize` is capped at `min(14, W / 17)` — keep this value at 14 to match the pixel-art scale.
+
+#### Data model (`StoryData.swift`)
+
+| Type | Purpose |
+|------|---------|
+| `StoryModule` | One story beat: `id`, `title`, `imageColor`, `text`, `choices[]`, `autoOutcome` |
+| `StoryChoice` | A button label + `StoryOutcome` |
+| `StoryOutcome` | `.nextModule(id:)` / `.spawnOnMap(StorySpawnConfig)` / `.miniGame(type, winID, loseID)` / `.returnToMenu` |
+| `StoryMiniGame` | `.cornholeVs(opponent:)` / `.baseballVs(difficulty:)` / `.beehive` / `.bike` |
+| `StorySpawnConfig` | Bundles `x?`, `y?`, `trigger?`, `nextModuleID?`, `flags[]` for a world spawn |
+| `StoryFlag` | `dogsEnabled` / `baseballEnabled` / `batFound` / `questAccepted` |
+| `BaseballAIDifficulty` | `standard` / `powerHitter` (Jen) / `greatFielder` (Tom) |
+
+`StoryManager.shared` persists three things to `UserDefaults`:
+- `currentModuleID` — which module to show next (key `storyCurrentModuleID_v1`)
+- `pendingWorldTrigger` — string GameScene checks on A-press (key `storyWorldTrigger_v1`)
+- flags array — set of enabled `StoryFlag` raw values (key `storyFlags_v1`)
+
+`StoryManager.reset()` clears all three keys.
+
+#### World-trigger strings (defined as `StoryManager` static constants)
+
+| Constant | Value | Fires when player A-presses near |
+|----------|-------|----------------------------------|
+| `triggerCornhole` | `"cornhole_story"` | Any cornhole board tile |
+| `triggerBat` | `"bat_story"` | Story bat pickup object |
+| `triggerBaseball` | `"baseball_story"` | Baseball tile |
+| `triggerBridge` | `"bridge_story"` | Bridge wood tile |
+| `triggerQuestOffer` | `"quest_offer"` | Baseball tile (quest re-offer) |
+
+When a trigger fires, `GameScene` clears `pendingWorldTrigger` and calls `launchStoryAtCurrentModule()`, which transitions to `StoryModuleScene.startAtCurrentProgress()`.
+
+#### `StorySpawnConfig` pattern
+
+`spawnOnMap` outcomes set `nextModuleID` on `StoryManager.currentModuleID` and `trigger` on `pendingWorldTrigger` **before** presenting `GameScene`. This means re-entering the world and pressing A near the right object will always resume the story at the correct module, even after a cold relaunch.
+
+#### Bike race routing
+
+`StoryModuleScene` presents `BikeDodgeViewController` modally (not as an SK scene swap). `BikeDodgeViewController.onDismissWithResult: ((Bool) -> Void)?` delivers the win/loss after the VC dismisses, captured from `BikeDodgeScene.onComplete`. `StoryModuleScene.launchMiniGame(.bike)` sets this callback to call `transitionToModule(id:)` directly — no `queuedModuleID` / `didMove` round-trip needed.
+
+#### Baseball AI difficulty
+
+`CornholeBaseballScene.aiDifficulty: BaseballAIDifficulty` (default `.standard`):
+- `.powerHitter` — AI hits 35% harder (`aiPowerBoost = 1.35`) and 45% wider (`vxSpread * 0.45`); used for Jen
+- `.greatFielder` — AI fielder error ±14 pt (vs standard ±38) and 10-frame reaction delay (vs 20); used for Tom
+
+#### Bee difficulty ramp
+
+`BeeHiveScene` tracks a global fight count in `UserDefaults` key `beeHiveFightCount_v1`. On each launch the speed multiplier is `min(1.0 + count * 0.12, 2.2)`. `dismissScene(playerWon:)` increments the count regardless of outcome.
+
+#### Story bat pickup
+
+During the bat-search phase (`pendingWorldTrigger == "bat_story"`), `GameScene.spawnStoryBatIfNeeded()` places a floating bat `SKNode` at `StoryManager.batWorldPosition` (currently `CGPoint(x: 380, y: 260)` — **tune this to match the actual map**). Pressing A near it calls `collectStoryBat()` → clears the node → launches `launchStoryAtCurrentModule()` with module `p1_bat_found`.
+
+#### Part 1 module chain
+
+```
+p1_birthday → p1_last_day → [bike]
+  win → p1_race_win → [world: cornhole trigger]
+  lose → p1_race_retry (RETRY / GIVE UP)
+
+[cornhole board A-press]
+p1_jen_intro → [cornhole vs .jenny]
+  win → p1_jen_win → [cornhole vs .tom]
+    win → p1_tom_win → [world: bat trigger, sets dogsEnabled]
+    lose → p1_tom_lose (REMATCH / QUIT)
+  lose → p1_jen_lose (REMATCH / QUIT)
+
+[bat A-press]
+p1_bat_found → [world: baseball trigger, sets batFound + baseballEnabled]
+
+[baseball tile A-press]
+p1_baseball_jen_intro → [baseball vs .powerHitter]
+  win → p1_baseball_jen_win → [baseball vs .greatFielder]
+    win → p1_baseball_tom_win → choice: ACCEPT / FORGET IT
+      ACCEPT → p1_quest_accept → [world: bridge trigger, sets questAccepted]
+      FORGET → [world: quest_offer trigger]
+    lose → p1_baseball_tom_lose (REMATCH / QUIT)
+  lose → p1_baseball_jen_lose (REMATCH / QUIT)
+
+[bridge A-press]
+p1_bridge_intro → [world: stays at p1_bridge_intro — end of Part 1]
+```
+
+#### Dog gating
+
+`GameScene.spawnDog()` is guarded by `StoryManager.shared.hasFlag(.dogsEnabled)`. Dogs are disabled until the `p1_tom_win` module fires (which sets the flag via `StorySpawnConfig.flags`). In free-play (no story progress), dogs never appear unless the flag is set.
 
 ### HUD Design System (Bit-Wood Brawler)
 
