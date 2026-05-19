@@ -265,6 +265,12 @@ final class CornholeMiniGameScene: SKScene {
     private var stormFlashOverlay: SKSpriteNode?
     private var stormAudioNode:   SKAudioNode?
 
+    // Tom's fart ability — 50% chance per round; green fog + faster/wobbling indicator
+    private var tomFartActive    = false
+    private var tomFartOverlay:  SKNode?
+    private var fartBaseSpeed:   CGFloat = 0  // saved targetSpeed before doubling
+    private var fartWobbleTimer: CGFloat = 0
+
     // Gopher — only one alive at a time; chases the throw-line bag and steals it
     private var activeGopher: GopherNode?
     private let gopherSpawnChance: Double = 0.15   // 15% per turn
@@ -343,7 +349,8 @@ final class CornholeMiniGameScene: SKScene {
         // hard on a missing file while playSoundFileNamed silently no-ops.
         let sounds = ["hit.mp3",      "hole_score.wav", "round_end.wav",
                       "rain_start.wav", "gopher_pop.wav", "gopher_steal.wav",
-                      "game_win.wav",  "game_lose.wav",  "storm.mp3"]
+                      "game_win.wav",  "game_lose.wav",  "storm.mp3",
+                      "fart.wav"]   // Tom's toot — asset optional; skipped if absent
         sounds.forEach { warmUpSound($0) }
     }
 
@@ -374,6 +381,7 @@ final class CornholeMiniGameScene: SKScene {
         holeRadius   = boardHalfW * 0.25
         targetRange  = boardHalfW * 1.30
         targetSpeed  = size.width * 0.70   // source pixels per second
+        fartBaseSpeed = targetSpeed
 
         // powerScale chosen so a 38% screen-height swipe lands near the hole
         let distToHole   = abs(holeCenter.y - throwLineY)
@@ -1140,6 +1148,10 @@ final class CornholeMiniGameScene: SKScene {
     private func startRound() {
         roundNumber += 1
 
+        // Tom's fart — deactivate any lingering effect first, then re-roll
+        if tomFartActive { deactivateTomFart() }
+        if selectedOpponent == .tom && Bool.random() { activateTomFart() }
+
         // Toggle rain on/off for this round
         let shouldRain = rainStartRound >= 0 && roundNumber >= rainStartRound && roundNumber < rainEndRound
         if shouldRain && !rainActive  { activateRain() }
@@ -1401,7 +1413,14 @@ final class CornholeMiniGameScene: SKScene {
             targetX -= step
             if targetX <= -targetRange { targetX = -targetRange; targetMovingRight = true }
         }
-        turnIndicator?.position.x = targetX
+        // During a fart round, add a jitter wobble so the indicator shakes unpredictably.
+        var displayX = targetX
+        if tomFartActive {
+            fartWobbleTimer += dt
+            displayX += sin(fartWobbleTimer * 14.0) * targetRange * 0.08
+                      + CGFloat.random(in: -targetRange * 0.04...targetRange * 0.04)
+        }
+        turnIndicator?.position.x = displayX
     }
 
     private func updateBagPhysics(_ bag: MiniGameBag, dt: CGFloat) {
@@ -2170,6 +2189,7 @@ final class CornholeMiniGameScene: SKScene {
                     aiScore     = 0
                     roundNumber = 0
                     if rainActive { deactivateRain() }
+                    if tomFartActive { deactivateTomFart() }
                     rollWeatherScenarios()
                     startRound()
                     return true
@@ -2594,6 +2614,96 @@ final class CornholeMiniGameScene: SKScene {
         ]))
 
         updateWindLabel()
+    }
+
+    // MARK: - Tom's Fart Ability
+
+    private func activateTomFart() {
+        tomFartActive    = true
+        fartWobbleTimer  = 0
+        targetSpeed      = fartBaseSpeed * 2.2   // indicator moves ~2× faster
+
+        // Green fog cloud centered over the board + hole area
+        let fogContainer = SKNode()
+        fogContainer.zPosition = 97   // above board, below chrome
+        addChild(fogContainer)
+        tomFartOverlay = fogContainer
+
+        // Build several overlapping soft circles to simulate a cloudy fog
+        let boardCenterY = boardY + (holeCenter.y - boardY) * 0.5
+        let fogW = size.width * 0.70
+        let fogH = size.height * 0.55
+        for _ in 0..<6 {
+            let blob = SKSpriteNode(
+                color: SKColor(red: CGFloat.random(in: 0.20...0.35),
+                               green: CGFloat.random(in: 0.55...0.78),
+                               blue:  CGFloat.random(in: 0.10...0.22),
+                               alpha: CGFloat.random(in: 0.18...0.32)),
+                size: CGSize(width: fogW * CGFloat.random(in: 0.45...0.85),
+                             height: fogH * CGFloat.random(in: 0.45...0.85)))
+            blob.position = CGPoint(x: CGFloat.random(in: -fogW * 0.25...fogW * 0.25),
+                                    y: boardCenterY + CGFloat.random(in: -fogH * 0.20...fogH * 0.20))
+            fogContainer.addChild(blob)
+            // Gently pulse each blob so the fog feels alive
+            let pulseDur = Double.random(in: 0.6...1.2)
+            blob.run(.repeatForever(.sequence([
+                .fadeAlpha(to: blob.alpha * 0.55, duration: pulseDur),
+                .fadeAlpha(to: blob.alpha, duration: pulseDur)
+            ])))
+        }
+        fogContainer.alpha = 0
+        fogContainer.run(.fadeIn(withDuration: 0.50))
+
+        // Announcement banner
+        showTomFartAnnouncement()
+
+        // Sound — add fart.wav to Copy Bundle Resources to enable; silently skipped if absent
+        if Bundle.main.url(forResource: "fart", withExtension: "wav") != nil {
+            run(SKAction.playSoundFileNamed("fart.wav", waitForCompletion: false))
+        } else {
+            run(SKAction.playSoundFileNamed("gopher_pop.wav", waitForCompletion: false))
+        }
+    }
+
+    private func deactivateTomFart() {
+        tomFartActive = false
+        targetSpeed   = fartBaseSpeed
+
+        tomFartOverlay?.run(.sequence([
+            .fadeOut(withDuration: 0.60),
+            .removeFromParent()
+        ]))
+        tomFartOverlay = nil
+    }
+
+    private func showTomFartAnnouncement() {
+        // Outer glow backing
+        let glow = SKSpriteNode(
+            color: SKColor(red: 0.10, green: 0.40, blue: 0.08, alpha: 0.72),
+            size: CGSize(width: size.width * 0.76, height: size.height * 0.12))
+        glow.position  = CGPoint(x: 0, y: size.height * 0.14)
+        glow.zPosition = 810
+        glow.alpha     = 0
+        addChild(glow)
+
+        let lbl = makeLabel(text: "TOMMY TOOTS! 💨",
+                            size: max(7, size.width * 0.052),
+                            color: SKColor(red: 0.58, green: 1.00, blue: 0.22, alpha: 1))
+        lbl.position  = CGPoint(x: 0, y: size.height * 0.14)
+        lbl.zPosition = 820
+        lbl.alpha     = 0
+        addChild(lbl)
+
+        let seq = SKAction.sequence([
+            .fadeIn(withDuration: 0.22),
+            .scale(to: 1.08, duration: 0.12),
+            .scale(to: 1.00, duration: 0.10),
+            .wait(forDuration: 1.6),
+            .fadeOut(withDuration: 0.38),
+            .removeFromParent()
+        ])
+        lbl.run(seq)
+        glow.run(seq.copy() as! SKAction)
     }
 
     private func addStormDarkOverlay() {
@@ -3295,6 +3405,7 @@ final class CornholeMiniGameScene: SKScene {
     // MARK: - Dismiss
 
     private func dismissScene(playerWon: Bool) {
+        if tomFartActive { deactivateTomFart() }
         if playerWon { CornholeStatsManager.shared.recordWin() }
         else         { CornholeStatsManager.shared.recordLoss() }
         if playerWon && selectedOpponent == .tom    { CornholeStatsManager.shared.recordDefeatedTom() }
