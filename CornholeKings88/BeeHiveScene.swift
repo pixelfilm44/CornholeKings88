@@ -18,6 +18,11 @@ final class BeeHiveScene: SKScene {
     /// Written before onComplete fires; GameScene reads this to sync the main HUD.
     private(set) var remainingHearts: Int = 3
 
+    // MARK: - Global difficulty ramp (persisted across all launches)
+    private static let fightCountKey = "beeHiveFightCount_v1"
+    /// Speed multiplier that increases 12% per completed fight, capped at 2.2×.
+    private var globalSpeedMultiplier: CGFloat = 1.0
+
     // MARK: - Private types
 
     private final class BeeBag {
@@ -125,6 +130,8 @@ final class BeeHiveScene: SKScene {
 
     override func didMove(to view: SKView) {
         anchorPoint = CGPoint(x: 0.5, y: 0.5)
+        let fightCount = UserDefaults.standard.integer(forKey: Self.fightCountKey)
+        globalSpeedMultiplier = min(1.0 + CGFloat(fightCount) * 0.12, 2.2)
         preloadAssets()
         playerHearts  = startingHearts
         remainingHearts = playerHearts
@@ -516,9 +523,9 @@ final class BeeHiveScene: SKScene {
 
         beesSpawned += 1
 
-        // Difficulty ramps linearly to bee 10 then plateaus at max difficulty.
+        // Difficulty ramps linearly to bee 10, then a global multiplier applies per session count.
         let t = min(1.0, CGFloat(beesSpawned - 1) / CGFloat(totalBees - 1))
-        let speed     = CGFloat.random(in: (50 + t * 40)...(80 + t * 60))
+        let speed     = CGFloat.random(in: (50 + t * 40)...(80 + t * 60)) * globalSpeedMultiplier
         let amplitude = CGFloat.random(in: (20 + t * 20)...(40 + t * 25))
         let frequency = CGFloat.random(in: (1.0 + t * 1.0)...(1.8 + t * 1.4))
         let startX    = CGFloat.random(in: -size.width * 0.30...size.width * 0.30)
@@ -1207,6 +1214,8 @@ final class BeeHiveScene: SKScene {
 
     private func dismissScene(playerWon: Bool) {
         remainingHearts = playerHearts
+        let count = UserDefaults.standard.integer(forKey: Self.fightCountKey)
+        UserDefaults.standard.set(count + 1, forKey: Self.fightCountKey)
         onComplete?(playerWon)
         guard let view = self.view, let prev = previousScene else { return }
         let transition = SKTransition.push(with: .down, duration: 0.38)

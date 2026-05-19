@@ -37,6 +37,8 @@ final class CornholeBaseballScene: SKScene {
     // MARK: - Public API
     var previousScene: SKScene?
     var onComplete: ((Bool) -> Void)?
+    /// AI style injected by story mode; defaults to standard for free-play.
+    var aiDifficulty: BaseballAIDifficulty = .standard
 
     // MARK: - HUD (SwiftUI overlay, owned by this scene)
     private let hudViewModel = BaseballHUDViewModel()
@@ -845,14 +847,17 @@ final class CornholeBaseballScene: SKScene {
                                isUser: Bool) {
         let chargeMult = 1.0 + chargeLevel * 0.8          // up to 1.8× power at full charge
         let power  = quality * CGFloat.random(in: 0.88...1.12) * chargeMult
-        let baseVY = size.height * 0.009 * power
+        // Jen (powerHitter) hits 35% harder and spreads wider when it's her turn to bat.
+        let aiPowerBoost: CGFloat = (!isUser && aiDifficulty == .powerHitter) ? 1.35 : 1.0
+        let baseVY = size.height * 0.009 * power * aiPowerBoost
+        let vxSpread = (!isUser && aiDifficulty == .powerHitter) ? baseVY * 0.45 : baseVY * 0.28
 
         let hit = HitBag()
         hit.bx          = origin.x
         hit.by          = origin.y
         hit.bz          = 4.0
         hit.vy          = -baseVY                          // DOWNWARD into outfield
-        hit.vx          = CGFloat.random(in: -baseVY * 0.28 ... baseVY * 0.28)
+        hit.vx          = CGFloat.random(in: -vxSpread ... vxSpread)
         hit.vz          = 10.0 * power
         hit.isUserHit   = isUser
         hit.chargeLevel = chargeLevel
@@ -877,13 +882,15 @@ final class CornholeBaseballScene: SKScene {
         phase      = .tracking
 
         if isUser {
-            // AI fielder auto-moves to predicted landing, with a reaction delay and aim error
+            // AI fielder auto-moves to predicted landing, with a reaction delay and aim error.
+            // Tom (greatFielder) covers much more of the field with tighter positioning.
             aiFielderNode.isHidden = false
             let landing = predictLandingPoint(vx: hit.vx, vy: hit.vy, vz: hit.vz,
                                               bx: hit.bx, by: hit.by, bz: hit.bz)
-            let err = CGFloat.random(in: -38...38)
+            let errRange: CGFloat = aiDifficulty == .greatFielder ? 14.0 : 38.0
+            let err = CGFloat.random(in: -errRange...errRange)
             aiFielderTarget    = CGPoint(x: landing.x + err, y: landing.y + err * 0.4)
-            aiFielderMoveDelay = 20
+            aiFielderMoveDelay = aiDifficulty == .greatFielder ? 10 : 20
         } else {
             // User fielder auto-runs to predicted landing; tapping sprints
             userFielderNode.isHidden = false

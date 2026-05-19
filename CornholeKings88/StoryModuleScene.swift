@@ -445,10 +445,19 @@ final class StoryModuleScene: SKScene {
         case .nextModule(let id):
             transitionToModule(id: id)
 
-        case .spawnOnMap(let x, let y):
+        case .spawnOnMap(let config):
+            // Apply next-module pointer and flags before leaving the scene.
+            if let nextID = config.nextModuleID {
+                StoryManager.shared.currentModuleID = nextID
+            }
+            StoryManager.shared.pendingWorldTrigger = config.trigger
+            for flag in config.flags { StoryManager.shared.setFlag(flag) }
+
             let ppSize = pixelPerfectSize() ?? size
             let gs = GameScene(size: ppSize)
-            gs.storySpawnOverride = CGPoint(x: x, y: y)
+            if let x = config.x, let y = config.y {
+                gs.storySpawnOverride = CGPoint(x: x, y: y)
+            }
             gs.scaleMode = .resizeFill
             let t = SKTransition.fade(withDuration: 0.60)
             t.pausesOutgoingScene = false
@@ -469,7 +478,6 @@ final class StoryModuleScene: SKScene {
             returnToMenu()
             return
         }
-        // Cross-fade the panel contents
         panelNode.run(.sequence([
             .fadeOut(withDuration: 0.18),
             .run { [weak self] in self?.showModule(next) },
@@ -481,25 +489,33 @@ final class StoryModuleScene: SKScene {
     private func launchMiniGame(_ type: StoryMiniGame) {
         let ppSize = pixelPerfectSize() ?? size
 
+        // For SK-scene mini-games: queue the next module and let didMove handle it on return.
         let handleResult: (Bool) -> Void = { [weak self] won in
             guard let self = self else { return }
             self.queuedModuleID = won ? self.miniGameWinID : self.miniGameLoseID
         }
 
         switch type {
-        case .cornhole:
+
+        case .cornholeVs(let opponent):
             let s = CornholeMiniGameScene(size: ppSize)
-            s.previousScene    = self
-            s.scaleMode        = .resizeFill
-            s.availableHoneyBags = 0
-            s.onComplete       = handleResult
+            s.previousScene       = self
+            s.scaleMode           = .resizeFill
+            s.preSelectedOpponent = opponent
+            s.availableHoneyBags  = InventoryManager().counts[.honeyBag,  default: 0]
+            s.availableBombBags   = InventoryManager().counts[.bombBag,   default: 0]
+            s.availableMagicBags  = InventoryManager().counts[.magicBag,  default: 0]
+            s.availableFireBags   = InventoryManager().counts[.fireBag,   default: 0]
+            s.availableGoldenBags = InventoryManager().counts[.goldenBag, default: 0]
+            s.onComplete          = handleResult
             push(to: s)
 
-        case .baseball:
+        case .baseballVs(let difficulty):
             let s = CornholeBaseballScene(size: ppSize)
-            s.previousScene = self
-            s.scaleMode     = .resizeFill
-            s.onComplete    = handleResult
+            s.previousScene  = self
+            s.scaleMode      = .resizeFill
+            s.aiDifficulty   = difficulty
+            s.onComplete     = handleResult
             push(to: s)
 
         case .beehive:
@@ -511,9 +527,18 @@ final class StoryModuleScene: SKScene {
             push(to: s)
 
         case .bike:
-            // Bike uses a UIViewController modal; treat it as a win for story flow
-            queuedModuleID = miniGameWinID
-            returnToMenu()
+            // Bike runs as a UIViewController modal; callback fires after VC dismisses.
+            guard let rootVC = view?.window?.rootViewController else { return }
+            let winID  = miniGameWinID
+            let loseID = miniGameLoseID
+            let bikeVC = BikeDodgeViewController()
+            bikeVC.modalPresentationStyle = .fullScreen
+            bikeVC.onDismissWithResult = { [weak self] won in
+                guard let self = self else { return }
+                let nextID = won ? winID : loseID
+                if let id = nextID { self.transitionToModule(id: id) }
+            }
+            DispatchQueue.main.async { rootVC.present(bikeVC, animated: true) }
         }
     }
 

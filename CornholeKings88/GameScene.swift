@@ -67,6 +67,12 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     private var nextDogSpawnInterval: TimeInterval = 7.0
     private let maxDogs = 3
 
+    // Story mode bat pickup (spawned in world during the bat-search phase)
+    private var storyBatNode: SKNode?
+    private var storyBatPosition: CGPoint?
+    private var nearbyStoryBatPosition: CGPoint?
+    private let storyBatRadius: CGFloat = 28
+
     private var isTransitioning = false
     private var menuButtonPosition: CGPoint = .zero
     private var isPausedGame = false
@@ -503,6 +509,8 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
 
         if UserDefaults.standard.bool(forKey: bridgeUnlockedKey) { unlockBridge() }
         if CornholeStatsManager.shared.baseballUnlocked { unlockBaseball() }
+        if StoryManager.shared.hasFlag(.baseballEnabled) { unlockBaseball() }
+        spawnStoryBatIfNeeded()
     }
 
     // MARK: - Cornhole Board Detection
@@ -872,7 +880,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
                 bestDist = d; bestBoard = nil; bestChest = nil; bestBridgeStone = pos
             }
         }
-        if CornholeStatsManager.shared.baseballUnlocked {
+        if CornholeStatsManager.shared.baseballUnlocked || StoryManager.shared.hasFlag(.baseballEnabled) {
             for pos in baseballPositions {
                 let d = hypot(player.position.x - pos.x, player.position.y - pos.y)
                 if d < baseballRadius && d < bestDist {
@@ -921,6 +929,19 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
             }
         }
 
+        // Story bat — only active during the bat-search phase
+        var bestStoryBat: CGPoint? = nil
+        if let batPos = storyBatPosition {
+            let d = hypot(player.position.x - batPos.x, player.position.y - batPos.y)
+            if d < storyBatRadius && d < bestDist {
+                bestDist = d
+                bestBoard = nil; bestChest = nil; bestBridgeStone = nil
+                bestBaseball = nil; bestTree = nil; bestAppleTree = nil
+                bestBeehive = nil; bestPool = nil; bestBridgeWood = nil
+                bestStoryBat = batPos
+            }
+        }
+
         nearbyBoardPosition       = bestBoard
         nearbyChestPosition       = bestChest
         nearbyBridgeStonePosition = bestBridgeStone
@@ -930,6 +951,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         nearbyBeehivePosition     = bestBeehive
         nearbyPoolPosition        = bestPool
         nearbyBridgeWoodPosition  = bestBridgeWood
+        nearbyStoryBatPosition    = bestStoryBat
 
         // Auto-descend when the player walks away from the tree they climbed.
         if bestTree == nil && player.isInTree { player.descendTree() }
@@ -945,6 +967,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         else if let p = bestBeehive       { anchor = CGPoint(x: p.x, y: p.y + 22) }
         else if let p = bestPool          { anchor = CGPoint(x: p.x, y: p.y + 22) }
         else if let p = bestBridgeWood    { anchor = CGPoint(x: p.x, y: p.y + 22) }
+        else if let p = bestStoryBat      { anchor = CGPoint(x: p.x, y: p.y + 22) }
         else                              { anchor = nil }
 
         if let pos = anchor {
@@ -1022,6 +1045,75 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
                 }
             }
         }
+    }
+
+    // MARK: - Story Mode World Helpers
+
+    /// Spawn a bat pickup node during the story bat-search phase.
+    private func spawnStoryBatIfNeeded() {
+        guard StoryManager.shared.pendingWorldTrigger == StoryManager.triggerBat,
+              !StoryManager.shared.hasFlag(.batFound),
+              let m = map else { return }
+        let pos = StoryManager.batWorldPosition
+        storyBatPosition = pos
+
+        let bat = SKNode()
+        // Simple bat shape: dark brown rectangle
+        let shaft = SKSpriteNode(color: SKColor(red: 0.45, green: 0.25, blue: 0.10, alpha: 1),
+                                 size: CGSize(width: 5, height: 24))
+        let barrel = SKSpriteNode(color: SKColor(red: 0.55, green: 0.32, blue: 0.12, alpha: 1),
+                                  size: CGSize(width: 10, height: 10))
+        barrel.position = CGPoint(x: 0, y: 14)
+        bat.addChild(shaft)
+        bat.addChild(barrel)
+        bat.position = pos
+        bat.zPosition = 5000
+        bat.run(.repeatForever(.sequence([
+            .moveBy(x: 0, y: 2, duration: 0.5),
+            .moveBy(x: 0, y: -2, duration: 0.5)
+        ])))
+        m.mapNode.addChild(bat)
+        storyBatNode = bat
+    }
+
+    /// Called when player presses A near the story bat pickup.
+    private func collectStoryBat() {
+        guard !isTransitioning else { return }
+        storyBatNode?.removeFromParent()
+        storyBatNode = nil
+        storyBatPosition = nil
+        nearbyStoryBatPosition = nil
+        StoryManager.shared.pendingWorldTrigger = nil
+        showPickupText("+ BAT!", at: player.position)
+        run(.wait(forDuration: 0.4)) { [weak self] in
+            self?.launchStoryAtCurrentModule()
+        }
+    }
+
+    /// Transitions from the world map into the story module at currentModuleID.
+    private func launchStoryAtCurrentModule() {
+        guard let view = self.view, !isTransitioning else { return }
+        isTransitioning = true
+        player.moveDirection = .zero
+        player.physicsBody?.velocity = .zero
+
+        let ppSize = pixelPerfectSize() ?? size
+        let storyScene = StoryModuleScene(size: ppSize)
+        storyScene.scaleMode = .resizeFill
+        storyScene.startAtCurrentProgress()
+
+        let t = SKTransition.fade(withDuration: 0.55)
+        t.pausesOutgoingScene = false
+        view.presentScene(storyScene, transition: t)
+    }
+
+    private func pixelPerfectSize() -> CGSize? {
+        guard let v = self.view else { return nil }
+        let scale  = v.contentScaleFactor
+        let pixelW = v.bounds.width  * scale
+        let pixelH = v.bounds.height * scale
+        let n = max(2, min(floor(pixelW / 160), floor(pixelH / 120)))
+        return CGSize(width: floor(pixelW / n), height: floor(pixelH / n))
     }
 
     // MARK: - Inventory Tap
@@ -1405,8 +1497,17 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
             return
         }
         if let a = btnA, distanceSquared(pInCam, a.position) < btnHit {
-            if nearbyBoardPosition != nil {
-                openCornholeMiniGame()
+            let trigger = StoryManager.shared.pendingWorldTrigger
+
+            if nearbyStoryBatPosition != nil {
+                collectStoryBat()
+            } else if nearbyBoardPosition != nil {
+                if trigger == StoryManager.triggerCornhole {
+                    StoryManager.shared.pendingWorldTrigger = nil
+                    launchStoryAtCurrentModule()
+                } else {
+                    openCornholeMiniGame()
+                }
             } else if nearbyChestPosition != nil {
                 openChest()
             } else if nearbyBridgeStonePosition != nil {
@@ -1414,13 +1515,21 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
             } else if nearbyAppleTreePosition != nil {
                 openCornholeMiniGame(preSelectedOpponent: .spirit)
             } else if nearbyBaseballPosition != nil {
-                openCornholeBaseball()
+                if trigger == StoryManager.triggerBaseball || trigger == StoryManager.triggerQuestOffer {
+                    StoryManager.shared.pendingWorldTrigger = nil
+                    launchStoryAtCurrentModule()
+                } else {
+                    openCornholeBaseball()
+                }
             } else if nearbyBeehivePosition != nil {
                 openBeeHiveMiniGame()
             } else if nearbyPoolPosition != nil {
                 openBeachBallCornhole()
             } else if nearbyBridgeWoodPosition != nil {
-                if UserDefaults.standard.bool(forKey: beachBallBeatenKey) {
+                if trigger == StoryManager.triggerBridge {
+                    StoryManager.shared.pendingWorldTrigger = nil
+                    launchStoryAtCurrentModule()
+                } else if UserDefaults.standard.bool(forKey: beachBallBeatenKey) {
                     openBridgePiranha()
                 } else {
                     showHintBanner("You need bean bags\nthat can float\nbefore coming here.")
@@ -1623,7 +1732,8 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
 
     private func updateDogs(dt: TimeInterval) {
         dogSpawnTimer += dt
-        if dogSpawnTimer >= nextDogSpawnInterval && dogs.count < maxDogs {
+        if dogSpawnTimer >= nextDogSpawnInterval && dogs.count < maxDogs
+            && StoryManager.shared.hasFlag(.dogsEnabled) {
             dogSpawnTimer = 0
             nextDogSpawnInterval = TimeInterval.random(in: 6...12)
             spawnDog()

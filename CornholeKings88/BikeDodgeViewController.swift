@@ -11,6 +11,9 @@ final class BikeDodgeViewController: UIViewController {
 
     private var skView: SKView!
     var onDismiss: (() -> Void)?
+    /// Called after dismiss with the race result (true = player won).
+    var onDismissWithResult: ((Bool) -> Void)?
+    private var bikeResult: Bool = false
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -42,6 +45,7 @@ final class BikeDodgeViewController: UIViewController {
         let scene = BikeDodgeScene(size: skView.bounds.size)
         scene.scaleMode = .resizeFill
         scene.bikeDodgeDelegate = self
+        scene.onComplete = { [weak self] won in self?.bikeResult = won }
         skView.presentScene(scene)
     }
 
@@ -51,7 +55,10 @@ final class BikeDodgeViewController: UIViewController {
 
 extension BikeDodgeViewController: BikeDodgeSceneDelegate {
     func bikeDodgeSceneDidRequestDismiss(_ scene: BikeDodgeScene) {
-        dismiss(animated: true)
-        onDismiss?()
+        let result = bikeResult
+        dismiss(animated: true) { [weak self] in
+            self?.onDismissWithResult?(result)
+            self?.onDismiss?()
+        }
     }
 }
