@@ -811,8 +811,9 @@ final class BikeDodgeScene: SKScene {
         bagTimer += dt
         if bagTimer >= bagInterval {
             bagTimer = 0
-            // Interval shrinks from [2.0, 3.5]s → [0.80, 1.40]s as the race progresses.
-            bagInterval = CGFloat.random(in: lerp(2.0, 0.80, p)...lerp(3.5, 1.40, p))
+            // Interval shrinks from [5.0, 8.0]s → [0.80, 1.40]s as the race progresses,
+            // keeping the first half sparse and ramping up pressure in the second half.
+            bagInterval = CGFloat.random(in: lerp(5.0, 0.80, p)...lerp(8.0, 1.40, p))
             spawnBeanBag()
             // Past 70% distance a second bag can fly in the same tick (max ~45% chance).
             if p > 0.70 && Float.random(in: 0...1) < Float((p - 0.70) * 1.5) { spawnBeanBag() }
@@ -961,6 +962,7 @@ final class BikeDodgeScene: SKScene {
                 colorIdx += 1
                 container.position = CGPoint(x: kidX, y: startY)
                 container.zPosition = 8
+                container.yScale = -1
                 addChild(container)
                 // Arm idle sway only — no position bob (y is driven by updateBullyKids)
                 startArmIdle(armNode: armNode, facingRight: facingRight,
@@ -2125,20 +2127,21 @@ final class BikeDodgeScene: SKScene {
                 if pauseBtnFrame.contains(loc) { pauseGame(); return }
                 if closeBtnFrame.contains(loc) { dismissToMenu(); return }
                 // Steering — last-input-wins to recover from any stuck opposite touches.
-                // Apply an immediate velocity kick when reversing direction so a brief
-                // tap at high speed produces visible motion within the first frame
-                // (otherwise steerAccel takes ~0.7s to overcome existing momentum).
+                // Snap xVelocity to at least the kick threshold in the tapped direction
+                // so the bike responds within one frame whether reversing or starting
+                // from near-zero lateral velocity. steerAccel still ramps to the cap on hold.
+                let kick = maxSteerVel * 0.30
                 if loc.x < 0 {
                     rightTouches.removeAll(); steerRight = false
                     leftTouches.insert(t); steerLeft = true
-                    if !pr.isJumping && pr.xVelocity > 0 {
-                        pr.xVelocity = -maxSteerVel * 0.30
+                    if !pr.isJumping && pr.xVelocity > -kick {
+                        pr.xVelocity = -kick
                     }
                 } else {
                     leftTouches.removeAll(); steerLeft = false
                     rightTouches.insert(t); steerRight = true
-                    if !pr.isJumping && pr.xVelocity < 0 {
-                        pr.xVelocity = maxSteerVel * 0.30
+                    if !pr.isJumping && pr.xVelocity < kick {
+                        pr.xVelocity = kick
                     }
                 }
                 continue

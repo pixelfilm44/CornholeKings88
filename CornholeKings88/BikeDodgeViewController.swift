@@ -51,6 +51,13 @@ final class BikeDodgeViewController: UIViewController {
 
     override var prefersStatusBarHidden: Bool { true }
     override var supportedInterfaceOrientations: UIInterfaceOrientationMask { .portrait }
+
+    // Defer iOS system gestures (home indicator, Control Center, Notification Center)
+    // across the whole screen so steering touches in edge zones are delivered to the
+    // scene immediately instead of being held for ~2s by the system-gesture gate.
+    // First swipe in an edge dims the home indicator; second activates the system gesture.
+    override var preferredScreenEdgesDeferringSystemGestures: UIRectEdge { .all }
+    override var prefersHomeIndicatorAutoHidden: Bool { true }
 }
 
 extension BikeDodgeViewController: BikeDodgeSceneDelegate {
