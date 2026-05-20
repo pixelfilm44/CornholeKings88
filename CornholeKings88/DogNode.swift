@@ -33,9 +33,22 @@ final class DogNode: SKNode {
         fleeVelocity = CGVector(dx: dx / dist * speed, dy: dy / dist * speed)
     }
 
-    private var legPhase: CGFloat = 0
-    private var legFront: SKSpriteNode!
-    private var legBack: SKSpriteNode!
+    private var animTime: TimeInterval = 0
+    private var bodySprite: SKSpriteNode!
+    private static let walkFrames: [SKTexture] = {
+        let sheet = SKTexture(imageNamed: "Walk")
+        sheet.filteringMode = .nearest
+        let cols = 6
+        let fw: CGFloat = 1.0 / CGFloat(cols)
+        var frames: [SKTexture] = []
+        for i in 0..<cols {
+            let rect = CGRect(x: CGFloat(i) * fw, y: 0, width: fw, height: 1)
+            let t = SKTexture(rect: rect, in: sheet)
+            t.filteringMode = .nearest
+            frames.append(t)
+        }
+        return frames
+    }()
 
     override init() {
         super.init()
@@ -44,52 +57,11 @@ final class DogNode: SKNode {
     }
 
     private func buildVisual() {
-        let brown     = SKColor(red: 0.55, green: 0.30, blue: 0.09, alpha: 1.0)
-        let darkBrown = SKColor(red: 0.35, green: 0.18, blue: 0.04, alpha: 1.0)
-        let black     = SKColor(red: 0.08, green: 0.05, blue: 0.01, alpha: 1.0)
-
-        // Body
-        let body = SKSpriteNode(color: brown, size: CGSize(width: 13, height: 6))
-        body.position = CGPoint(x: -1, y: 0)
-        addChild(body)
-
-        // Head (right side when facing right)
-        let head = SKSpriteNode(color: brown, size: CGSize(width: 8, height: 8))
-        head.position = CGPoint(x: 9, y: 2)
-        addChild(head)
-
-        // Snout
-        let snout = SKSpriteNode(color: darkBrown, size: CGSize(width: 4, height: 4))
-        snout.position = CGPoint(x: 14, y: 0)
-        addChild(snout)
-
-        // Nose
-        let nose = SKSpriteNode(color: black, size: CGSize(width: 2, height: 2))
-        nose.position = CGPoint(x: 16, y: 1)
-        addChild(nose)
-
-        // Ears
-        for xOff: CGFloat in [7, 11] {
-            let ear = SKSpriteNode(color: darkBrown, size: CGSize(width: 4, height: 5))
-            ear.position = CGPoint(x: xOff, y: 7)
-            addChild(ear)
-        }
-
-        // Tail (left side when facing right)
-        let tail = SKSpriteNode(color: brown, size: CGSize(width: 4, height: 4))
-        tail.position = CGPoint(x: -8, y: 4)
-        addChild(tail)
-
-        // Legs — stored so update() can animate them
-        let front = SKSpriteNode(color: darkBrown, size: CGSize(width: 3, height: 5))
-        front.position = CGPoint(x: 4, y: -5)
-        addChild(front)
-        legFront = front
-
-        let back = SKSpriteNode(color: darkBrown, size: CGSize(width: 3, height: 5))
-        back.position = CGPoint(x: -4, y: -5)
-        addChild(back)
-        legBack = back
+        let sprite = SKSpriteNode(texture: DogNode.walkFrames[0])
+        sprite.size = CGSize(width: 24, height: 24)
+        sprite.position = CGPoint(x: 0, y: 2)
+        addChild(sprite)
+        bodySprite = sprite
     }
 
     private func setupPhysics() {
@@ -196,11 +168,17 @@ final class DogNode: SKNode {
         let vx = physicsBody?.velocity.dx ?? 0
         if abs(vx) > 2 { xScale = vx >= 0 ? 1 : -1 }
 
-        // Alternating leg bob.
-        legPhase += CGFloat(dt) * 12
-        let bob: CGFloat = sin(legPhase) * 1.5
-        legFront.position.y = -5 + bob
-        legBack.position.y  = -5 - bob
+        // Advance walk-cycle frame based on movement speed; pause when eating/idle.
+        let speed = hypot(targetVelocity.dx, targetVelocity.dy)
+        if speed > 2 {
+            animTime += dt * Double(max(speed / 60.0, 1.0))
+            let fps: Double = 10
+            let idx = Int(animTime * fps) % DogNode.walkFrames.count
+            bodySprite.texture = DogNode.walkFrames[idx]
+        } else {
+            animTime = 0
+            bodySprite.texture = DogNode.walkFrames[0]
+        }
     }
 
     required init?(coder aDecoder: NSCoder) { fatalError() }

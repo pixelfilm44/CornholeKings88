@@ -9,9 +9,13 @@ final class PlayerNode: SKSpriteNode {
     enum AnimState { case idle, move, attack, death }
     enum Facing { case down, up, right, left }
 
-    private static let frameW = 48
-    private static let frameH = 48
+    private static let frameW = 64
+    private static let frameH = 64
     private static let cols = 6
+    // On-screen render size — kept at the legacy 48×48 so physics, tree canopy,
+    // and world-tile scale all stay tuned regardless of source frame size.
+    private static let renderW: CGFloat = 48
+    private static let renderH: CGFloat = 48
 
     // Row layout (0-based, top-down). Each block lists 3 rows for the 3
     // distinct facings; left is produced by flipping right.
@@ -21,14 +25,9 @@ final class PlayerNode: SKSpriteNode {
     private static let attackRows: [Facing: Int] = [.down: 6, .right: 7, .up: 8]
     private static let deathRow = 9
 
-    /// Loaded once.
+    /// Loaded once from Assets.xcassets ("jeff_sprite" imageset).
     private static let sheet: SKTexture? = {
-        guard let url = findInBundle(filename: "player.png"),
-              let img = UIImage(contentsOfFile: url.path) else {
-            print("PlayerNode: player.png not found in bundle")
-            return nil
-        }
-        let t = SKTexture(image: img)
+        let t = SKTexture(imageNamed: "jeff_sprite")
         t.filteringMode = .nearest
         return t
     }()
@@ -81,7 +80,7 @@ final class PlayerNode: SKSpriteNode {
         let first = PlayerNode.anims[.idle]?[.down]?.first
         super.init(texture: first,
                    color: .magenta,
-                   size: CGSize(width: PlayerNode.frameW, height: PlayerNode.frameH))
+                   size: CGSize(width: PlayerNode.renderW, height: PlayerNode.renderH))
         if first == nil { colorBlendFactor = 1.0 }
 
         // Anchor at the feet area: physics circle near the bottom of the sprite.

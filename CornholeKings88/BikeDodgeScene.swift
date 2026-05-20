@@ -1789,7 +1789,13 @@ final class BikeDodgeScene: SKScene {
     }
 
     private func knockCarsOnLanding() {
-        let knockZone = CGRect(x: pr.x - 18, y: playerScreenY, width: 36, height: H * 0.45)
+        // Tight zone centered on the bike's landing spot so we only knock cars
+        // the player visibly comes down on, not anything half a screen ahead.
+        let zoneH: CGFloat = 56
+        let zoneW: CGFloat = 44
+        let knockZone = CGRect(x: pr.x - zoneW / 2,
+                               y: playerScreenY - zoneH / 2,
+                               width: zoneW, height: zoneH)
         for i in cars.indices {
             guard cars[i].isActive else { continue }
             let carCenter = CGPoint(x: cars[i].x, y: cars[i].screenY)

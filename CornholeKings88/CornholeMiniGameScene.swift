@@ -3138,41 +3138,30 @@ final class CornholeMiniGameScene: SKScene {
         ]), withKey: "crowFly")
     }
 
-    private func makeCrowSprite(facingRight: Bool) -> SKSpriteNode {
-        let ps = 5   // 25% bigger than original ps=4
-        // 11 × 6 pixel grid — beak faces right; flip xScale for left-facing
-        let grid: [[Int]] = [
-            [0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0],
-            [0, 1, 1, 1, 0, 0, 0, 1, 1, 1, 0],
-            [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0],
-            [0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0],
-            [0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0],
-            [0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0],
-        ]
-        let cols = grid[0].count, rows = grid.count
-        let imgW = CGFloat(cols * ps), imgH = CGFloat(rows * ps)
-
-        UIGraphicsBeginImageContextWithOptions(CGSize(width: imgW, height: imgH), false, 1.0)
-        if let ctx = UIGraphicsGetCurrentContext() {
-            ctx.setFillColor(UIColor(red: 0.10, green: 0.08, blue: 0.10, alpha: 1).cgColor)
-            for row in 0..<rows {
-                for col in 0..<cols where grid[row][col] == 1 {
-                    ctx.fill(CGRect(x: CGFloat(col * ps), y: CGFloat(row * ps),
-                                    width: CGFloat(ps), height: CGFloat(ps)))
-                }
-            }
+    private static let crowFlyFrames: [SKTexture] = {
+        let sheet = SKTexture(imageNamed: "Crow")
+        sheet.filteringMode = .nearest
+        // Sheet is 192×32 — 6 frames × 32×32, art faces left.
+        let cols = 6
+        let fw: CGFloat = 1.0 / CGFloat(cols)
+        var frames: [SKTexture] = []
+        for i in 0..<cols {
+            let rect = CGRect(x: CGFloat(i) * fw, y: 0, width: fw, height: 1)
+            let t = SKTexture(rect: rect, in: sheet)
+            t.filteringMode = .nearest
+            frames.append(t)
         }
-        let img = UIGraphicsGetImageFromCurrentImageContext() ?? UIImage()
-        UIGraphicsEndImageContext()
-        let tex = SKTexture(image: img)
-        tex.filteringMode = .nearest
+        return frames
+    }()
 
-        let sprite = SKSpriteNode(texture: tex, size: CGSize(width: imgW, height: imgH))
-        if !facingRight { sprite.xScale = -1 }
-        sprite.run(SKAction.repeatForever(SKAction.sequence([
-            SKAction.scaleY(to: 0.55, duration: 0.13),
-            SKAction.scaleY(to: 1.00, duration: 0.17),
-        ])))
+    private func makeCrowSprite(facingRight: Bool) -> SKSpriteNode {
+        let frames = CornholeMiniGameScene.crowFlyFrames
+        let sprite = SKSpriteNode(texture: frames[0], size: CGSize(width: 56, height: 56))
+        // Sheet art faces left; flip xScale when flying right.
+        if facingRight { sprite.xScale = -1 }
+        sprite.run(SKAction.repeatForever(
+            SKAction.animate(with: frames, timePerFrame: 0.08, resize: false, restore: false)
+        ))
         return sprite
     }
 

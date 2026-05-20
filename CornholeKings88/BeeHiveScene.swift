@@ -313,51 +313,34 @@ final class BeeHiveScene: SKScene {
         return container
     }
 
-    private func makeBeeSprite() -> SKSpriteNode {
-        let ps = 5
-        // 8 wide × 7 tall — head faces down (toward player), stinger at top.
-        // 0=transparent, 1=black, 2=yellow, 3=wing (light blue-white)
-        let grid: [[Int]] = [
-            [0,0,0,1,1,0,0,0],   // stinger / tail (top)
-            [0,3,1,2,2,1,3,0],   // wings + yellow stripe
-            [3,3,1,1,1,1,3,3],   // wings spread + black thorax
-            [0,3,1,2,2,1,3,0],   // wings + yellow stripe
-            [0,0,1,1,1,1,0,0],   // black abdomen / neck
-            [0,0,1,2,2,1,0,0],   // yellow head (facing down)
-            [0,0,0,1,1,0,0,0],   // antennae
-        ]
-        let cols = grid[0].count, rows = grid.count
-        let imgW = CGFloat(cols * ps), imgH = CGFloat(rows * ps)
-
-        UIGraphicsBeginImageContextWithOptions(CGSize(width: imgW, height: imgH), false, 1.0)
-        if let ctx = UIGraphicsGetCurrentContext() {
-            let black  = UIColor(red: 0.08, green: 0.06, blue: 0.02, alpha: 1)
-            let yellow = UIColor(red: 0.95, green: 0.82, blue: 0.10, alpha: 1)
-            let wing   = UIColor(red: 0.78, green: 0.90, blue: 1.00, alpha: 0.72)
-            for row in 0..<rows {
-                for col in 0..<cols {
-                    let v = grid[row][col]; guard v > 0 else { continue }
-                    let color: UIColor
-                    switch v {
-                    case 1: color = black
-                    case 2: color = yellow
-                    default: color = wing
-                    }
-                    ctx.setFillColor(color.cgColor)
-                    ctx.fill(CGRect(x: CGFloat(col * ps), y: CGFloat(row * ps),
-                                    width: CGFloat(ps), height: CGFloat(ps)))
-                }
+    private static let beeFlyFrames: [SKTexture] = {
+        let sheet = SKTexture(imageNamed: "Bee_Flying_Animation")
+        sheet.filteringMode = .nearest
+        // Sheet is 64×32 — 4 cols × 2 rows of 16×16 frames.
+        let cols = 4, rows = 2
+        let fw: CGFloat = 1.0 / CGFloat(cols)
+        let fh: CGFloat = 1.0 / CGFloat(rows)
+        var frames: [SKTexture] = []
+        for r in 0..<rows {
+            for c in 0..<cols {
+                // SKTexture rect origin is bottom-left; iterate top row first visually.
+                let rect = CGRect(x: CGFloat(c) * fw,
+                                  y: 1.0 - CGFloat(r + 1) * fh,
+                                  width: fw, height: fh)
+                let t = SKTexture(rect: rect, in: sheet)
+                t.filteringMode = .nearest
+                frames.append(t)
             }
         }
-        let img = UIGraphicsGetImageFromCurrentImageContext() ?? UIImage()
-        UIGraphicsEndImageContext()
-        let tex = SKTexture(image: img); tex.filteringMode = .nearest
-        let sprite = SKSpriteNode(texture: tex, size: CGSize(width: imgW * 2, height: imgH * 2))
-        // Wing-flap
-        sprite.run(SKAction.repeatForever(SKAction.sequence([
-            SKAction.scaleX(to: 0.70, duration: 0.07),
-            SKAction.scaleX(to: 1.00, duration: 0.07),
-        ])))
+        return frames
+    }()
+
+    private func makeBeeSprite() -> SKSpriteNode {
+        let frames = BeeHiveScene.beeFlyFrames
+        let sprite = SKSpriteNode(texture: frames[0], size: CGSize(width: 52, height: 52))
+        sprite.run(SKAction.repeatForever(
+            SKAction.animate(with: frames, timePerFrame: 0.08, resize: false, restore: false)
+        ))
         return sprite
     }
 
