@@ -423,16 +423,29 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         cameraNode.addChild(b)
         btnB = b
 
-        // Dog biscuit shortcut — shown left of A only when the player has biscuits.
+        // Dog biscuit button — fixed position left of B, visible only when player has biscuits.
+        let biscuitX = bX - 2 * actionBtnRadius - 14
         let biscuit = SKShapeNode(circleOfRadius: actionBtnRadius)
         biscuit.fillColor = woodDarkColor
-        biscuit.strokeColor = dsGold
+        biscuit.strokeColor = ironColor
         biscuit.lineWidth = 2.0
         biscuit.zPosition = 10_000
-        biscuit.position = CGPoint(x: bX, y: btnY)
+        biscuit.position = CGPoint(x: biscuitX, y: btnY)
         biscuit.name = "btn_biscuit"
         biscuit.isHidden = true
         biscuit.addChild(makeBiscuitButtonContent())
+
+        let countBadge = SKLabelNode(text: "")
+        countBadge.fontName = "Menlo-Bold"
+        countBadge.fontSize = 9
+        countBadge.fontColor = dsGold
+        countBadge.horizontalAlignmentMode = .right
+        countBadge.verticalAlignmentMode = .top
+        countBadge.position = CGPoint(x: actionBtnRadius - 2, y: actionBtnRadius - 2)
+        countBadge.zPosition = 2
+        countBadge.name = "btn_biscuit_count"
+        biscuit.addChild(countBadge)
+
         cameraNode.addChild(biscuit)
         btnBiscuit = biscuit
     }
@@ -453,7 +466,11 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     }
 
     private func updateBiscuitButton() {
-        btnBiscuit?.isHidden = inventory.counts[.dogBiscuit, default: 0] == 0
+        let count = inventory.counts[.dogBiscuit, default: 0]
+        btnBiscuit?.isHidden = count == 0
+        if let badge = btnBiscuit?.childNode(withName: "btn_biscuit_count") as? SKLabelNode {
+            badge.text = "×\(count)"
+        }
     }
 
     private func updateThrowButton() {
