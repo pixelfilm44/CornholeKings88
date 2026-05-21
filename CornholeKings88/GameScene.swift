@@ -67,6 +67,12 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     private var nextDogSpawnInterval: TimeInterval = 7.0
     private let maxDogs = 3
 
+    // Roaming bullies (Billy's gang) — spawn after p1_tom_win
+    private var bullies: [BullyNode] = []
+    private var bullySpawnTimer: TimeInterval = 0
+    private var nextBullySpawnInterval: TimeInterval = 1.5  // TESTING: fast first spawn
+    private let maxBullies = 2
+
     // Story mode bat pickup (spawned in world during the bat-search phase)
     private var storyBatNode: SKNode?
     private var storyBatPosition: CGPoint?
@@ -1659,6 +1665,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         if !isTransitioning {
             player?.update(dt: dt)
             updateDogs(dt: dt)
+            updateBullies(dt: dt)
             updateDamage(dt: dt)
             updateCamera()
             checkBoardProximity()
@@ -1708,8 +1715,15 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
             return
         }
 
-        let dog = (nodeA as? DogNode) ?? (nodeB as? DogNode)
         let playerInvolved = (nodeA === player) || (nodeB === player)
+
+        if let bully = (nodeA as? BullyNode) ?? (nodeB as? BullyNode),
+           playerInvolved, !bully.isEngaged, !isTransitioning, !isGameOver {
+            engageBully(bully)
+            return
+        }
+
+        let dog = (nodeA as? DogNode) ?? (nodeB as? DogNode)
         if let dog, playerInvolved {
             dogsTouchingPlayer.insert(ObjectIdentifier(dog))
             // First contact deals damage immediately (subject to cooldown);
@@ -1828,6 +1842,133 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         dogs.forEach { $0.removeFromParent() }
         dogs.removeAll()
         dogsTouchingPlayer.removeAll()
+    }
+
+    // MARK: - Roaming Bullies
+
+    private func updateBullies(dt: TimeInterval) {
+        bullySpawnTimer += dt
+        if bullySpawnTimer >= nextBullySpawnInterval && bullies.count < maxBullies {
+            // TODO: re-enable story gate — `StoryManager.shared.hasFlag(.bulliesEnabled)` —
+            // once bully testing is done. Currently always-on for testing.
+            bullySpawnTimer = 0
+            nextBullySpawnInterval = TimeInterval.random(in: 9...18)
+            spawnBully()
+        }
+
+        for bully in bullies {
+            bully.update(dt: dt,
+                         playerPosition: player.position,
+                         playerInTree: player.isInTree)
+        }
+        bullies = bullies.filter { bully in
+            if isBullyOffScreen(bully) {
+                bully.removeFromParent()
+                return false
+            }
+            return true
+        }
+    }
+
+    private func spawnBully() {
+        guard let m = map else { return }
+        let stage   = stageWorldSize
+        let centerX = cameraNode.position.x
+        let centerY = cameraNode.position.y + stageCenterYWorld
+        let half    = stage / 2
+
+        let pos: CGPoint
+        if bullies.isEmpty {
+            // TESTING: drop the first bully clearly on-screen, roughly 80 units
+            // in front of the player so they can't miss it. Stays inside stage.
+            let offsetY: CGFloat = 80
+            let py = min(centerY + half - 24, max(centerY - half + 24, player.position.y + offsetY))
+            pos = CGPoint(x: player.position.x, y: py)
+        } else {
+            let pad: CGFloat = 28
+            let edge = Int.random(in: 0...3)
+            switch edge {
+            case 0: pos = CGPoint(x: .random(in: centerX - half ... centerX + half), y: centerY + half + pad)
+            case 1: pos = CGPoint(x: .random(in: centerX - half ... centerX + half), y: centerY - half - pad)
+            case 2: pos = CGPoint(x: centerX - half - pad, y: .random(in: centerY - half ... centerY + half))
+            default: pos = CGPoint(x: centerX + half + pad, y: .random(in: centerY - half ... centerY + half))
+            }
+        }
+
+        let bully = BullyNode()
+        bully.position = pos
+        bullies.append(bully)
+        m.mapNode.addChild(bully)
+    }
+
+    private func isBullyOffScreen(_ bully: BullyNode) -> Bool {
+        let stage   = stageWorldSize
+        let centerX = cameraNode.position.x
+        let centerY = cameraNode.position.y + stageCenterYWorld
+        let margin: CGFloat = 80
+        return bully.position.x < centerX - stage/2 - margin
+            || bully.position.x > centerX + stage/2 + margin
+            || bully.position.y < centerY - stage/2 - margin
+            || bully.position.y > centerY + stage/2 + margin
+    }
+
+    private func clearBullies() {
+        bullies.forEach { $0.removeFromParent() }
+        bullies.removeAll()
+    }
+
+    /// Player ran into a roaming bully — freeze it, despawn, and launch a
+    /// 7-point cornhole match. Win → +10 coins; loss → −1 heart.
+    private func engageBully(_ bully: BullyNode) {
+        bully.isEngaged = true
+        bully.physicsBody?.velocity = .zero
+        bully.removeFromParent()
+        bullies.removeAll { $0 === bully }
+
+        openBullyCornholeMatch()
+    }
+
+    private func openBullyCornholeMatch() {
+        guard let view = self.view else { return }
+        isTransitioning = true
+        player.moveDirection = .zero
+        player.physicsBody?.velocity = .zero
+        resetBeanbagControl()
+
+        let mini = CornholeMiniGameScene(size: self.size)
+        mini.scaleMode              = self.scaleMode
+        mini.previousScene          = self
+        mini.preSelectedOpponent    = .bully
+        mini.availableHoneyBags  = inventory.counts[.honeyBag,  default: 0]
+        mini.availableBombBags   = inventory.counts[.bombBag,   default: 0]
+        mini.availableMagicBags  = inventory.counts[.magicBag,  default: 0]
+        mini.availableFireBags   = inventory.counts[.fireBag,   default: 0]
+        mini.availableGoldenBags = inventory.counts[.goldenBag, default: 0]
+        mini.onComplete = { [weak self, weak mini] playerWon in
+            guard let self else { return }
+            if let used = mini?.honeyBagsUsed,  used > 0 { self.inventory.consume(.honeyBag,  count: used) }
+            if let used = mini?.bombBagsUsed,   used > 0 { self.inventory.consume(.bombBag,   count: used) }
+            if let used = mini?.magicBagsUsed,  used > 0 { self.inventory.consume(.magicBag,  count: used) }
+            if let used = mini?.fireBagsUsed,   used > 0 { self.inventory.consume(.fireBag,   count: used) }
+            if let used = mini?.goldenBagsUsed, used > 0 { self.inventory.consume(.goldenBag, count: used) }
+
+            if playerWon {
+                self.inventory.collect(.coin, count: 10)
+                self.showHintBanner("+10 COINS")
+            } else {
+                if self.playerHearts > 0 {
+                    self.playerHearts -= 1
+                    HeartsManager.shared.lose()
+                    self.updateHeartsDisplay()
+                    if self.playerHearts <= 0 { self.triggerGameOver() }
+                }
+            }
+            self.isTransitioning = false
+        }
+
+        let transition = SKTransition.push(with: .up, duration: 0.38)
+        transition.pausesOutgoingScene = false
+        view.presentScene(mini, transition: transition)
     }
 
     /// Called from update() each frame: ticks the damage cooldown and, if a dog

@@ -7,6 +7,7 @@ enum StoryFlag: String, CaseIterable {
     case baseballEnabled    // baseball tile becomes interactive
     case batFound           // bat pickup has been collected
     case questAccepted      // Master Board quest is active
+    case bulliesEnabled     // Billy's gang roams the map and ambushes Jeff
 }
 
 // MARK: - Baseball AI style
@@ -253,7 +254,7 @@ enum StoryContent {
             autoOutcome: .spawnOnMap(StorySpawnConfig(
                 trigger: StoryManager.triggerBat,
                 nextModuleID: "p1_bat_found",
-                flags: [.dogsEnabled]))
+                flags: [.dogsEnabled, .bulliesEnabled]))
         ),
 
         // ── Lose to Tom in cornhole ────────────────────────────────────────────

@@ -283,7 +283,7 @@ final class CornholeMiniGameScene: SKScene {
     private var crowFlyingRight = true
 
     // Opponent selection
-    enum AIOpponent { case tom, jenny, billy, spirit }
+    enum AIOpponent { case tom, jenny, billy, spirit, bully }
     /// Set before presenting to skip the picker and start with a specific opponent.
     var preSelectedOpponent: AIOpponent? = nil
     private var selectedOpponent: AIOpponent = .tom
@@ -294,6 +294,7 @@ final class CornholeMiniGameScene: SKScene {
         case .jenny:  return "JENNY"
         case .billy:  return "BILLY"
         case .spirit: return "SPIRIT"
+        case .bully:  return "BULLY"
         }
     }
 
@@ -3231,6 +3232,7 @@ final class CornholeMiniGameScene: SKScene {
             switch pre {
             case .billy:  applyBillySettings()
             case .spirit: applySpiritSettings()
+            case .bully:  applyBullySettings()
             default: break
             }
             rollWeatherScenarios()
@@ -3282,6 +3284,12 @@ final class CornholeMiniGameScene: SKScene {
         winScore = 21
     }
 
+    /// Configures Billy's gang member (street-bully ambush): quick 7-point match,
+    /// standard difficulty. Used by world-map bully encounters.
+    private func applyBullySettings() {
+        winScore = 7
+    }
+
     /// Configures all Billy-specific overrides after opponent selection.
     private func applyBillySettings() {
         winScore = 21
@@ -3321,11 +3329,27 @@ final class CornholeMiniGameScene: SKScene {
         case .jenny:  name = "jenny"
         case .billy:  name = "billy"
         case .spirit: name = "spirit"
+        case .bully:  name = "bully"
         }
-        let tex  = SKTexture(imageNamed: name)
+        let tex: SKTexture
+        let portraitSize: CGSize
+        if selectedOpponent == .bully {
+            // bully.png is a sprite sheet (8 cols x 14 rows of 64x64). Crop the
+            // top-left frame for the portrait. SKTexture rect origin is bottom-left,
+            // so the top row sits at y = 1 - 1/14.
+            let sheet = SKTexture(imageNamed: name)
+            sheet.filteringMode = .nearest
+            let fw: CGFloat = 1.0 / 8.0
+            let fh: CGFloat = 1.0 / 14.0
+            tex = SKTexture(rect: CGRect(x: 0, y: 1.0 - fh, width: fw, height: fh), in: sheet)
+            portraitSize = CGSize(width: 32, height: 32)
+        } else {
+            tex = SKTexture(imageNamed: name)
+            portraitSize = CGSize(width: 48, height: 48)
+        }
         tex.filteringMode = .nearest
         let bottomH = size.height * 0.09
-        let portrait = SKSpriteNode(texture: tex, size: CGSize(width: 48, height: 48))
+        let portrait = SKSpriteNode(texture: tex, size: portraitSize)
         portrait.position  = CGPoint(x: -size.width / 2 + 28,
                                      y: -size.height / 2 + bottomH / 2)
         portrait.zPosition = 650
