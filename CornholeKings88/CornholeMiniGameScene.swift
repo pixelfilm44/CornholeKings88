@@ -382,6 +382,11 @@ final class CornholeMiniGameScene: SKScene {
         holeRadius   = boardHalfW * 0.25
         targetRange  = boardHalfW * 1.30
         targetSpeed  = size.width * 0.70   // source pixels per second
+        // Gauntlet (purchased from the world Store) slows the throw-line oscillation
+        // so the player can time their swipe more easily.
+        if StoreManager.gauntletOwned {
+            targetSpeed *= 0.55
+        }
         fartBaseSpeed = targetSpeed
 
         // powerScale chosen so a 38% screen-height swipe lands near the hole

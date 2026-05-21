@@ -76,6 +76,18 @@ final class PlayerNode: SKSpriteNode {
     private var state: AnimState = .idle
     private var facing: Facing = .down
 
+    /// Read-only access to current facing for world projectiles, etc.
+    var currentFacing: Facing { facing }
+    /// Unit vector in the direction the player is currently facing.
+    var currentFacingVector: CGVector {
+        switch facing {
+        case .up:    return CGVector(dx: 0, dy: 1)
+        case .down:  return CGVector(dx: 0, dy: -1)
+        case .left:  return CGVector(dx: -1, dy: 0)
+        case .right: return CGVector(dx: 1, dy: 0)
+        }
+    }
+
     init() {
         let first = PlayerNode.anims[.idle]?[.down]?.first
         super.init(texture: first,

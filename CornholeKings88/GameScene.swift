@@ -50,6 +50,22 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     private var nearbyChestPosition: CGPoint?
     private var openedChestKeys: Set<String> = []
 
+    // Store interaction (any tile on the "Store" map layer)
+    private var storePositions: [CGPoint] = []
+    private var nearbyStorePosition: CGPoint?
+    private var storeModal: StoreModalNode?
+
+    // World-throw beanbag projectiles
+    private var projectiles: [BeanbagProjectile] = []
+    private let projectileSpeed: CGFloat = 260
+    /// Roughly how far in world units a thrown bag travels before it lands.
+    private let projectileRange: CGFloat = 55
+    private let projectileHitRadius: CGFloat = 14
+    /// Last move direction the player committed to; used to throw bags
+    /// when the player is standing still (PlayerNode.currentFacing always
+    /// returns *some* facing, but we want responsive aim while moving).
+    private var lastFacingVector: CGVector = CGVector(dx: 0, dy: -1)
+
     // Placed dog biscuits
     private struct PlacedBiscuit { let node: SKNode; var isClaimed: Bool }
     private var placedBiscuits: [PlacedBiscuit] = []
@@ -72,6 +88,10 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     private var bullySpawnTimer: TimeInterval = 0
     private var nextBullySpawnInterval: TimeInterval = 1.5  // TESTING: fast first spawn
     private let maxBullies = 2
+    /// Seconds remaining of post-victory peace; while > 0 no bully spawns and
+    /// no contact with a roaming bully triggers a match.
+    private var bullyCooldownRemaining: TimeInterval = 0
+    private let bullyCooldownDuration: TimeInterval = 90.0
 
     // Story mode bat pickup (spawned in world during the bat-search phase)
     private var storyBatNode: SKNode?
@@ -399,7 +419,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         let b = makeActionButton(color: bronzeColor, label: "B", labelColor: SKColor(red: 0.85, green: 0.70, blue: 0.30, alpha: 1.0))
         b.position = CGPoint(x: bX, y: btnY)
         b.name = "btn_b"
-        b.isHidden = true   // shown when weapons are implemented
+        b.isHidden = true   // visible only while the player has bean bags
         cameraNode.addChild(b)
         btnB = b
 
@@ -436,6 +456,10 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         btnBiscuit?.isHidden = inventory.counts[.dogBiscuit, default: 0] == 0
     }
 
+    private func updateThrowButton() {
+        btnB?.isHidden = inventory.counts[.bag, default: 0] == 0
+    }
+
     private func makeActionButton(color: SKColor, label: String, labelColor: SKColor) -> SKShapeNode {
         let btn = SKShapeNode(circleOfRadius: actionBtnRadius)
         btn.fillColor = color
@@ -470,8 +494,14 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
             guard let self else { return }
             self.inventoryHUD?.refresh(counts: self.inventory.counts)
             self.updateBiscuitButton()
+            self.updateThrowButton()
+            self.storeModal?.refreshCardStates()
         }
         updateBiscuitButton()
+        updateThrowButton()
+        // Initial HUD render — without this, items collected in a prior session
+        // don't appear until the next inventory change.
+        inventoryHUD?.refresh(counts: inventory.counts)
 
         // TODO: remove before ship — grants 3 fire bags for testing
         if inventory.counts[.fireBag, default: 0] == 0 {
@@ -508,6 +538,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         extractBeehivePositions(from: m)
         extractPoolPositions(from: m)
         extractChestPositions(from: m)
+        extractStorePositions(from: m)
         extractBridgeStonePositions(from: m)
         extractBridgeWoodPositions(from: m)
         cacheBridgePhysicsNodes(from: m)
@@ -778,6 +809,24 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         print("📦 Found \(chestPositions.count) chest(s) on the map")
     }
 
+    /// Scans the "Store" map layer for any non-zero tile and stores one world-space
+    /// center per tile. Pressing A near any of these opens the store modal.
+    private func extractStorePositions(from m: TMXMap) {
+        storePositions.removeAll()
+        guard let grid = m.layerGIDs["Store"] else {
+            print("🏪 No Store layer found on the map")
+            return
+        }
+        for r in 0..<m.rows {
+            for c in 0..<m.cols {
+                let gid = grid[r][c] & 0x0FFF_FFFF
+                guard gid != 0 else { continue }
+                storePositions.append(m.tileCenter(col: c, row: r))
+            }
+        }
+        print("🏪 Found \(storePositions.count) store tile(s) on the map")
+    }
+
     /// Scans every map layer for bridge_stone tiles and stores one world-space center per tile.
     private func extractBridgeStonePositions(from m: TMXMap) {
         bridgeStonePositions.removeAll()
@@ -850,6 +899,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     private func checkBoardProximity() {
         let cornholeRadius:    CGFloat = 26
         let chestRadius:       CGFloat = 26
+        let storeRadius:       CGFloat = 28
         let bridgeStoneRadius: CGFloat = 36
         let baseballRadius:    CGFloat = 56
         let treeRadius:        CGFloat = 20
@@ -869,6 +919,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         var bestBeehive:      CGPoint? = nil
         var bestPool:         CGPoint? = nil
         var bestBridgeWood:   CGPoint? = nil
+        var bestStore:        CGPoint? = nil
 
         for pos in cornholeBoardPositions {
             let d = hypot(player.position.x - pos.x, player.position.y - pos.y)
@@ -880,45 +931,52 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
                 bestDist = d; bestBoard = nil; bestChest = pos
             }
         }
+        for pos in storePositions {
+            let d = hypot(player.position.x - pos.x, player.position.y - pos.y)
+            if d < storeRadius && d < bestDist {
+                bestDist = d
+                bestBoard = nil; bestChest = nil; bestStore = pos
+            }
+        }
         for pos in bridgeStonePositions {
             let d = hypot(player.position.x - pos.x, player.position.y - pos.y)
             if d < bridgeStoneRadius && d < bestDist {
-                bestDist = d; bestBoard = nil; bestChest = nil; bestBridgeStone = pos
+                bestDist = d; bestBoard = nil; bestChest = nil; bestStore = nil; bestBridgeStone = pos
             }
         }
         if CornholeStatsManager.shared.baseballUnlocked || StoryManager.shared.hasFlag(.baseballEnabled) {
             for pos in baseballPositions {
                 let d = hypot(player.position.x - pos.x, player.position.y - pos.y)
                 if d < baseballRadius && d < bestDist {
-                    bestDist = d; bestBoard = nil; bestChest = nil; bestBridgeStone = nil; bestBaseball = pos
+                    bestDist = d; bestBoard = nil; bestChest = nil; bestStore = nil; bestBridgeStone = nil; bestBaseball = pos
                 }
             }
         }
         for pos in treePositions {
             let d = hypot(player.position.x - pos.x, player.position.y - pos.y)
             if d < treeRadius && d < bestDist {
-                bestDist = d; bestBoard = nil; bestChest = nil; bestBridgeStone = nil
+                bestDist = d; bestBoard = nil; bestChest = nil; bestStore = nil; bestBridgeStone = nil
                 bestBaseball = nil; bestTree = pos
             }
         }
         for pos in appleTreePositions {
             let d = hypot(player.position.x - pos.x, player.position.y - pos.y)
             if d < appleTreeRadius && d < bestDist {
-                bestDist = d; bestBoard = nil; bestChest = nil; bestBridgeStone = nil
+                bestDist = d; bestBoard = nil; bestChest = nil; bestStore = nil; bestBridgeStone = nil
                 bestBaseball = nil; bestTree = nil; bestAppleTree = pos
             }
         }
         for pos in beehivePositions {
             let d = hypot(player.position.x - pos.x, player.position.y - pos.y)
             if d < beehiveRadius && d < bestDist {
-                bestDist = d; bestBoard = nil; bestChest = nil; bestBridgeStone = nil
+                bestDist = d; bestBoard = nil; bestChest = nil; bestStore = nil; bestBridgeStone = nil
                 bestBaseball = nil; bestTree = nil; bestAppleTree = nil; bestBeehive = pos
             }
         }
         for pos in poolPositions {
             let d = hypot(player.position.x - pos.x, player.position.y - pos.y)
             if d < poolRadius && d < bestDist {
-                bestDist = d; bestBoard = nil; bestChest = nil; bestBridgeStone = nil
+                bestDist = d; bestBoard = nil; bestChest = nil; bestStore = nil; bestBridgeStone = nil
                 bestBaseball = nil; bestTree = nil; bestAppleTree = nil
                 bestBeehive = nil; bestPool = pos
             }
@@ -928,7 +986,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
             for pos in bridgeWoodPositions {
                 let d = hypot(player.position.x - pos.x, player.position.y - pos.y)
                 if d < bridgeWoodRadius && d < bestDist {
-                    bestDist = d; bestBoard = nil; bestChest = nil; bestBridgeStone = nil
+                    bestDist = d; bestBoard = nil; bestChest = nil; bestStore = nil; bestBridgeStone = nil
                     bestBaseball = nil; bestTree = nil; bestAppleTree = nil
                     bestBeehive = nil; bestPool = nil; bestBridgeWood = pos
                 }
@@ -941,7 +999,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
             let d = hypot(player.position.x - batPos.x, player.position.y - batPos.y)
             if d < storyBatRadius && d < bestDist {
                 bestDist = d
-                bestBoard = nil; bestChest = nil; bestBridgeStone = nil
+                bestBoard = nil; bestChest = nil; bestStore = nil; bestBridgeStone = nil
                 bestBaseball = nil; bestTree = nil; bestAppleTree = nil
                 bestBeehive = nil; bestPool = nil; bestBridgeWood = nil
                 bestStoryBat = batPos
@@ -950,6 +1008,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
 
         nearbyBoardPosition       = bestBoard
         nearbyChestPosition       = bestChest
+        nearbyStorePosition       = bestStore
         nearbyBridgeStonePosition = bestBridgeStone
         nearbyBaseballPosition    = bestBaseball
         nearbyTreePosition        = bestTree
@@ -966,6 +1025,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         let anchor: CGPoint?
         if let p = bestBoard              { anchor = CGPoint(x: p.x, y: p.y + 22) }
         else if let p = bestChest         { anchor = CGPoint(x: p.x, y: p.y + 22) }
+        else if let p = bestStore         { anchor = CGPoint(x: p.x, y: p.y + 22) }
         else if let p = bestBridgeStone   { anchor = CGPoint(x: p.x, y: p.y + 22) }
         else if let p = bestBaseball      { anchor = CGPoint(x: p.x, y: p.y + 22) }
         else if let p = bestTree          { anchor = CGPoint(x: p.x, y: p.y + 22) }
@@ -1462,6 +1522,12 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         guard !isTransitioning else { return }
         let pInCam = touch.location(in: cameraNode)
 
+        // Store modal — when open, route all input to it.
+        if let modal = storeModal {
+            modal.handleTap(at: touch.location(in: modal))
+            return
+        }
+
         // Pause overlay routing
         if isPausedGame {
             for n in nodes(at: touch.location(in: self)) {
@@ -1516,6 +1582,8 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
                 }
             } else if nearbyChestPosition != nil {
                 openChest()
+            } else if nearbyStorePosition != nil {
+                openStore()
             } else if nearbyBridgeStonePosition != nil {
                 openBeachBallCornhole()
             } else if nearbyAppleTreePosition != nil {
@@ -1545,8 +1613,8 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
             }
             return
         }
-        if let b = btnB, distanceSquared(pInCam, b.position) < btnHit {
-            // Hook for B action goes here.
+        if let b = btnB, !b.isHidden, distanceSquared(pInCam, b.position) < btnHit {
+            throwBeanbag()
             return
         }
 
@@ -1594,6 +1662,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
             newDirection = CGVector(dx: 0, dy: offset.y >= 0 ? 1 : -1)
         }
         player?.moveDirection = newDirection
+        lastFacingVector = newDirection
         if newDirection.dx != lastDpadDirection.dx || newDirection.dy != lastDpadDirection.dy {
             dpadHaptics.impactOccurred()
             dpadHaptics.prepare()
@@ -1666,6 +1735,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
             player?.update(dt: dt)
             updateDogs(dt: dt)
             updateBullies(dt: dt)
+            updateProjectiles(dt: dt)
             updateDamage(dt: dt)
             updateCamera()
             checkBoardProximity()
@@ -1679,6 +1749,132 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
                 sprite.zPosition = -sprite.position.y
             }
         }
+    }
+
+    // MARK: - Store Modal
+
+    private func openStore() {
+        guard storeModal == nil, !isTransitioning else { return }
+        player.moveDirection = .zero
+        resetBeanbagControl()
+
+        let callbacks = StoreModalNode.Callbacks(
+            coinBalance:  { [weak self] in self?.inventory.counts[.coin, default: 0] ?? 0 },
+            buyBeanbags:  { [weak self] in self?.purchaseBeanbags() ?? false },
+            buyPowerJuice:{ [weak self] in self?.purchasePowerJuice() ?? false },
+            buyGauntlet:  { [weak self] in self?.purchaseGauntlet() ?? false },
+            close:        { [weak self] in self?.closeStore() },
+            gauntletOwned:{ StoreManager.gauntletOwned }
+        )
+        let modal = StoreModalNode(sceneSize: size, callbacks: callbacks)
+        cameraNode.addChild(modal)
+        storeModal = modal
+    }
+
+    private func closeStore() {
+        storeModal?.removeFromParent()
+        storeModal = nil
+    }
+
+    private func purchaseBeanbags() -> Bool {
+        let coins = inventory.counts[.coin, default: 0]
+        guard coins >= 10 else { return false }
+        inventory.consume(.coin, count: 10)
+        inventory.collect(.bag, count: 5)
+        return true
+    }
+
+    private func purchasePowerJuice() -> Bool {
+        let coins = inventory.counts[.coin, default: 0]
+        guard coins >= 10 else { return false }
+        inventory.consume(.coin, count: 10)
+        HeartsManager.shared.refill()
+        return true
+    }
+
+    private func purchaseGauntlet() -> Bool {
+        guard !StoreManager.gauntletOwned else { return false }
+        let coins = inventory.counts[.coin, default: 0]
+        guard coins >= 30 else { return false }
+        inventory.consume(.coin, count: 30)
+        StoreManager.gauntletOwned = true
+        return true
+    }
+
+    // MARK: - World Beanbag Throw
+
+    private func throwBeanbag() {
+        guard !isTransitioning, !isGameOver else { return }
+        guard inventory.counts[.bag, default: 0] > 0, let m = map else { return }
+        inventory.consume(.bag, count: 1)
+
+        // Prefer the directional joystick's last heading; fall back to the
+        // player's sprite facing so a stationary throw still works.
+        let dir: CGVector
+        if lastFacingVector.dx != 0 || lastFacingVector.dy != 0 {
+            dir = lastFacingVector
+        } else {
+            dir = player.currentFacingVector
+        }
+        let mag = max(hypot(dir.dx, dir.dy), 0.001)
+        let unit = CGVector(dx: dir.dx / mag, dy: dir.dy / mag)
+        let velocity = CGVector(dx: unit.dx * projectileSpeed,
+                                 dy: unit.dy * projectileSpeed)
+
+        let lifetime = TimeInterval(projectileRange / projectileSpeed)
+        let bag = BeanbagProjectile(velocity: velocity, lifetime: lifetime)
+        // Spawn just in front of the player so it doesn't self-collide with the
+        // thrower's own contact body.
+        bag.position = CGPoint(x: player.position.x + unit.dx * 14,
+                                y: player.position.y + unit.dy * 14)
+        bag.zPosition = 5_500
+        m.mapNode.addChild(bag)
+        projectiles.append(bag)
+        HapticsManager.shared.lightImpact()
+    }
+
+    private func updateProjectiles(dt: TimeInterval) {
+        guard !projectiles.isEmpty else { return }
+        for bag in projectiles where !bag.isDead {
+            // Landed bags stay put on the ground until they fade out — no more
+            // collision checks or motion.
+            if bag.hasLanded { continue }
+
+            bag.position.x += bag.velocity.dx * CGFloat(dt)
+            bag.position.y += bag.velocity.dy * CGFloat(dt)
+            bag.lifeRemaining -= dt
+
+            // Hit a dog? Any dog within radius starts fleeing and the bag pops.
+            var consumed = false
+            for dog in dogs where !dog.isFleeing {
+                let d = hypot(dog.position.x - bag.position.x,
+                              dog.position.y - bag.position.y)
+                if d < projectileHitRadius {
+                    dog.startFleeing(awayFrom: bag.position)
+                    dogsTouchingPlayer.remove(ObjectIdentifier(dog))
+                    bag.pop()
+                    consumed = true
+                    break
+                }
+            }
+            if consumed { continue }
+
+            // Hit a bully? First hit stuns, second hit makes them flee.
+            for bully in bullies where !bully.isFleeingFromBag && !bully.isEngaged {
+                let d = hypot(bully.position.x - bag.position.x,
+                              bully.position.y - bag.position.y)
+                if d < projectileHitRadius + 6 {
+                    bully.takeBagHit(from: bag.position)
+                    bag.pop()
+                    consumed = true
+                    break
+                }
+            }
+            if consumed { continue }
+
+            if bag.lifeRemaining <= 0 { bag.land() }
+        }
+        projectiles.removeAll { $0.parent == nil }
     }
 
     // MARK: - Camera (smooth follow; player stays centered in the square stage)
@@ -1718,7 +1914,8 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         let playerInvolved = (nodeA === player) || (nodeB === player)
 
         if let bully = (nodeA as? BullyNode) ?? (nodeB as? BullyNode),
-           playerInvolved, !bully.isEngaged, !isTransitioning, !isGameOver {
+           playerInvolved, !bully.isEngaged, !isTransitioning, !isGameOver,
+           storeModal == nil, bullyCooldownRemaining <= 0 {
             engageBully(bully)
             return
         }
@@ -1728,7 +1925,8 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
             dogsTouchingPlayer.insert(ObjectIdentifier(dog))
             // First contact deals damage immediately (subject to cooldown);
             // continued overlap is handled by updateDamage() ticking.
-            if damageCooldown == 0, let p = player, !p.isInTree, !isGameOver {
+            if damageCooldown == 0, storeModal == nil,
+               let p = player, !p.isInTree, !isGameOver {
                 bite()
             }
         }
@@ -1745,6 +1943,11 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     // MARK: - Enemy Dogs
 
     private func updateDogs(dt: TimeInterval) {
+        // Freeze enemies while the store is open — the player is "inside".
+        if storeModal != nil {
+            for dog in dogs { dog.physicsBody?.velocity = .zero }
+            return
+        }
         dogSpawnTimer += dt
         if dogSpawnTimer >= nextDogSpawnInterval && dogs.count < maxDogs
             && StoryManager.shared.hasFlag(.dogsEnabled) {
@@ -1793,28 +1996,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
 
     private func spawnDog() {
         guard let m = map else { return }
-        let stage   = stageWorldSize
-        let centerX = cameraNode.position.x
-        let centerY = cameraNode.position.y + stageCenterYWorld
-        let pad: CGFloat = 24
-
-        let half = stage / 2
-        let edge = Int.random(in: 0...3)
-        let pos: CGPoint
-        switch edge {
-        case 0:
-            pos = CGPoint(x: .random(in: centerX - half ... centerX + half),
-                          y: centerY + half + pad)
-        case 1:
-            pos = CGPoint(x: .random(in: centerX - half ... centerX + half),
-                          y: centerY - half - pad)
-        case 2:
-            pos = CGPoint(x: centerX - half - pad,
-                          y: .random(in: centerY - half ... centerY + half))
-        default:
-            pos = CGPoint(x: centerX + half + pad,
-                          y: .random(in: centerY - half ... centerY + half))
-        }
+        guard let pos = randomEdgeSpawn() else { return }
 
         let dog = DogNode()
         dog.position = pos
@@ -1825,6 +2007,51 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
             hasShownDogTutorial = true
             showHintBanner("Dodge the dogs!\nClimb a tree for safety \u{25B2}A")
         }
+    }
+
+    /// True if a world-space point is on a tile the player (and therefore an
+    /// enemy) is allowed to occupy — i.e. not a Collisions-layer block and not
+    /// open water. Mirrors the rules in `buildPhysics(from:)`.
+    private func isWalkable(_ worldPos: CGPoint) -> Bool {
+        guard let m = map else { return true }
+        let tw = m.tileSize.width
+        let th = m.tileSize.height
+        let col = Int(floor(worldPos.x / tw))
+        let row = m.rows - 1 - Int(floor(worldPos.y / th))
+        guard col >= 0, col < m.cols, row >= 0, row < m.rows else { return false }
+
+        if let collisions = m.layerGIDs["Collisions"], collisions[row][col] != 0 {
+            return false
+        }
+        let groundGid = (m.layerGIDs["Ground"]?[row][col] ?? 0) & 0x0FFF_FFFF
+        let isWater = (22...45).contains(groundGid) || (257...304).contains(groundGid)
+        // A bridge (any tile on Interactions) overrides water — match buildPhysics.
+        let hasBridge = (m.layerGIDs["Interactions"]?[row][col] ?? 0) != 0
+        if isWater && !hasBridge { return false }
+        return true
+    }
+
+    /// Pick a spawn position around the player's current screen that lands on a
+    /// walkable tile. Returns nil if all attempts hit obstacles — the caller
+    /// should just skip the spawn that frame and try again next interval.
+    private func randomEdgeSpawn(maxAttempts: Int = 10) -> CGPoint? {
+        let stage   = stageWorldSize
+        let centerX = cameraNode.position.x
+        let centerY = cameraNode.position.y + stageCenterYWorld
+        let half = stage / 2
+        let pad: CGFloat = 24
+        for _ in 0..<maxAttempts {
+            let edge = Int.random(in: 0...3)
+            let pos: CGPoint
+            switch edge {
+            case 0: pos = CGPoint(x: .random(in: centerX - half ... centerX + half), y: centerY + half + pad)
+            case 1: pos = CGPoint(x: .random(in: centerX - half ... centerX + half), y: centerY - half - pad)
+            case 2: pos = CGPoint(x: centerX - half - pad, y: .random(in: centerY - half ... centerY + half))
+            default: pos = CGPoint(x: centerX + half + pad, y: .random(in: centerY - half ... centerY + half))
+            }
+            if isWalkable(pos) { return pos }
+        }
+        return nil
     }
 
     private func isDogOffScreen(_ dog: DogNode) -> Bool {
@@ -1847,8 +2074,17 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     // MARK: - Roaming Bullies
 
     private func updateBullies(dt: TimeInterval) {
+        if storeModal != nil {
+            for bully in bullies { bully.physicsBody?.velocity = .zero }
+            return
+        }
+        // Post-victory peace window — no new bullies, no engagements.
+        if bullyCooldownRemaining > 0 {
+            bullyCooldownRemaining -= dt
+        }
         bullySpawnTimer += dt
-        if bullySpawnTimer >= nextBullySpawnInterval && bullies.count < maxBullies {
+        if bullyCooldownRemaining <= 0
+           && bullySpawnTimer >= nextBullySpawnInterval && bullies.count < maxBullies {
             // TODO: re-enable story gate — `StoryManager.shared.hasFlag(.bulliesEnabled)` —
             // once bully testing is done. Currently always-on for testing.
             bullySpawnTimer = 0
@@ -1873,26 +2109,30 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     private func spawnBully() {
         guard let m = map else { return }
         let stage   = stageWorldSize
-        let centerX = cameraNode.position.x
         let centerY = cameraNode.position.y + stageCenterYWorld
         let half    = stage / 2
 
         let pos: CGPoint
         if bullies.isEmpty {
-            // TESTING: drop the first bully clearly on-screen, roughly 80 units
-            // in front of the player so they can't miss it. Stays inside stage.
-            let offsetY: CGFloat = 80
-            let py = min(centerY + half - 24, max(centerY - half + 24, player.position.y + offsetY))
-            pos = CGPoint(x: player.position.x, y: py)
-        } else {
-            let pad: CGFloat = 28
-            let edge = Int.random(in: 0...3)
-            switch edge {
-            case 0: pos = CGPoint(x: .random(in: centerX - half ... centerX + half), y: centerY + half + pad)
-            case 1: pos = CGPoint(x: .random(in: centerX - half ... centerX + half), y: centerY - half - pad)
-            case 2: pos = CGPoint(x: centerX - half - pad, y: .random(in: centerY - half ... centerY + half))
-            default: pos = CGPoint(x: centerX + half + pad, y: .random(in: centerY - half ... centerY + half))
+            // First bully: try in front of the player, walking outward if the
+            // ideal spot lands on a wall.
+            let candidates: [CGPoint] = [
+                CGPoint(x: player.position.x,
+                         y: min(centerY + half - 24, max(centerY - half + 24, player.position.y + 80))),
+                CGPoint(x: player.position.x + 60, y: player.position.y),
+                CGPoint(x: player.position.x - 60, y: player.position.y),
+                CGPoint(x: player.position.x, y: player.position.y - 60),
+            ]
+            if let walkable = candidates.first(where: { isWalkable($0) }) {
+                pos = walkable
+            } else if let edge = randomEdgeSpawn() {
+                pos = edge
+            } else {
+                return
             }
+        } else {
+            guard let edge = randomEdgeSpawn() else { return }
+            pos = edge
         }
 
         let bully = BullyNode()
@@ -1955,6 +2195,10 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
             if playerWon {
                 self.inventory.collect(.coin, count: 10)
                 self.showHintBanner("+10 COINS")
+                // Beat one bully → 90-second peace before another can attack.
+                self.bullyCooldownRemaining = self.bullyCooldownDuration
+                self.bullySpawnTimer = 0
+                self.clearBullies()
             } else {
                 if self.playerHearts > 0 {
                     self.playerHearts -= 1
@@ -1976,6 +2220,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     private func updateDamage(dt: TimeInterval) {
         damageCooldown = max(0, damageCooldown - dt)
         guard !isGameOver,
+              storeModal == nil,
               damageCooldown == 0,
               !dogsTouchingPlayer.isEmpty,
               let p = player, !p.isInTree else { return }

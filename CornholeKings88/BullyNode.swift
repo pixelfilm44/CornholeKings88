@@ -12,6 +12,47 @@ final class BullyNode: SKNode {
     /// bully halts and produces no further contacts.
     var isEngaged: Bool = false
 
+    /// Bag-hit state. After 2 bag hits the bully flees off-screen.
+    private(set) var bagHits: Int = 0
+    private(set) var isFleeingFromBag: Bool = false
+    private var fleeVelocity: CGVector = .zero
+    /// Brief stun + knockback after a non-fatal bag hit. While > 0, no chase or wander.
+    private var stunTimer: TimeInterval = 0
+    private var knockbackVelocity: CGVector = .zero
+    private let stunDuration: TimeInterval = 0.8
+
+    /// Called by GameScene when a thrown beanbag connects.
+    /// Returns true if the bully is now fleeing (so caller can drop the contact).
+    @discardableResult
+    func takeBagHit(from origin: CGPoint) -> Bool {
+        guard !isFleeingFromBag else { return true }
+        bagHits += 1
+        let dx = position.x - origin.x
+        let dy = position.y - origin.y
+        let d = max(hypot(dx, dy), 0.001)
+
+        // Quick red flash for feedback.
+        bodySprite.removeAction(forKey: "hitFlash")
+        bodySprite.run(.sequence([
+            .colorize(with: .red, colorBlendFactor: 1.0, duration: 0.0),
+            .wait(forDuration: 0.10),
+            .colorize(withColorBlendFactor: 0.0, duration: 0.20),
+        ]), withKey: "hitFlash")
+
+        if bagHits >= 2 {
+            isFleeingFromBag = true
+            let speed: CGFloat = chaseSpeed * 1.5
+            fleeVelocity = CGVector(dx: dx / d * speed, dy: dy / d * speed)
+            return true
+        }
+
+        // First hit — stun + knockback, then resume chasing.
+        stunTimer = stunDuration
+        let kb: CGFloat = 110
+        knockbackVelocity = CGVector(dx: dx / d * kb, dy: dy / d * kb)
+        return false
+    }
+
     private var bodySprite: SKSpriteNode!
     private var wanderHeading: CGVector = .zero
     private var wanderRetargetTimer: TimeInterval = 0
@@ -105,6 +146,23 @@ final class BullyNode: SKNode {
 
         if isEngaged {
             physicsBody?.velocity = .zero
+            return
+        }
+
+        if isFleeingFromBag {
+            physicsBody?.velocity = fleeVelocity
+            updateFacing(velocity: fleeVelocity)
+            updateAnimation(dt: dt, velocity: fleeVelocity)
+            return
+        }
+
+        if stunTimer > 0 {
+            stunTimer -= dt
+            physicsBody?.velocity = knockbackVelocity
+            // Decay knockback so the bully slides to a stop before resuming.
+            knockbackVelocity = CGVector(dx: knockbackVelocity.dx * 0.85,
+                                         dy: knockbackVelocity.dy * 0.85)
+            updateAnimation(dt: dt, velocity: .zero)
             return
         }
 
