@@ -96,7 +96,9 @@ final class PlayerNode: SKSpriteNode {
         if first == nil { colorBlendFactor = 1.0 }
 
         // Anchor at the feet area: physics circle near the bottom of the sprite.
-        let body = SKPhysicsBody(circleOfRadius: 6.0, center: CGPoint(x: 0, y: -16))
+        // NOTE: y offset tuned so the cyan debug circle sits on the visible feet
+        // of the current character art (not the bottom of the 48×48 frame).
+        let body = SKPhysicsBody(circleOfRadius: 6.0, center: CGPoint(x: 0, y: -6))
         body.allowsRotation = false
         body.categoryBitMask    = PlayerNode.categoryBit
         body.collisionBitMask   = PlayerNode.worldBit

@@ -1409,6 +1409,8 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
 
                 let blocker = SKNode()
                 blocker.position = m.tileCenter(col: c, row: r)
+                // Body matches the painted tile exactly — alignment depends on
+                // the Collisions layer being painted correctly in Tiled.
                 let body = SKPhysicsBody(rectangleOf: m.tileSize)
                 body.isDynamic = false
                 body.categoryBitMask = PlayerNode.worldBit
@@ -1763,7 +1765,12 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         for name in ["Collisions", "Interactions"] {
             guard let layer = m.layerNodes[name] else { continue }
             for sprite in layer.children {
-                sprite.zPosition = -sprite.position.y
+                // Sort by the tile's BOTTOM edge (matches the player's feet-sort
+                // in PlayerNode.update: `-(position.y - 24)`). Sorting by tile
+                // center would let the player walk past the visual base of an
+                // object before rendering goes behind it.
+                let halfH = (sprite as? SKSpriteNode)?.size.height ?? m.tileSize.height
+                sprite.zPosition = -(sprite.position.y - halfH / 2)
             }
         }
     }

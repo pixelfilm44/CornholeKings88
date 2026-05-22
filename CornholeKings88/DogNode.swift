@@ -81,10 +81,10 @@ final class DogNode: SKNode {
     func update(dt: TimeInterval, playerPosition: CGPoint, playerInTree: Bool, isBiting: Bool) {
         zPosition = -(position.y - 3)  // sort by feet (body bottom), not center
 
-        // The player's physics body is anchored at the feet (16 px below sprite
-        // center). Aim there so the dog's body actually overlaps the player's
-        // body and fires a contact event.
-        let target = CGPoint(x: playerPosition.x, y: playerPosition.y - 16)
+        // The player's physics body is anchored at the visible feet (offset
+        // below sprite center). Aim there so the dog's body actually overlaps
+        // the player's body and fires a contact event.
+        let target = CGPoint(x: playerPosition.x, y: playerPosition.y - 6)
 
         // Biscuit target suppresses tree-run locking so the dog doesn't drift off.
         if biscuitTarget == nil {

@@ -129,7 +129,10 @@ final class BullyNode: SKNode {
     }
 
     private func setupPhysics() {
-        let pb = SKPhysicsBody(rectangleOf: CGSize(width: 18, height: 12))
+        // Visual sprite is offset to (0, 16); place the body at the visible feet,
+        // not at the node origin (which sits below the visible character art).
+        let pb = SKPhysicsBody(rectangleOf: CGSize(width: 18, height: 12),
+                               center: CGPoint(x: 0, y: 10))
         pb.isDynamic      = true
         pb.allowsRotation = false
         pb.mass           = 0.12
@@ -168,7 +171,7 @@ final class BullyNode: SKNode {
 
         // Chase when the player is close and not safely up a tree.
         let dx = playerPosition.x - position.x
-        let dy = (playerPosition.y - 16) - position.y
+        let dy = (playerPosition.y - 6) - position.y
         let dist = hypot(dx, dy)
 
         // Desired pre-detour heading (chase target or wander direction).
@@ -250,7 +253,11 @@ final class BullyNode: SKNode {
         if speed > 2 {
             animTime += dt * Double(max(speed / 60.0, 1.0))
             let fps: Double = 10
-            let idx = Int(animTime * fps) % frames.count
+            // Only the first 6 columns of each walk row contain art —
+            // columns 6 and 7 in the bully sheet are blank and would
+            // flash the bully invisible if we cycled through them.
+            let walkFrameCount = min(6, frames.count)
+            let idx = Int(animTime * fps) % walkFrameCount
             bodySprite.texture = frames[idx]
         } else {
             // Standing still — show the first frame of the current facing row.
