@@ -15,6 +15,7 @@ final class TutorialManager {
     static let beehive   = "tutorial.beehive.v1"
     static let beachball = "tutorial.beachball.v1"
     static let piranha   = "tutorial.piranha.v1"
+    static let jousters  = "tutorial.jousters.v1"
 
     func hasSeen(_ key: String) -> Bool {
         UserDefaults.standard.bool(forKey: key)

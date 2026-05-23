@@ -28,6 +28,7 @@ final class MiniGamePickerScene: SKScene {
         MenuItem(label: "BEEHIVE BATTLE", subLabel: "defense",    name: "beehive",    isLocked: false),
         MenuItem(label: "BEACH BALL",     subLabel: "pool blitz",    name: "beachball",  isLocked: false),
         MenuItem(label: "PIRANHA BRIDGE", subLabel: "bridge build",  name: "piranha",    isLocked: false),
+        MenuItem(label: "SUBURBAN JOUSTERS", subLabel: "bike joust", name: "jousters",   isLocked: false),
         MenuItem(label: "EXPLORE",        subLabel: "open world",    name: "explore",    isLocked: true),
     ]
 
@@ -542,6 +543,31 @@ final class MiniGamePickerScene: SKScene {
                 fPath.closeSubpath()
                 c.addPath(fPath); c.fillPath()
 
+            case "jousters":
+                // Dirt arena backdrop
+                c.setFillColor(UIColor(red: 0.573, green: 0.400, blue: 0.278, alpha: 1).cgColor)
+                c.fill(CGRect(x: 0, y: 0, width: s.width, height: s.height))
+                // Two bike frame bars going up the icon (lances) — silver tips, ribbons
+                c.setStrokeColor(UIColor(white: 0.33, alpha: 1).cgColor)
+                c.setLineWidth(2.0)
+                // Player lance (lower-left → upper-right) red ribbon
+                c.move(to: CGPoint(x: s.width * 0.20, y: s.height * 0.18))
+                c.addLine(to: CGPoint(x: s.width * 0.78, y: s.height * 0.78))
+                c.strokePath()
+                // Rival lance (upper-left → lower-right) yellow ribbon
+                c.move(to: CGPoint(x: s.width * 0.22, y: s.height * 0.82))
+                c.addLine(to: CGPoint(x: s.width * 0.80, y: s.height * 0.22))
+                c.strokePath()
+                // Crossed silver tips
+                c.setFillColor(UIColor(white: 0.61, alpha: 1).cgColor)
+                c.fill(CGRect(x: s.width * 0.72, y: s.height * 0.72, width: 5, height: 5))
+                c.fill(CGRect(x: s.width * 0.72, y: s.height * 0.20, width: 5, height: 5))
+                // Red and yellow ribbon markers
+                c.setFillColor(accentColor.cgColor)
+                c.fill(CGRect(x: s.width * 0.45, y: s.height * 0.42, width: 4, height: 4))
+                c.setFillColor(UIColor(red: 0.96, green: 0.84, blue: 0.10, alpha: 1).cgColor)
+                c.fill(CGRect(x: s.width * 0.52, y: s.height * 0.55, width: 4, height: 4))
+
             case "explore":
                 // Compass circle
                 c.setStrokeColor(strokeColor.cgColor); c.setLineWidth(1.5)
@@ -693,6 +719,17 @@ final class MiniGamePickerScene: SKScene {
             let s = BridgePiranhaScene(size: ppSize)
             s.previousScene = self; s.scaleMode = .resizeFill
             s.onComplete = { _ in }
+            push(to: s)
+
+        case "jousters":
+            let s = SuburbanJoustersScene(size: ppSize)
+            s.previousScene = self; s.scaleMode = .resizeFill
+            if HeartsManager.shared.currentHearts <= 0 { HeartsManager.shared.refill() }
+            s.startingHearts = HeartsManager.shared.currentHearts
+            s.onComplete = { [weak s] _ in
+                guard let s = s else { return }
+                HeartsManager.shared.set(s.remainingHearts)
+            }
             push(to: s)
 
         case "explore":
