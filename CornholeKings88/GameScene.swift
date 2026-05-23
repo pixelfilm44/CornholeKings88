@@ -1775,11 +1775,18 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         //
         // We detect "tall objects" by tileset name (tree/house/shed). Add more
         // keywords here as new multi-tile decorations are imported.
+        //
+        // We process ALL layers except the ones that carry fixed special
+        // z-positions (Ground stays pinned at -10_000; Spawns, ImaginationFX,
+        // and Baseball are hidden/overlay layers that must not be y-sorted).
+        // This ensures every tree — climbable oaks, apple trees, and any future
+        // decorative tree layer — gets the trunk-anchor sort.
         let tallKeywords = ["tree", "house", "shed"]
         let tileH = m.tileSize.height
+        let skipLayers: Set<String> = ["Ground", "Spawns", "ImaginationFX", "Baseball"]
 
-        for name in ["Collisions", "Interactions"] {
-            guard let layer = m.layerNodes[name] else { continue }
+        for (name, layer) in m.layerNodes {
+            guard !skipLayers.contains(name) else { continue }
             for sprite in layer.children {
                 guard let s = sprite as? SKSpriteNode else { continue }
                 let halfH = s.size.height / 2
