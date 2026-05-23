@@ -685,7 +685,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     private func extractTreePositions(from m: TMXMap) {
         treePositions.removeAll()
         let treeRanges = m.tilesetRanges
-            .filter { $0.name.contains("tree") && !$0.name.contains("apple") }
+            .filter { $0.name.contains("big_oak_tree") }
             .map(\.gidRange)
         guard !treeRanges.isEmpty else {
             print("🌳 No tree tilesets found on the map")
