@@ -111,7 +111,7 @@ final class PlayerNode: SKSpriteNode {
     required init?(coder aDecoder: NSCoder) { fatalError("init(coder:) not supported") }
 
     func update(dt: TimeInterval) {
-        zPosition = -(position.y - 24)  // sort by sprite bottom (feet), not center
+        zPosition = -(position.y - 6)   // sort by visible feet (matches physics body offset)
 
         // Moving while in a tree descends automatically
         if isInTree && (moveDirection.dx != 0 || moveDirection.dy != 0) {

@@ -1762,15 +1762,41 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     }
 
     private func ySortStaticLayers(in m: TMXMap) {
+        // Tile-row-aware z-sort.
+        //
+        // Plain feet-sort works for short tiles but breaks for tall multi-tile
+        // objects (trees, houses): when the player walks under a tree, the
+        // canopy 4 rows above the trunk sorts by its OWN bottom (way above the
+        // player's feet) and the player's head pokes through. Fix: every tile
+        // from a "tall object" tileset sorts as if it were the bottom row of
+        // its tileset (the trunk base). That way the canopy and trunk share
+        // one anchor and the whole tree renders as a single layer relative to
+        // the player.
+        //
+        // We detect "tall objects" by tileset name (tree/house/shed). Add more
+        // keywords here as new multi-tile decorations are imported.
+        let tallKeywords = ["tree", "house", "shed"]
+        let tileH = m.tileSize.height
+
         for name in ["Collisions", "Interactions"] {
             guard let layer = m.layerNodes[name] else { continue }
             for sprite in layer.children {
-                // Sort by the tile's BOTTOM edge (matches the player's feet-sort
-                // in PlayerNode.update: `-(position.y - 24)`). Sorting by tile
-                // center would let the player walk past the visual base of an
-                // object before rendering goes behind it.
-                let halfH = (sprite as? SKSpriteNode)?.size.height ?? m.tileSize.height
-                sprite.zPosition = -(sprite.position.y - halfH / 2)
+                guard let s = sprite as? SKSpriteNode else { continue }
+                let halfH = s.size.height / 2
+                var sortY = s.position.y - halfH   // default: tile bottom
+
+                // If this tile is part of a tall multi-row object, shift the
+                // sort y down to the bottom row of its tileset.
+                if let gid = s.userData?["gid"] as? Int,
+                   let ts = m.tilesetRanges.first(where: { $0.gidRange.contains(gid) }),
+                   tallKeywords.contains(where: { ts.name.contains($0) }),
+                   ts.columns > 0, ts.rows > 1 {
+                    let localID = gid - ts.gidRange.lowerBound
+                    let rowInTileset = localID / ts.columns
+                    let rowsBelow = (ts.rows - 1) - rowInTileset
+                    sortY -= CGFloat(rowsBelow) * tileH
+                }
+                s.zPosition = -sortY
             }
         }
     }

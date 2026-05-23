@@ -8,8 +8,8 @@ struct TMXMap {
     let sizeInPoints: CGSize
     let layerGIDs: [String: [[Int]]]
     let layerNodes: [String: SKNode]
-    /// Each loaded tileset's lowercase basename and its GID range.
-    let tilesetRanges: [(name: String, gidRange: ClosedRange<Int>)]
+    /// Each loaded tileset's lowercase basename, GID range, and grid shape.
+    let tilesetRanges: [(name: String, gidRange: ClosedRange<Int>, columns: Int, rows: Int)]
 
     func tileCenter(col: Int, row: Int) -> CGPoint {
         CGPoint(
@@ -111,6 +111,9 @@ enum TMXLoader {
                         x: CGFloat(c) * tileSize.width + tileSize.width / 2,
                         y: CGFloat(rows - 1 - r) * tileSize.height + tileSize.height / 2
                     )
+                    // Stash GID so callers can recover which tileset/tile-row this
+                    // sprite came from (used for tree-anchor z-sorting in GameScene).
+                    sprite.userData = NSMutableDictionary(dictionary: ["gid": gid])
                     layerNode.addChild(sprite)
                 }
             }
@@ -118,8 +121,12 @@ enum TMXLoader {
             layerNodes[layer.name] = layerNode
         }
 
-        let tilesetRanges: [(name: String, gidRange: ClosedRange<Int>)] = tilesets.map { ts in
-            (name: ts.name, gidRange: ts.firstgid...(ts.firstgid + ts.tileCount - 1))
+        let tilesetRanges: [(name: String, gidRange: ClosedRange<Int>, columns: Int, rows: Int)] = tilesets.map { ts in
+            let rowsInTileset = ts.columns > 0 ? (ts.tileCount + ts.columns - 1) / ts.columns : 1
+            return (name: ts.name,
+                    gidRange: ts.firstgid...(ts.firstgid + ts.tileCount - 1),
+                    columns: ts.columns,
+                    rows: rowsInTileset)
         }
 
         return TMXMap(
