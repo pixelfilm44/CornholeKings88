@@ -46,6 +46,10 @@ final class SuburbanJoustersScene: SKScene {
         var boardX: CGFloat = 0
         var boardY: CGFloat = 0
         var boardShadow: SKShapeNode?
+        // Pedaling animation
+        var legL: SKSpriteNode?
+        var legR: SKSpriteNode?
+        var pedalPhase: CGFloat = 0
     }
 
     private let player = Rider()
@@ -484,6 +488,9 @@ final class SuburbanJoustersScene: SKScene {
         player.y = node.position.y
         player.riderBodyNode = body
         player.boardNode = body.childNode(withName: "board")
+        player.legL = body.childNode(withName: "legL") as? SKSpriteNode
+        player.legR = body.childNode(withName: "legR") as? SKSpriteNode
+        player.pedalPhase = 0
         player.lanceNode = lance
         addChild(node)
     }
@@ -526,6 +533,9 @@ final class SuburbanJoustersScene: SKScene {
         rival.y = rival.node.position.y
         rival.riderBodyNode = body
         rival.boardNode = body.childNode(withName: "board")
+        rival.legL = body.childNode(withName: "legL") as? SKSpriteNode
+        rival.legR = body.childNode(withName: "legR") as? SKSpriteNode
+        rival.pedalPhase = 0
         rival.lanceNode = lance
         addChild(rival.node)
     }
@@ -567,6 +577,16 @@ final class SuburbanJoustersScene: SKScene {
                                  size: CGSize(width: 16, height: 14))
         torso.position = CGPoint(x: 0, y: -2)
         n.addChild(torso)
+        // Legs — pump up/down each frame in updatePedaling, faster with speed.
+        let pantColor = SKColor(red: 0.18, green: 0.22, blue: 0.30, alpha: 1) // dark denim
+        let legL = SKSpriteNode(color: pantColor, size: CGSize(width: 3, height: 6))
+        legL.name = "legL"
+        legL.position = CGPoint(x: -3, y: -11)
+        n.addChild(legL)
+        let legR = SKSpriteNode(color: pantColor, size: CGSize(width: 3, height: 6))
+        legR.name = "legR"
+        legR.position = CGPoint(x: 3, y: -11)
+        n.addChild(legR)
         // Arms splayed to grips
         let armL = SKSpriteNode(color: SKColor(red: 0.290, green: 0.510, blue: 0.722, alpha: 1),
                                 size: CGSize(width: 6, height: 3))
@@ -705,6 +725,7 @@ final class SuburbanJoustersScene: SKScene {
             }
             updatePlayerLanceVisual()
             applyShieldOffset(rider: player)
+            updatePedaling(player)
             updateReticle()
             hudSpeedLbl?.text = "MPH \(Int(player.speed * 3.5))"
             updateSpeedGateColor()
@@ -740,6 +761,8 @@ final class SuburbanJoustersScene: SKScene {
         updateRivalLanceVisual()
         applyShieldOffset(rider: player)
         updatePlayerLanceVisual()
+        updatePedaling(player)
+        updatePedaling(rival)
         updateReticle()
 
         hudSpeedLbl?.text = "MPH \(Int(player.speed * 3.5))"
@@ -1153,6 +1176,20 @@ final class SuburbanJoustersScene: SKScene {
     }
 
     // MARK: - Visuals: shield + lance + reticle
+
+    /// Pumps the rider's legs alternately up and down. The phase increment is
+    /// proportional to `r.speed`, so faster tapping (player) or a faster rival
+    /// approach visibly cycles the legs faster.
+    private func updatePedaling(_ r: Rider) {
+        guard !r.riderDetached, let legL = r.legL, let legR = r.legR else { return }
+        // 0.18 rad/frame at speed=1 → at maxSpeed (15) that's ~2.7 rad/frame,
+        // a fast blur of pumping that reads clearly without aliasing.
+        r.pedalPhase += max(0.02, r.speed * 0.18)
+        let amp: CGFloat = 2.5
+        let baseY: CGFloat = -11
+        legL.position.y = baseY + sin(r.pedalPhase) * amp
+        legR.position.y = baseY + sin(r.pedalPhase + .pi) * amp
+    }
 
     private func applyShieldOffset(rider r: Rider) {
         guard let board = r.boardNode, board.parent === r.riderBodyNode else { return }
@@ -1586,10 +1623,15 @@ final class SuburbanJoustersScene: SKScene {
             .card(title: "RIGHT THUMB",
                   body: "Drag to sweep your lance.\nLine the tip on the rival's hole\nat MPH 30+ to dismount."),
         ]
+        if !autoTriggered { isPausedGame = true }
         let overlay = TutorialOverlay(steps: steps, sceneSize: size) { [weak self] in
             guard let self = self else { return }
             TutorialManager.shared.markSeen(TutorialManager.jousters)
-            if autoTriggered { self.startRound() }
+            if autoTriggered {
+                self.startRound()
+            } else {
+                self.isPausedGame = false
+            }
         }
         addChild(overlay)
     }
