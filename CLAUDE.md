@@ -75,6 +75,8 @@ Maps are authored in **Tiled** (.tmx format, CSV encoding) and loaded by `TMXLoa
 | `chest`               | Open chest → 50/50 heart refill or dog biscuit |
 | `bridge_wood`         | Piranha mini-game; on win, unlocks walkable bridge (ImaginationFX layer) |
 
+The **`"fences"` layer** (by layer name, not tileset name) is also scanned — any non-zero tile triggers `SuburbanJoustersScene` on A-press. See **Suburban Jousters** below.
+
 Collision tiles still come from the `Collisions` layer (any non-zero GID); water collisions still come from explicit GID ranges in `buildPhysics(from:)`.
 
 ### Physics
@@ -174,6 +176,8 @@ var onComplete: ((Bool) -> Void)?
 
 **`CornholeStatsManager.swift`** — singleton that persists cornhole game stats to `UserDefaults`:
 - `wins`, `losses`, `cornholes` (total bags through the hole, any owner)
+- `defeatedTom`, `defeatedJenny` (cornhole wins) — combined as `baseballUnlocked`
+- `defeatedJenBaseball`, `defeatedTomBaseball` (baseball wins) — combined as `joustersUnlocked`
 - `currentRank: String` — returns `"Rookie"` (rank progression system TBD)
 - `recordWin()`, `recordLoss()`, `recordCornhole()`, `reset()`
 
@@ -188,7 +192,7 @@ Navigation: `◄ BACK` strip at top (push-down transition back to `MainMenuScene
 
 Items scattered in the world can be walked over to collect them. The system has four files:
 
-- **`Item.swift`** — `ItemType` enum (`coin`, `bag`, `star`, `honeyBag`, `bombBag`, `magicBag`, `fireBag`, `goldenBag`, `dogBiscuit`) with `color`, `displayName`, and `hudSymbol`.
+- **`Item.swift`** — `ItemType` enum (`coin`, `bag`, `star`, `honeyBag`, `bombBag`, `magicBag`, `fireBag`, `goldenBag`, `dogBiscuit`, `goldenLance`) with `color`, `displayName`, and `hudSymbol`.
 - **`InventoryManager.swift`** — holds `[ItemType: Int]` counts; fires an `onChanged` closure when any item is collected. `GameScene` owns the instance.
 - **`CollectibleNode.swift`** — `SKNode` subclass placed in the map's `mapNode`. Draws an 8×8 colored tile + glow ring, bobs gently, and pops/fades out on contact. Physics body is a sensor (`collisionBitMask = 0`, `contactTestBitMask = PlayerNode.categoryBit`). Uses `collectibleBit = 0x1 << 2`.
 - **`InventoryHUDNode.swift`** — `SKNode` attached to `cameraNode`. Renders a horizontal row of dark pill slots (colored icon + `×N` count label) in the bottom chrome, vertically centered between the top of the D-pad cross and the stage bottom border. Call `refresh(counts:)` to redraw. Each slot container is named `"slot_<rawValue>"` (e.g. `"slot_dogBiscuit"`); `GameScene.handleTouchBegan` walks `nodes(at:)` for that prefix and routes the tap to `handleInventoryTap(_:)` for per-item world-use actions.
@@ -208,6 +212,9 @@ Items scattered in the world can be walked over to collect them. The system has 
 
 **World-use items** (placed in the open world by tapping the inventory slot):
 - **`dogBiscuit`** — earned from chests (50/50 with heart refill). Tapping the inventory slot calls `placeDogBiscuit()`, which decrements the count and spawns a bone-shaped `SKNode` at `player.position` (added to `map.mapNode`, tracked in `placedBiscuits: [PlacedBiscuit]`). In `updateDogs(dt:)`, any non-fleeing dog without a `biscuitTarget` checks for an unclaimed biscuit within an 80-unit sniff radius; first match wins and is claimed. The dog walks to the biscuit, eats for 3 seconds (`eatDuration` in `DogNode`), then `onFinishedEating` fires — the biscuit node pops/fades out and is removed from `placedBiscuits`. After eating, the dog resumes chasing the player.
+
+**Permanent unlock items** (not consumed; awarded once and persist via `UserDefaults`):
+- **`goldenLance`** — awarded on first Suburban Jousters win (key `"goldenLanceEarned_v1"`). Reveals the `btnLance` action button in the world HUD. Used to interact with high objects in the world (TBD). The button is a dark gold-bordered circle drawn by `makeLanceButtonContent()` — a diagonal gold shaft, bright tip, and grip wrap.
 
 **Fire bag round state** — reset at the start of each round in `startRound()`: `boardOnFire`, `holeFire`, `fireBoardOverlay`, `fireBoardEmitter` node (named `"fireBoardEmitter"`), and `fireBoardLabel` node (named `"fireBoardLabel"`).
 
@@ -268,6 +275,30 @@ for n in nodes(at: loc) where TutorialHelpButton.wasTapped(n) {
 | `storyBatRadius` | GameScene | 28 | Proximity radius for story bat A-press |
 
 Hardcoded GID ranges for world-trigger tiles are gone — see the "tileset name contains" table in the **Map System** section above for the current detection contract.
+
+### Suburban Jousters
+
+`SuburbanJoustersScene` is a backyard bicycle jousting mini-game. The player rides the left lane; an AI rival descends the right lane. Dual-zone touch: left half pedals/slides shield, right half sweeps lance aim. Heart-draining: each crash costs a heart; first to drop the rival's 3 lives wins.
+
+**World trigger** — any non-zero tile on the `"fences"` map layer (detected by layer name, not tileset name). Pressing A within 36 world units opens the scene via `openSuburbanJousters()`.
+
+**Gate — must beat Jen and Tom at baseball first.** `CornholeStatsManager.shared.joustersUnlocked` (`defeatedJenBaseball && defeatedTomBaseball`) controls access:
+- Neither beaten → hint: *"In order to joust on your bike, you need something to use as a lance."*
+- Only Jen beaten → hint: *"Beat Tom at baseball to unlock the joust."*
+- Both beaten → scene launches.
+
+**Baseball sequencing** — `openCornholeBaseball()` in `GameScene` automatically sets the correct AI difficulty based on progress:
+1. First visit: `aiDifficulty = .powerHitter` (Jen). Win sets `defeatedJenBaseball`.
+2. Second visit: `aiDifficulty = .greatFielder` (Tom). Win sets `defeatedTomBaseball` and shows the *"The joust awaits!"* banner.
+3. Subsequent visits: default `.standard` difficulty (free play).
+
+**Reward** — winning Suburban Jousters for the first time awards the **Golden Lance** (`UserDefaults` key `"goldenLanceEarned_v1"`), reveals `btnLance` in the world HUD, and shows *"You won the Golden Lance!"* banner. Hearts are synced back to `HeartsManager` from `joust.remainingHearts` on exit (win or loss).
+
+**Entry points:**
+- `MiniGamePickerScene` → `"jousters"` card (no gate; always accessible from picker)
+- World trigger — `"fences"` layer A-press (gated by `joustersUnlocked`)
+
+**Difficulty ramp** — `SuburbanJoustersScene` tracks a global fight count in `UserDefaults` key `"joustersFightCount_v1"`. Speed scales up with repeated plays.
 
 ### BeachBall Cornhole
 
@@ -450,6 +481,19 @@ Every scene adds a full-screen CRT scanline sprite via `addCrtOverlay()` at `zPo
 - A UIKit CRT `UIView` is added last (`bringSubviewToFront`) so it sits above the buttons and SwiftUI view.
 - `pushHUD()` updates the `BaseballHUDViewModel` on the main queue; the SwiftUI view observes and redraws automatically.
 - All UIKit subviews (hosting controller, pause button, close button, CRT view) are stored as `private var` optionals and removed in `willMove(from:)`.
+
+#### World action buttons
+
+The bottom-right control area has four action buttons, stacked right-to-left at 26pt radius, 14pt gap each:
+
+| Button | Name | Color | Visibility | Action |
+|--------|------|-------|------------|--------|
+| A | `"btn_a"` | Crimson | Always | Interact / climb |
+| B | `"btn_b"` | Bronze | When player has bags | Throw beanbag |
+| Biscuit | `"btn_biscuit"` | Dark wood + gold border | When `dogBiscuit` count > 0 | Place dog biscuit |
+| Lance | `"btn_lance"` | Dark wood + gold border | After winning Suburban Jousters (`"goldenLanceEarned_v1"`) | Interact with high objects (TBD) |
+
+`btnLance` is created in `setupActionButtons()` by `makeLanceButtonContent()` and its visibility is initialized from `UserDefaults` on every scene load so it persists across launches.
 
 #### Adding a HUD to a new mini-game
 

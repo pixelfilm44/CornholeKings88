@@ -44,6 +44,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     private let bridgeUnlockedKey    = "bridgeUnlocked_v1"
     private let baseballUnlockedKey  = "baseballUnlocked_v1"
     private let beachBallBeatenKey   = "beachBallBeaten_v1"
+    private let goldenLanceKey       = "goldenLanceEarned_v1"
 
     // Chest interaction
     private var chestPositions: [CGPoint] = []
@@ -73,6 +74,10 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     // Beach ball pool interaction — matches tilesets whose name contains "pool"
     private var poolPositions: [CGPoint] = []
     private var nearbyPoolPosition: CGPoint?
+
+    // Fence interaction — "fences" layer; launches Suburban Jousters
+    private var fencePositions: [CGPoint] = []
+    private var nearbyFencePosition: CGPoint?
 
     // Tutorial state
     private var hasShownDogTutorial = false
@@ -160,6 +165,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     private var btnA: SKShapeNode?
     private var btnB: SKShapeNode?
     private var btnBiscuit: SKShapeNode?
+    private var btnLance: SKShapeNode?
     private let actionBtnRadius: CGFloat = 26
 
     // HUD elements (so we can update them later).
@@ -448,6 +454,20 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
 
         cameraNode.addChild(biscuit)
         btnBiscuit = biscuit
+
+        // Golden lance button — permanent unlock after winning Suburban Jousters.
+        let lanceX = biscuitX - 2 * actionBtnRadius - 14
+        let lance = SKShapeNode(circleOfRadius: actionBtnRadius)
+        lance.fillColor = SKColor(red: 0.18, green: 0.14, blue: 0.06, alpha: 1.0)
+        lance.strokeColor = SKColor(red: 1.00, green: 0.84, blue: 0.00, alpha: 1.0)
+        lance.lineWidth = 2.0
+        lance.zPosition = 10_000
+        lance.position = CGPoint(x: lanceX, y: btnY)
+        lance.name = "btn_lance"
+        lance.isHidden = !UserDefaults.standard.bool(forKey: goldenLanceKey)
+        lance.addChild(makeLanceButtonContent())
+        cameraNode.addChild(lance)
+        btnLance = lance
     }
 
     private func makeBiscuitButtonContent() -> SKNode {
@@ -462,6 +482,28 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
             knob.position = CGPoint(x: xOff, y: 0)
             root.addChild(knob)
         }
+        return root
+    }
+
+    private func makeLanceButtonContent() -> SKNode {
+        let root = SKNode()
+        root.zPosition = 1
+        // Shaft: thin gold bar rotated 45°
+        let shaft = SKSpriteNode(color: SKColor(red: 1.00, green: 0.84, blue: 0.00, alpha: 1.0),
+                                 size: CGSize(width: 28, height: 4))
+        shaft.zRotation = .pi / 4
+        root.addChild(shaft)
+        // Tip: small bright triangle at the top-right end
+        let tip = SKSpriteNode(color: SKColor(red: 1.00, green: 0.96, blue: 0.70, alpha: 1.0),
+                               size: CGSize(width: 6, height: 6))
+        tip.position = CGPoint(x: 11, y: 11)
+        root.addChild(tip)
+        // Grip wrap: darker band near the bottom-left end
+        let grip = SKSpriteNode(color: SKColor(red: 0.72, green: 0.55, blue: 0.10, alpha: 1.0),
+                                size: CGSize(width: 8, height: 5))
+        grip.zRotation = .pi / 4
+        grip.position = CGPoint(x: -9, y: -9)
+        root.addChild(grip)
         return root
     }
 
@@ -558,6 +600,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         extractStorePositions(from: m)
         extractBridgeStonePositions(from: m)
         extractBridgeWoodPositions(from: m)
+        extractFencePositions(from: m)
         cacheBridgePhysicsNodes(from: m)
         ySortStaticLayers(in: m)
 
@@ -889,6 +932,25 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         print("🌉 Found \(bridgeWoodPositions.count) bridge wood tile(s) on the map")
     }
 
+    /// Scans the "fences" map layer for any non-zero tile and stores one world-space
+    /// center per tile. Pressing A near a fence launches Suburban Jousters.
+    private func extractFencePositions(from m: TMXMap) {
+        fencePositions.removeAll()
+        guard let grid = m.layerGIDs["fences"] else { return }
+        var seen = Set<String>()
+        for r in 0..<m.rows {
+            for c in 0..<m.cols {
+                let gid = grid[r][c] & 0x0FFF_FFFF
+                guard gid != 0 else { continue }
+                let key = "\(r),\(c)"
+                guard !seen.contains(key) else { continue }
+                seen.insert(key)
+                fencePositions.append(m.tileCenter(col: c, row: r))
+            }
+        }
+        print("🏚️ Found \(fencePositions.count) fence tile(s) on the map")
+    }
+
     /// Stores references to the water-blocking physics nodes that sit under ImaginationFX
     /// bridge tiles so they can be removed when the bridge is unlocked.
     private func cacheBridgePhysicsNodes(from m: TMXMap) {
@@ -924,6 +986,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         let beehiveRadius:     CGFloat = 36
         let poolRadius:        CGFloat = 36
         let bridgeWoodRadius:  CGFloat = 36
+        let fenceRadius:       CGFloat = 36
 
         // Find the single closest object across all categories.
         var bestDist         = CGFloat.infinity
@@ -937,6 +1000,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         var bestPool:         CGPoint? = nil
         var bestBridgeWood:   CGPoint? = nil
         var bestStore:        CGPoint? = nil
+        var bestFence:        CGPoint? = nil
 
         for pos in cornholeBoardPositions {
             let d = hypot(player.position.x - pos.x, player.position.y - pos.y)
@@ -1010,6 +1074,15 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
             }
         }
 
+        for pos in fencePositions {
+            let d = hypot(player.position.x - pos.x, player.position.y - pos.y)
+            if d < fenceRadius && d < bestDist {
+                bestDist = d; bestBoard = nil; bestChest = nil; bestStore = nil; bestBridgeStone = nil
+                bestBaseball = nil; bestTree = nil; bestAppleTree = nil
+                bestBeehive = nil; bestPool = nil; bestBridgeWood = nil; bestFence = pos
+            }
+        }
+
         // Story bat — only active during the bat-search phase
         var bestStoryBat: CGPoint? = nil
         if let batPos = storyBatPosition {
@@ -1018,7 +1091,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
                 bestDist = d
                 bestBoard = nil; bestChest = nil; bestStore = nil; bestBridgeStone = nil
                 bestBaseball = nil; bestTree = nil; bestAppleTree = nil
-                bestBeehive = nil; bestPool = nil; bestBridgeWood = nil
+                bestBeehive = nil; bestPool = nil; bestBridgeWood = nil; bestFence = nil
                 bestStoryBat = batPos
             }
         }
@@ -1033,6 +1106,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         nearbyBeehivePosition     = bestBeehive
         nearbyPoolPosition        = bestPool
         nearbyBridgeWoodPosition  = bestBridgeWood
+        nearbyFencePosition       = bestFence
         nearbyStoryBatPosition    = bestStoryBat
 
         // Auto-descend when the player walks away from the tree they climbed.
@@ -1050,6 +1124,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         else if let p = bestBeehive       { anchor = CGPoint(x: p.x, y: p.y + 22) }
         else if let p = bestPool          { anchor = CGPoint(x: p.x, y: p.y + 22) }
         else if let p = bestBridgeWood    { anchor = CGPoint(x: p.x, y: p.y + 22) }
+        else if let p = bestFence         { anchor = CGPoint(x: p.x, y: p.y + 22) }
         else if let p = bestStoryBat      { anchor = CGPoint(x: p.x, y: p.y + 22) }
         else                              { anchor = nil }
 
@@ -1308,11 +1383,30 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         player.physicsBody?.velocity = .zero
         resetBeanbagControl()
 
+        let stats = CornholeStatsManager.shared
         let baseball = CornholeBaseballScene(size: self.size)
-        baseball.scaleMode    = self.scaleMode
+        baseball.scaleMode     = self.scaleMode
         baseball.previousScene = self
-        baseball.onComplete = { [weak self] _ in
-            self?.isTransitioning = false
+
+        // Sequence: face Jen (powerHitter) first, then Tom (greatFielder).
+        // Once both are beaten the joust gate opens.
+        if !stats.defeatedJenBaseball {
+            baseball.aiDifficulty = .powerHitter
+            baseball.onComplete = { [weak self] won in
+                if won { stats.defeatedJenBaseball = true }
+                self?.isTransitioning = false
+            }
+        } else if !stats.defeatedTomBaseball {
+            baseball.aiDifficulty = .greatFielder
+            baseball.onComplete = { [weak self] won in
+                if won {
+                    stats.defeatedTomBaseball = true
+                    self?.showHintBanner("You beat Jen & Tom\nat baseball.\nThe joust awaits!")
+                }
+                self?.isTransitioning = false
+            }
+        } else {
+            baseball.onComplete = { [weak self] _ in self?.isTransitioning = false }
         }
 
         let transition = SKTransition.push(with: .up, duration: 0.38)
@@ -1389,6 +1483,34 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         let transition = SKTransition.push(with: .up, duration: 0.38)
         transition.pausesOutgoingScene = false
         view.presentScene(piranha, transition: transition)
+    }
+
+    private func openSuburbanJousters() {
+        guard let view = self.view else { return }
+        isTransitioning = true
+        player.moveDirection = .zero
+        player.physicsBody?.velocity = .zero
+        resetBeanbagControl()
+
+        if HeartsManager.shared.currentHearts <= 0 { HeartsManager.shared.refill() }
+        let joust = SuburbanJoustersScene(size: self.size)
+        joust.scaleMode     = self.scaleMode
+        joust.previousScene = self
+        joust.startingHearts = HeartsManager.shared.currentHearts
+        joust.onComplete = { [weak self, weak joust] won in
+            guard let self, let joust else { return }
+            HeartsManager.shared.set(joust.remainingHearts)
+            if won && !UserDefaults.standard.bool(forKey: self.goldenLanceKey) {
+                UserDefaults.standard.set(true, forKey: self.goldenLanceKey)
+                self.btnLance?.isHidden = false
+                self.showHintBanner("You won the\nGolden Lance!")
+            }
+            self.isTransitioning = false
+        }
+
+        let transition = SKTransition.push(with: .up, duration: 0.38)
+        transition.pausesOutgoingScene = false
+        view.presentScene(joust, transition: transition)
     }
 
     private func unlockBridge() {
@@ -1610,6 +1732,10 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
 
         // Action buttons.
         let btnHit = (actionBtnRadius + 6) * (actionBtnRadius + 6)
+        if let lance = btnLance, !lance.isHidden, distanceSquared(pInCam, lance.position) < btnHit {
+            // TODO: interact with nearby high object when that system is added
+            return
+        }
         if let biscuit = btnBiscuit, !biscuit.isHidden, distanceSquared(pInCam, biscuit.position) < btnHit {
             placeDogBiscuit()
             return
@@ -1653,6 +1779,14 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
                     openBridgePiranha()
                 } else {
                     showHintBanner("You need bean bags\nthat can float\nbefore coming here.")
+                }
+            } else if nearbyFencePosition != nil {
+                if CornholeStatsManager.shared.joustersUnlocked {
+                    openSuburbanJousters()
+                } else if CornholeStatsManager.shared.defeatedJenBaseball {
+                    showHintBanner("Beat Tom at baseball\nto unlock the joust.")
+                } else {
+                    showHintBanner("In order to joust\non your bike, you need\nsomething to use\nas a lance.")
                 }
             } else if nearbyTreePosition != nil {
                 if player.isInTree { player.descendTree() } else { player.climbTree() }

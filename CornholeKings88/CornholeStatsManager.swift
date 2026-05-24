@@ -6,11 +6,13 @@ final class CornholeStatsManager {
     private init() {}
 
     private enum Key {
-        static let wins          = "stats_cornhole_wins"
-        static let losses        = "stats_cornhole_losses"
-        static let cornholes     = "stats_cornhole_cornholes"
-        static let defeatedTom   = "stats_defeated_tom_v1"
-        static let defeatedJenny = "stats_defeated_jenny_v1"
+        static let wins                = "stats_cornhole_wins"
+        static let losses              = "stats_cornhole_losses"
+        static let cornholes           = "stats_cornhole_cornholes"
+        static let defeatedTom         = "stats_defeated_tom_v1"
+        static let defeatedJenny       = "stats_defeated_jenny_v1"
+        static let defeatedJenBaseball = "stats_defeated_jen_baseball_v1"
+        static let defeatedTomBaseball = "stats_defeated_tom_baseball_v1"
     }
 
     var wins: Int {
@@ -40,6 +42,18 @@ final class CornholeStatsManager {
 
     var baseballUnlocked: Bool { defeatedTom && defeatedJenny }
 
+    var defeatedJenBaseball: Bool {
+        get { UserDefaults.standard.bool(forKey: Key.defeatedJenBaseball) }
+        set { UserDefaults.standard.set(newValue, forKey: Key.defeatedJenBaseball) }
+    }
+
+    var defeatedTomBaseball: Bool {
+        get { UserDefaults.standard.bool(forKey: Key.defeatedTomBaseball) }
+        set { UserDefaults.standard.set(newValue, forKey: Key.defeatedTomBaseball) }
+    }
+
+    var joustersUnlocked: Bool { defeatedJenBaseball && defeatedTomBaseball }
+
     var currentRank: String { "Rookie" }
 
     func recordWin()      { wins += 1 }
@@ -52,7 +66,9 @@ final class CornholeStatsManager {
         wins = 0
         losses = 0
         cornholes = 0
-        defeatedTom   = false
-        defeatedJenny = false
+        defeatedTom         = false
+        defeatedJenny       = false
+        defeatedJenBaseball = false
+        defeatedTomBaseball = false
     }
 }
