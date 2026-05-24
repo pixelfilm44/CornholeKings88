@@ -1415,6 +1415,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
 
     private func buildPhysics(from m: TMXMap) {
         let collisions = m.layerGIDs["Collisions"]
+        let fences = m.layerGIDs["fences"]
         let ground = m.layerGIDs["Ground"]
         let interactions = m.layerGIDs["Interactions"]
 
@@ -1426,6 +1427,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         for r in 0..<m.rows {
             for c in 0..<m.cols {
                 let blocked = (collisions?[r][c] ?? 0) != 0
+                                    || (fences?[r][c] ?? 0) != 0
                 let waterHere = isWater(ground?[r][c] ?? 0)
                 // A bridge (any tile on the Interactions layer at this cell)
                 // overrides the water block so the player can cross it.
@@ -2103,6 +2105,9 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         guard col >= 0, col < m.cols, row >= 0, row < m.rows else { return false }
 
         if let collisions = m.layerGIDs["Collisions"], collisions[row][col] != 0 {
+            return false
+        }
+        if let fences = m.layerGIDs["fences"], fences[row][col] != 0 {
             return false
         }
         let groundGid = (m.layerGIDs["Ground"]?[row][col] ?? 0) & 0x0FFF_FFFF
