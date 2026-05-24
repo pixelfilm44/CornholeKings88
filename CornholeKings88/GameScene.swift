@@ -1104,18 +1104,43 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     // MARK: - Chest
 
     private func openChest() {
-        guard let pos = nearbyChestPosition else { return }
+        guard let pos = nearbyChestPosition, let m = map else { return }
         let key = "\(Int(pos.x)),\(Int(pos.y))"
         openedChestKeys.insert(key)
         nearbyChestPosition = nil
+
+        // Build 6-frame animation from the horizontal sprite sheet (96×16 → 6×16×16 frames).
+        let sheet = SKTexture(imageNamed: "Chest_Anim")
+        sheet.filteringMode = .nearest
+        let frameCount = 6
+        let nW = 1.0 / CGFloat(frameCount)
+        var frames: [SKTexture] = []
+        for i in 0..<frameCount {
+            let t = SKTexture(rect: CGRect(x: CGFloat(i) * nW, y: 0, width: nW, height: 1), in: sheet)
+            t.filteringMode = .nearest
+            frames.append(t)
+        }
+
+        // Overlay sprite sits exactly on the chest tile; zPosition above map content.
+        let anim = SKSpriteNode(texture: frames[0], size: m.tileSize)
+        anim.position = pos
+        anim.zPosition = 500
+        m.mapNode.addChild(anim)
+
+        // Hide the static tile immediately so the animation replaces it.
         hideChestTile(at: pos)
-        // 50/50: heart refill or dog biscuit
-        if Bool.random() {
-            HeartsManager.shared.gain()
-            showPickupText("+ HEART", at: pos)
-        } else {
-            inventory.collect(.dogBiscuit, count: 1)
-            showPickupText("+ DOG BISCUIT", at: pos)
+
+        // Play through all frames once (0.08s each ≈ 0.48 s total); restore:false keeps the last frame visible.
+        let play = SKAction.animate(with: frames, timePerFrame: 0.08, resize: false, restore: false)
+        anim.run(play) { [weak self] in
+            guard let self else { return }
+            if Bool.random() {
+                HeartsManager.shared.gain()
+                self.showPickupText("+ HEART", at: pos)
+            } else {
+                self.inventory.collect(.dogBiscuit, count: 1)
+                self.showPickupText("+ DOG BISCUIT", at: pos)
+            }
         }
     }
 
