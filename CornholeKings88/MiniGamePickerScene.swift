@@ -29,6 +29,7 @@ final class MiniGamePickerScene: SKScene {
         MenuItem(label: "BEACH BALL",     subLabel: "pool blitz",    name: "beachball",  isLocked: false),
         MenuItem(label: "PIRANHA BRIDGE", subLabel: "bridge build",  name: "piranha",    isLocked: false),
         MenuItem(label: "SUBURBAN JOUSTERS", subLabel: "bike joust", name: "jousters",   isLocked: false),
+        MenuItem(label: "WELL FLINGER",   subLabel: "bag descent",   name: "wellflinger", isLocked: false),
         MenuItem(label: "EXPLORE",        subLabel: "open world",    name: "explore",    isLocked: true),
     ]
 
@@ -568,6 +569,23 @@ final class MiniGamePickerScene: SKScene {
                 c.setFillColor(UIColor(red: 0.96, green: 0.84, blue: 0.10, alpha: 1).cgColor)
                 c.fill(CGRect(x: s.width * 0.52, y: s.height * 0.55, width: 4, height: 4))
 
+            case "wellflinger":
+                // Brick well (circle) with dark interior
+                c.setFillColor(UIColor(red: 0.498, green: 0.114, blue: 0.114, alpha: 1).cgColor)
+                c.fillEllipse(in: CGRect(x: 2, y: 2, width: s.width - 4, height: s.height - 4))
+                c.setFillColor(UIColor(red: 0.059, green: 0.090, blue: 0.157, alpha: 1).cgColor)
+                let innerR = s.width * 0.28
+                c.fillEllipse(in: CGRect(x: s.width/2 - innerR, y: s.height/2 - innerR,
+                                         width: innerR*2, height: innerR*2))
+                // Rim highlight
+                c.setStrokeColor(UIColor(red: 0.722, green: 0.176, blue: 0.176, alpha: 1).cgColor)
+                c.setLineWidth(1.5)
+                c.strokeEllipse(in: CGRect(x: s.width*0.14, y: s.height*0.14,
+                                            width: s.width*0.72, height: s.height*0.72))
+                // Bag descending into well
+                c.setFillColor(accentColor.cgColor)
+                c.fill(CGRect(x: s.width*0.44, y: s.height*0.44, width: s.width*0.14, height: s.height*0.14))
+
             case "explore":
                 // Compass circle
                 c.setStrokeColor(strokeColor.cgColor); c.setLineWidth(1.5)
@@ -726,10 +744,20 @@ final class MiniGamePickerScene: SKScene {
             s.previousScene = self; s.scaleMode = .resizeFill
             if HeartsManager.shared.currentHearts <= 0 { HeartsManager.shared.refill() }
             s.startingHearts = HeartsManager.shared.currentHearts
-            s.onComplete = { [weak s] _ in
+            s.onComplete = { [weak s] won in
                 guard let s = s else { return }
                 HeartsManager.shared.set(s.remainingHearts)
+                let key = "goldenLanceEarned_v1"
+                if won && !UserDefaults.standard.bool(forKey: key) {
+                    UserDefaults.standard.set(true, forKey: key)
+                }
             }
+            push(to: s)
+
+        case "wellflinger":
+            let s = WellFlingerScene(size: ppSize)
+            s.previousScene = self; s.scaleMode = .resizeFill
+            s.onComplete = { _ in }
             push(to: s)
 
         case "explore":

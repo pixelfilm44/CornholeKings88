@@ -9,13 +9,14 @@ final class TutorialManager {
     private init() {}
 
     // Tutorial keys — one per mini-game.
-    static let bike      = "tutorial.bike.v1"
-    static let cornhole  = "tutorial.cornhole.v1"
-    static let baseball  = "tutorial.baseball.v1"
-    static let beehive   = "tutorial.beehive.v1"
-    static let beachball = "tutorial.beachball.v1"
-    static let piranha   = "tutorial.piranha.v1"
-    static let jousters  = "tutorial.jousters.v1"
+    static let bike        = "tutorial.bike.v1"
+    static let cornhole    = "tutorial.cornhole.v1"
+    static let baseball    = "tutorial.baseball.v1"
+    static let beehive     = "tutorial.beehive.v1"
+    static let beachball   = "tutorial.beachball.v1"
+    static let piranha     = "tutorial.piranha.v1"
+    static let jousters    = "tutorial.jousters.v1"
+    static let wellFlinger = "tutorial.wellFlinger.v1"
 
     func hasSeen(_ key: String) -> Bool {
         UserDefaults.standard.bool(forKey: key)
