@@ -320,6 +320,48 @@ classic striped beachballs at a floating, drifting cornhole board in a pool.
 
 **Beachball texture** is drawn programmatically in `BeachBallCornholeScene.makeBeachBallTexture(diameter:)` — no image asset needed.
 
+### Well Flinger
+
+`WellFlingerScene` is a side-view cornhole-bag descent. The player flings a bag into a stone well opening; the camera then follows the bag falling down a scrolling brick shaft past wind gusts and cobwebs; near the bottom, a side-view cornhole board slides up to meet the bag, which then falls under **SK physics** and lands on the wood, in the hole, or on the dirt ground beside the board. 5 bags per round; 3 pts hole / 1 pt board / 0 pts miss.
+
+**Coordinate system** — the scene uses a virtual 320×480 (top-left origin, y-down) grid converted to SK (center origin, y-up) via `vs(vx, vy)`, `vw(d)`, `vh(d)` helpers. Most state (`bVX`, `bVY`, `bSz`, `wellVX`, `wellVY`, `bdX/bdY/bdW/bdH`, `hlX/hlY/hlR`) is in virtual units; only physics bodies and node sizes are in SK points.
+
+**Phase machine** — `enum Phase { case launch, zoomIn, descent, landing, sinking, gameOver }`. `.landing` is unused (legacy; physics-driven landing replaced it). `.sinking` keeps descent visuals (walls, bg) visible so the result toast doesn't trigger a scene change.
+
+**Pipeline:**
+1. **`.launch`** — cornhole-style swipe-to-throw aim. `bVelX`/`bVelY` set from swipe; ballistic arc with `launchGravity=0.50`, `launchVZInitial=15.0`. On ground contact, hit-test against `wellIR = 30` virtual radius around the randomized well position. Miss → "MISSED WELL!" toast.
+2. **`.zoomIn`** — bag shrinks and eases toward `(wellVX, wellVY)` over `zoomFrames = 18` frames, then transitions to descent.
+3. **`.descent`** — `descentProg` accumulates by 4.5/frame up to `descentTotal = 1200`. Two seamless wall tiles scroll upward (`updateWallScroll`); wind/cobweb obstacles are placed at random depths and act on the bag as `descentProg` sweeps past them.
+4. **Approach phase** — when `descentProg >= descentTotal - 300`, `animateBoardSlideUp()` reveals the board (and dirt ground) from below-screen and slides it up via ease-out cubic over the first 70% of the approach window. At slide completion, `activatePhysicsLanding()` switches the bag to dynamic physics.
+5. **Physics landing** — gravity (`physicsWorld.gravity = (0, -45)`) pulls the bag onto the static board/ground bodies. The first `didBegin(_:)` contact resolves scoring via `scorePhysics(_:)`.
+
+**Physics layout** (all bodies set up once in `buildBagNodes`/`buildBoardNodes`/`buildGroundSensor`):
+
+| Category bit | Where | Role |
+|--------------|-------|------|
+| `bagCategory` (1) | `bagSprite.physicsBody` | Dynamic. Width = `vw(24)*0.85`, height = `vw(24)*0.5` — short body so the visible sprite plants INTO the wood instead of perching on top |
+| `boardCategory` (2) | Two static rect bodies inside `boardContainer` flanking the hole | Catch the bag when its X is over the board (not over the hole) |
+| `holeCategory` (4) | Static sensor inside the chunk gap (`collisionBitMask = 0`) | Fires `didBegin` when bag falls between the chunks |
+| `groundCategory` (8) | Solid static body on the visible dirt strip | Catches misses (bag X off-board); bag CANNOT pass through |
+
+Bag `collisionBitMask = boardCategory \| groundCategory`. `usesPreciseCollisionDetection = true` to prevent tunneling. `restitution = 0` everywhere — bag plants on impact, no bounce.
+
+**Transparent PNG handling** — `cornholeBoard_side.png` has padding/anti-aliasing around the wood art. `loadTrimmedBoardTexture()` re-renders the PNG into an RGBA buffer, finds the bounding box of pixels with `alpha > 128` (solid-only threshold), and returns an `SKTexture` cropped via `SKTexture(rect:in:)` plus the trimmed aspect ratio. The board's `bdW`/`bdH`/`hlX`/`hlR` are then rewritten in virtual units to match the trimmed sprite, so hit detection lines up with the visible wood. Chunks are sized to 80% of `bh` and pushed down by `bh * 0.10` so their top edge sits well below any residual halo.
+
+**`physicsActive` invariant** — set to `true` in `activatePhysicsLanding()` and **kept true after scoring**. `updateBagVisual()` skips its `bagSprite.position = vs(bVX, bVY)` override while `physicsActive == true`. If you clear it in `scorePhysics`, the bag visually snaps back to scene centre after landing. It is cleared in `initLaunchPhase()` when the next round starts.
+
+**Reveal/hide rules:**
+- Board (`boardContainer`) and `groundSprite` are hidden until the approach phase first frame, then revealed together. `applyPhaseVisibility(.launch)` re-hides both between rounds.
+- `.sinking` is treated as "descent visuals on" in `applyPhaseVisibility` — walls, depth bar, descent bg, and the board all stay visible so the final landing reads as one continuous view (no scene flicker).
+
+**Entry points:**
+- `MiniGamePickerScene` → `"wellflinger"` card (`onComplete = { _ in }`).
+- No world trigger yet.
+
+**Tutorial key** — `TutorialManager.wellFlinger` (`"tutorial.wellFlinger.v1"`).
+
+**Asset requirement** — `cornholeBoard_side.png` (transparent side-view of a cornhole board with the hole at the left) must be in `Assets.xcassets`.
+
 ### Story System
 
 `StoryModuleScene` displays story chapter text over a full-screen panel. Body text `fontSize` is capped at `min(14, W / 17)` — keep this value at 14 to match the pixel-art scale.
