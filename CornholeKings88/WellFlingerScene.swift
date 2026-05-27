@@ -176,7 +176,7 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
         // Physics world: heavy gravity so the bag accelerates noticeably as it falls,
         // selling the long drop from the well.  Precise collision detection on the bag
         // body prevents tunneling through the static board chunks at high velocity.
-        physicsWorld.gravity         = CGVector(dx: 0, dy: -300.0)
+        physicsWorld.gravity         = CGVector(dx: 0, dy: -800.0)
         physicsWorld.contactDelegate = self
 
         buildAllNodes()
@@ -1212,9 +1212,11 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
             body.allowsRotation    = true
             // Random lateral drift + spin so each landing feels unique — like a fabric
             // bag tumbling out of the shaft rather than dropping on a fixed track.
-            let randomSlide = CGFloat.random(in: -50...50)
-            let randomSpin  = CGFloat.random(in: -2.0...2.0)
-            body.velocity        = CGVector(dx: randomSlide, dy: -180)
+            let randomSlide = CGFloat.random(in: -60...60)
+            let randomSpin  = CGFloat.random(in: -3.0...3.0)
+            // dy -550 matches the visual scroll momentum of the descent phase so
+            // the bag never appears to brake when physics takes over
+            body.velocity        = CGVector(dx: randomSlide, dy: -550)
             body.angularVelocity = randomSpin
         }
     }
@@ -1268,7 +1270,7 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
             spawnSparks(at: bagSprite.position, color: .orange, count: 12)
             
             run(.sequence([
-                .wait(forDuration: 1.50), // Give it time to naturally settle
+                .wait(forDuration: 1.60), // Extra time for the high-speed skid to settle
                 .run { [weak self] in
                     guard let self else { return }
                     // Freeze it ONLY after the bounce is done
