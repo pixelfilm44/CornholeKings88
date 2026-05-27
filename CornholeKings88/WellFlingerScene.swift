@@ -400,26 +400,40 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
         bagSprite.zPosition        = 60
         addChild(bagSprite)
 
-        // Physics body — width matches the bag's descent visual (so collision feels
-        // right horizontally), but the HEIGHT is half the visual so the visible bag
-        // sprite plants down INTO the wood when it lands.
+        // Physics body — 8-point beveled polygon that simulates the soft, yielding
+        // edges of a fabric beanbag rather than a rigid rectangle.  The half-height
+        // is kept to 25 % of the sprite so the bag visually plants into the wood on
+        // landing instead of sitting perched on top of it.
         let descentBagSize = vw(24)
-        let bodySize = CGSize(width: descentBagSize * 0.85, height: descentBagSize * 0.50)
-        
-        let body = SKPhysicsBody(rectangleOf: bodySize)
+        let hw  = descentBagSize * 0.42   // half-width
+        let hh  = descentBagSize * 0.25   // half-height (short → bag sinks into wood)
+        let bev = descentBagSize * 0.10   // corner bevel — rounds the hard edges
+
+        // 8-point beveled rectangle (corners cut diagonally)
+        let path = CGMutablePath()
+        path.move(to:    CGPoint(x: -hw + bev, y:  hh))
+        path.addLine(to: CGPoint(x:  hw - bev, y:  hh))
+        path.addLine(to: CGPoint(x:  hw,       y:  hh - bev))
+        path.addLine(to: CGPoint(x:  hw,       y: -hh + bev))
+        path.addLine(to: CGPoint(x:  hw - bev, y: -hh))
+        path.addLine(to: CGPoint(x: -hw + bev, y: -hh))
+        path.addLine(to: CGPoint(x: -hw,       y: -hh + bev))
+        path.addLine(to: CGPoint(x: -hw,       y:  hh - bev))
+        path.closeSubpath()
+
+        let body = SKPhysicsBody(polygonFrom: path)
         body.isDynamic                     = false
         body.affectedByGravity             = false
-        body.allowsRotation                = false
-        
-        // --- NEW PHYSICS PROPERTIES ---
-        body.restitution                   = 0.15      // Heavy, "dead" bounce
-        body.friction                      = 0.65      // Grabs the wood and stops sliding
-        body.linearDamping                 = 0.5       // Air resistance to slow it down naturally
-        body.angularDamping                = 0.8       // Stops it from spinning wildly on impact
-        
-        body.usesPreciseCollisionDetection = true      // prevent tunneling through thin static bodies
+        body.allowsRotation                = true      // bag can tumble naturally on impact
+
+        body.restitution                   = 0.12      // nearly dead bounce — fabric absorbs energy
+        body.friction                      = 0.55      // grabs the wood and stops sliding quickly
+        body.linearDamping                 = 0.6       // air resistance during free-fall
+        body.angularDamping                = 0.9       // damps spin rapidly so bag settles fast
+
+        body.usesPreciseCollisionDetection = true      // prevent tunneling at high velocity
         body.categoryBitMask               = Self.bagCategory
-        body.collisionBitMask              = Self.boardCategory | Self.groundCategory   // SOLID against both
+        body.collisionBitMask              = Self.boardCategory | Self.groundCategory
         body.contactTestBitMask            = Self.boardCategory | Self.holeCategory | Self.groundCategory
         bagSprite.physicsBody              = body
     }
@@ -431,8 +445,8 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
         body.categoryBitMask     = Self.boardCategory
         body.contactTestBitMask  = Self.bagCategory
         body.collisionBitMask    = Self.bagCategory
-        body.restitution         = 0.35
-        body.friction            = 0.4
+        body.restitution         = 0.05   // almost no bounce — board acts like padded wood
+        body.friction            = 0.55   // matches bag friction so the bag grips and settles
     }
 
     private func buildTrajectoryNodes() {
@@ -1195,8 +1209,13 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
         if let body = bagSprite.physicsBody {
             body.isDynamic         = true
             body.affectedByGravity = true
-            // Give it a gentle downward nudge instead of a missile drop.
-            body.velocity          = CGVector(dx: 0, dy: -100)
+            body.allowsRotation    = true
+            // Random lateral drift + spin so each landing feels unique — like a fabric
+            // bag tumbling out of the shaft rather than dropping on a fixed track.
+            let randomSlide = CGFloat.random(in: -50...50)
+            let randomSpin  = CGFloat.random(in: -2.0...2.0)
+            body.velocity        = CGVector(dx: randomSlide, dy: -180)
+            body.angularVelocity = randomSpin
         }
     }
 
