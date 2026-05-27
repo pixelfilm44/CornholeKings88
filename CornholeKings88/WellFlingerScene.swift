@@ -1,3 +1,4 @@
+
 import SpriteKit
 import UIKit
 
@@ -172,10 +173,10 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
 
         backgroundColor = SKColor(red: 0.078, green: 0.322, blue: 0.173, alpha: 1)
 
-        // Physics world: snappy gravity so the fall finishes quickly.  Precise
-        // collision detection on the bag body prevents tunneling through the static
-        // board chunks at high velocity.
-        physicsWorld.gravity         = CGVector(dx: 0, dy: -45.0)
+        // Physics world: heavy gravity so the bag accelerates noticeably as it falls,
+        // selling the long drop from the well.  Precise collision detection on the bag
+        // body prevents tunneling through the static board chunks at high velocity.
+        physicsWorld.gravity         = CGVector(dx: 0, dy: -300.0)
         physicsWorld.contactDelegate = self
 
         buildAllNodes()
@@ -401,17 +402,21 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
 
         // Physics body — width matches the bag's descent visual (so collision feels
         // right horizontally), but the HEIGHT is half the visual so the visible bag
-        // sprite plants down INTO the wood when it lands (instead of resting just on
-        // top with daylight showing between the sprite bottom and the board surface).
+        // sprite plants down INTO the wood when it lands.
         let descentBagSize = vw(24)
         let bodySize = CGSize(width: descentBagSize * 0.85, height: descentBagSize * 0.50)
+        
         let body = SKPhysicsBody(rectangleOf: bodySize)
         body.isDynamic                     = false
         body.affectedByGravity             = false
         body.allowsRotation                = false
-        body.restitution                   = 0.0       // NO bounce — bag plants on impact
-        body.friction                      = 1.0
-        body.linearDamping                 = 0.9       // kill any residual motion quickly
+        
+        // --- NEW PHYSICS PROPERTIES ---
+        body.restitution                   = 0.15      // Heavy, "dead" bounce
+        body.friction                      = 0.65      // Grabs the wood and stops sliding
+        body.linearDamping                 = 0.5       // Air resistance to slow it down naturally
+        body.angularDamping                = 0.8       // Stops it from spinning wildly on impact
+        
         body.usesPreciseCollisionDetection = true      // prevent tunneling through thin static bodies
         body.categoryBitMask               = Self.bagCategory
         body.collisionBitMask              = Self.boardCategory | Self.groundCategory   // SOLID against both
@@ -426,8 +431,8 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
         body.categoryBitMask     = Self.boardCategory
         body.contactTestBitMask  = Self.bagCategory
         body.collisionBitMask    = Self.bagCategory
-        body.restitution         = 0.0       // bag doesn't bounce off the wood
-        body.friction            = 1.0
+        body.restitution         = 0.35
+        body.friction            = 0.4
     }
 
     private func buildTrajectoryNodes() {
@@ -570,8 +575,7 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
         let rightBodyCentre = (rightBodyLeft + rightBodyRight) / 2
 
         // Chunk bodies — 80% of board height, pushed down 10% so their TOP edge sits
-        // well below any anti-aliased halo at the top of the trimmed PNG.  This
-        // guarantees the bag lands on the visibly solid wood, not floating above it.
+        // well below any anti-aliased halo at the top of the trimmed PNG.
         let chunkHeight: CGFloat = bh * 0.80
         let chunkLocalY: CGFloat = -bh * 0.10
 
@@ -589,9 +593,7 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
         configureStaticBoardBody(rightChunk.physicsBody)
         boardContainer.addChild(rightChunk)
 
-        // Hole sensor — a slim trigger sitting near the TOP of the board's height range,
-        // in the gap between the two chunks.  Bag falling between the chunks (over the
-        // hole) crosses it before reaching the ground, so a hole always scores correctly.
+        // Hole sensor
         let holeSensor = SKNode()
         holeSensor.position = CGPoint(x: holeLocalX, y: bh * 0.25)
         let holeBody = SKPhysicsBody(rectangleOf: CGSize(width: holeR_SK * 2, height: bh * 0.30))
@@ -602,22 +604,20 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
         holeSensor.physicsBody       = holeBody
         boardContainer.addChild(holeSensor)
 
-        // Hole position in the board's local space (re-stated for the beam below).
-        let holeLocalY = vh(bdY - hlY)        // SK y-up; 0 here since hlY == bdY
+        // Hole position in the board's local space
+        let holeLocalY = vh(bdY - hlY)
 
-        // Yellow guide beam — tall vertical column rising out of the hole.
-        // Drawn programmatically so we get a soft pixel-art gradient with nearest filtering.
-        let beamW: CGFloat = vw(hlR * 2.2)    // a hair wider than the hole
-        let beamH: CGFloat = H * 1.4          // overshoot so it's visible high above the board
+        // Yellow guide beam
+        let beamW: CGFloat = vw(hlR * 2.2)
+        let beamH: CGFloat = H * 1.4
         glowBeam = SKSpriteNode(texture: makeGlowBeamTexture(width: beamW, height: beamH),
                                 size: CGSize(width: beamW, height: beamH))
-        glowBeam.anchorPoint = CGPoint(x: 0.5, y: 0.0)   // anchor at bottom → grows upward
+        glowBeam.anchorPoint = CGPoint(x: 0.5, y: 0.0)
         glowBeam.position    = CGPoint(x: holeLocalX, y: holeLocalY)
-        glowBeam.zPosition   = 1                          // above board sprite, below bag
-        glowBeam.blendMode   = .add                       // brighten the dark shaft
+        glowBeam.zPosition   = 1
+        glowBeam.blendMode   = .add
         boardContainer.addChild(glowBeam)
 
-        // Gentle pulse — guides the eye without being distracting
         glowBeam.alpha = 0.45
         glowBeam.run(.repeatForever(.sequence([
             .fadeAlpha(to: 0.70, duration: 0.65),
@@ -625,63 +625,77 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
         ])))
     }
 
-    /// Loads cornholeBoard_side, scans its alpha channel, and returns a sub-texture cropped
-    /// to the bounding rect of all non-transparent pixels.  Falls back to the raw texture
-    /// (aspect 0.5) if anything goes wrong.  Returned aspect = trimmedHeight / trimmedWidth.
+    /// Draws the cornhole board procedurally
     private func loadTrimmedBoardTexture() -> (SKTexture, CGFloat) {
-        let assetName = "cornholeBoard_side"
-        guard let img = UIImage(named: assetName), let cg = img.cgImage else {
-            return (SKTexture(imageNamed: assetName), 0.5)
-        }
-        let w = cg.width, h = cg.height
-        guard w > 0, h > 0 else { return (SKTexture(image: img), 0.5) }
+        let dw: CGFloat = 320
+        let dh: CGFloat = 160
+        let aspect: CGFloat = dh / dw
 
-        // Re-render into a known-format RGBA buffer so alpha is always the last byte
-        var pixels = [UInt8](repeating: 0, count: w * h * 4)
-        let space = CGColorSpaceCreateDeviceRGB()
-        let info  = CGImageAlphaInfo.premultipliedLast.rawValue
-        guard let ctx = CGContext(data: &pixels, width: w, height: h,
-                                  bitsPerComponent: 8, bytesPerRow: w * 4,
-                                  space: space, bitmapInfo: info) else {
-            return (SKTexture(image: img), 0.5)
-        }
-        ctx.draw(cg, in: CGRect(x: 0, y: 0, width: w, height: h))
+        let surfTop:  CGFloat = dh * 0.20
+        let surfBot:  CGFloat = dh * 0.70
+        let legBot:   CGFloat = dh * 0.97
+        let legW:     CGFloat = dw * 0.055
+        let faceH:    CGFloat = surfBot - surfTop
+        let topBandH: CGFloat = faceH * 0.80
 
-        // Walk the buffer to find the tight bounding box of SOLID pixels.
-        // Threshold = 128 (≈50% alpha) so anti-aliased / faded edges of a transparent
-        // PNG don't extend the trimmed box past the visibly solid wood.  Otherwise the
-        // physics body would catch the bag on an invisible halo above the artwork.
-        var minX = w, maxX = -1, minY = h, maxY = -1
-        for y in 0..<h {
-            let rowBase = y * w * 4
-            for x in 0..<w {
-                let alpha = pixels[rowBase + x * 4 + 3]
-                if alpha > 128 {
-                    if x < minX { minX = x }
-                    if x > maxX { maxX = x }
-                    if y < minY { minY = y }
-                    if y > maxY { maxY = y }
-                }
+        let holeR:  CGFloat = dw * 0.08
+        let holeCX: CGFloat = dw * 0.20
+        let holeCY: CGFloat = surfTop + topBandH * 0.50
+
+        let woodDark   = UIColor(red: 0.42, green: 0.24, blue: 0.08, alpha: 1).cgColor
+        let woodMid    = UIColor(red: 0.58, green: 0.36, blue: 0.14, alpha: 1).cgColor
+        let woodLight  = UIColor(red: 0.70, green: 0.48, blue: 0.22, alpha: 1).cgColor
+        let woodEdge   = UIColor(red: 0.28, green: 0.13, blue: 0.03, alpha: 1).cgColor
+        let grainColor = UIColor(red: 0.38, green: 0.20, blue: 0.06, alpha: 0.28).cgColor
+        let highlight  = UIColor(red: 0.85, green: 0.65, blue: 0.32, alpha: 0.55).cgColor
+
+        let fmt = UIGraphicsImageRendererFormat(); fmt.scale = 1
+        let img = UIGraphicsImageRenderer(size: CGSize(width: dw, height: dh),
+                                          format: fmt).image { ctx in
+            let c = ctx.cgContext
+            c.interpolationQuality = .none
+
+            c.setFillColor(woodDark)
+            c.fill(CGRect(x: dw * 0.04, y: surfBot, width: legW, height: legBot - surfBot))
+            c.fill(CGRect(x: dw * 0.90, y: surfBot, width: legW, height: legBot - surfBot))
+
+            let body = CGRect(x: 0, y: surfTop, width: dw, height: faceH)
+            c.setFillColor(woodDark); c.fill(body)
+
+            c.setFillColor(woodMid)
+            c.fill(CGRect(x: 0, y: surfTop, width: dw, height: topBandH))
+
+            c.setStrokeColor(grainColor); c.setLineWidth(1)
+            for i in 1 ..< 8 {
+                let y = surfTop + topBandH * CGFloat(i) / 8
+                c.move(to: CGPoint(x: 0, y: y)); c.addLine(to: CGPoint(x: dw, y: y))
             }
+            c.strokePath()
+
+            let faceTop = surfTop + topBandH
+            c.setFillColor(woodLight)
+            c.fill(CGRect(x: 0, y: faceTop, width: dw, height: faceH - topBandH))
+
+            c.setStrokeColor(highlight); c.setLineWidth(2)
+            c.move(to: CGPoint(x: 2,         y: surfTop + 1))
+            c.addLine(to: CGPoint(x: dw - 2, y: surfTop + 1)); c.strokePath()
+
+            c.setStrokeColor(woodEdge); c.setLineWidth(2); c.stroke(body)
+
+            c.setFillColor(UIColor.black.cgColor)
+            c.fillEllipse(in: CGRect(x: holeCX - holeR, y: holeCY - holeR,
+                                     width: holeR * 2,  height: holeR * 2))
+            let rimR = holeR + 3
+            c.setStrokeColor(woodEdge); c.setLineWidth(3)
+            c.strokeEllipse(in: CGRect(x: holeCX - rimR, y: holeCY - rimR,
+                                       width: rimR * 2,   height: rimR * 2))
         }
-        guard maxX >= minX, maxY >= minY else { return (SKTexture(image: img), 0.5) }
 
-        // SKTexture(rect:in:) uses bottom-left-origin, normalized 0…1 coords.
-        // CG buffer above is top-origin, so flip Y when computing the rect.
-        let cropX = CGFloat(minX) / CGFloat(w)
-        let cropY = CGFloat(h - 1 - maxY) / CGFloat(h)
-        let cropW = CGFloat(maxX - minX + 1) / CGFloat(w)
-        let cropH = CGFloat(maxY - minY + 1) / CGFloat(h)
-
-        let base    = SKTexture(image: img)
-        let trimmed = SKTexture(rect: CGRect(x: cropX, y: cropY, width: cropW, height: cropH),
-                                in: base)
-        let aspect  = CGFloat(maxY - minY + 1) / CGFloat(maxX - minX + 1)
-        return (trimmed, aspect)
+        let tex = SKTexture(image: img)
+        tex.filteringMode = .nearest
+        return (tex, aspect)
     }
 
-    /// Vertical yellow beam texture — bright at the bottom (hole), softening toward the top.
-    /// Drawn with nearest-filter pixel sampling to keep the 16-bit look.
     private func makeGlowBeamTexture(width: CGFloat, height: CGFloat) -> SKTexture {
         let fmt = UIGraphicsImageRendererFormat(); fmt.scale = 1
         let img = UIGraphicsImageRenderer(size: CGSize(width: width, height: height),
@@ -689,12 +703,10 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
             let c = ctx.cgContext
             let space = CGColorSpaceCreateDeviceRGB()
 
-            // Vertical fade: brightest at bottom, fading toward top.
-            // (UIKit y-down, so y=height is the "bottom" of our beam.)
             let verticalColors = [
-                UIColor(red: 1.00, green: 0.93, blue: 0.40, alpha: 0.95).cgColor, // bottom (hole)
+                UIColor(red: 1.00, green: 0.93, blue: 0.40, alpha: 0.95).cgColor,
                 UIColor(red: 1.00, green: 0.92, blue: 0.35, alpha: 0.55).cgColor,
-                UIColor(red: 1.00, green: 0.90, blue: 0.30, alpha: 0.00).cgColor, // top
+                UIColor(red: 1.00, green: 0.90, blue: 0.30, alpha: 0.00).cgColor,
             ] as CFArray
             if let g = CGGradient(colorsSpace: space, colors: verticalColors,
                                   locations: [0, 0.35, 1.0]) {
@@ -704,7 +716,6 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
                     options: [])
             }
 
-            // Horizontal fade: solid in the centre, transparent at edges → soft column
             let horizontalColors = [
                 UIColor(white: 1, alpha: 0.00).cgColor,
                 UIColor(white: 1, alpha: 0.55).cgColor,
@@ -724,12 +735,7 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
         return tex
     }
 
-    /// Identical helper to CornholeMiniGameScene — pixelates a filled circle
-    /// into `pixelSize`-pt blocks so it looks 16-bit rather than smooth.
-    private func makePixelCircleTexture(radius: CGFloat,
-                                        fill: UIColor,
-                                        border: UIColor,
-                                        pixelSize: Int) -> SKTexture {
+    private func makePixelCircleTexture(radius: CGFloat, fill: UIColor, border: UIColor, pixelSize: Int) -> SKTexture {
         let ps    = CGFloat(pixelSize)
         let cells = Int(ceil(radius * 2 / ps)) + 2
         let imgPx = cells * pixelSize
@@ -759,7 +765,7 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
         return tex
     }
 
-    // MARK: - HUD  (Bit-Wood Brawler design system — matches CornholeMiniGameScene.setupUI)
+    // MARK: - HUD
     private func buildHUD() {
         let font       = "PressStart2P-Regular"
         let dsPrimary  = SKColor(red: 0.102, green: 0.039, blue: 0.016, alpha: 1) // #1a0a04
@@ -773,7 +779,6 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
         let topBarY   = H / 2 - topInset - topH / 2
         let botBarY   = -H / 2 + bottomH / 2
 
-        // ── Top ribbon (extends through notch) ──────────────────────────────
         let topBar = SKSpriteNode(color: dsPrimary,
                                   size: CGSize(width: W, height: totalTopH))
         topBar.position  = CGPoint(x: 0, y: H / 2 - totalTopH / 2)
@@ -783,24 +788,20 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
         topBorder.position  = CGPoint(x: 0, y: H / 2 - totalTopH)
         topBorder.zPosition = 501; addChild(topBorder)
 
-        // Zone A (left): pause icon
         let pauseBtn = SKSpriteNode(imageNamed: "pauseIcon")
         pauseBtn.size      = CGSize(width: 22, height: 22)
         pauseBtn.position  = CGPoint(x: -W / 2 + 22, y: topBarY)
         pauseBtn.zPosition = 502; pauseBtn.name = "pauseBtn"; addChild(pauseBtn)
 
-        // Tutorial help button right of pause
         let helpBtn = TutorialHelpButton.make()
         helpBtn.position  = CGPoint(x: -W / 2 + 52, y: topBarY)
         helpBtn.zPosition = 502; addChild(helpBtn)
 
-        // Zone C (right): close icon
         let closeBtn = SKSpriteNode(imageNamed: "closeIcon")
         closeBtn.size      = CGSize(width: 22, height: 22)
         closeBtn.position  = CGPoint(x: W / 2 - 22, y: topBarY)
         closeBtn.zPosition = 502; closeBtn.name = "closeButton"; addChild(closeBtn)
 
-        // Zone B (center): score | bags | best
         scoreLbl = SKLabelNode(fontNamed: font)
         scoreLbl.text = "0000"; scoreLbl.fontSize = vw(9); scoreLbl.fontColor = dsGold
         scoreLbl.horizontalAlignmentMode = .left; scoreLbl.verticalAlignmentMode = .center
@@ -821,7 +822,6 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
         highLbl.position = CGPoint(x: W / 2 - 44, y: topBarY); highLbl.zPosition = 502
         addChild(highLbl)
 
-        // Iron corner bolts — top ribbon
         func bolt(at pt: CGPoint) {
             let b = SKSpriteNode(color: dsIronGray, size: CGSize(width: 4, height: 4))
             b.position = pt; b.zPosition = 503; addChild(b)
@@ -831,7 +831,6 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
         bolt(at: CGPoint(x: -W/2 + 5, y: H/2 - totalTopH + 5))
         bolt(at: CGPoint(x:  W/2 - 5, y: H/2 - totalTopH + 5))
 
-        // ── Bottom bar ───────────────────────────────────────────────────────
         let botBar = SKSpriteNode(color: dsPrimary,
                                   size: CGSize(width: W, height: bottomH))
         botBar.position  = CGPoint(x: 0, y: botBarY)
@@ -910,7 +909,7 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
     // MARK: - Phase init
 
     private func initLaunchPhase() {
-        bVX = 160; bVY = 390           // lower third of screen
+        bVX = 160; bVY = 390
         bVelX = 0; bVelY = 0; bZ = 0; bVZ = 0
         bRot  = 0; bRotV = 0; bSz = 56
         launchBZ = 0; launchBVZ = 0; launchGrounded = false
@@ -920,7 +919,6 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
         wellVX = 160 + CGFloat.random(in: -30...30)
         wellVY = 100 + CGFloat.random(in: -15...15)
 
-        // Reset physics-landing state from the previous round.
         physicsActive = false
         hasScored = false
         if let body = bagSprite.physicsBody {
@@ -930,29 +928,25 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
             body.affectedByGravity = false
         }
 
-        // Explicitly reset bag before any visibility change so stale actions can't fight us
         bagSprite.removeAllActions()
         bagSprite.alpha = 1; bagSprite.setScale(1)
 
-        // Explicitly reset well position + visibility
         wellSprite.position = vs(wellVX, wellVY)
         wellSprite.alpha    = 1
 
         applyPhaseVisibility(.launch)
 
-        // Force the hint to its correct starting position on frame 1
         hintLbl.position = vs(bVX, bVY - 28)
         hintLbl.isHidden = false
     }
 
     private func initDescentPhase() {
         descentProg = 0
-        bVX = 160; bVY = 240; bVelX = 0; bVelY = 0; bZ = 0  // centre of shaft
-        bRot = 0; bSz = 24   // big enough to see immediately
+        bVX = 160; bVY = 240; bVelX = 0; bVelY = 0; bZ = 0
+        bRot = 0; bSz = 24
         launchBZ = 0; launchBVZ = 0
         isSteering = false; tiltX = 0; tiltY = 0
 
-        // Build wind and cobweb obstacle data
         winds = []; cobwebs = []
         var d: CGFloat = 150
         while d < descentTotal - 350 {
@@ -973,12 +967,11 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
         applyPhaseVisibility(.descent)
     }
 
-    /// Final scene-Y the board rests at: board's bottom edge sits on the ground.
     private var landingBoardCentreY: CGFloat {
         let bh = boardSprite?.size.height ?? 80
         return groundTopY + bh / 2
     }
-    /// Off-screen starting Y for the board's slide-up reveal.
+    
     private var boardSlideStartY: CGFloat {
         -H / 2 - (boardSprite?.size.height ?? 100)
     }
@@ -1012,8 +1005,6 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
     }
 
     // MARK: - Phase visibility
-    // .sinking keeps the descent scene (walls + bg) AND keeps the board visible,
-    // so the bag's collision frame doesn't trigger a visible "scene change".
     private func applyPhaseVisibility(_ p: Phase) {
         phase = p
 
@@ -1035,10 +1026,6 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
         steerLbl.isHidden      = !showShaft
         obstacleLayer.isHidden = !showShaft
 
-        // boardContainer's visibility is managed manually during the descent slide-in
-        // (see updateDescent).  Only force it hidden when we leave the play phases
-        // entirely (e.g. on entering .launch via initLaunchPhase).  Ground tracks the
-        // same lifecycle — visible during descent's approach, hidden everywhere else.
         landingBg.isHidden = (p != .landing)
         if !showBoard {
             boardContainer.isHidden = true
@@ -1059,11 +1046,10 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
         case .launch:   updateLaunch(currentTime: currentTime)
         case .zoomIn:   updateZoomIn()
         case .descent:  updateDescent()
-        case .landing, .sinking, .gameOver: break   // .landing no longer used; finishFlight() handles end-of-fall
+        case .sinking:  updateSinking()
+        case .landing, .gameOver: break
         }
 
-        // Hard-freeze the bag once a score has been recorded.  Belt-and-suspenders
-        // in case any residual physics impulse fires after didBegin returns.
         if hasScored, let body = bagSprite.physicsBody, body.isDynamic {
             body.velocity        = .zero
             body.angularVelocity = 0
@@ -1076,7 +1062,6 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
     // MARK: - Launch physics
 
     private func updateLaunch(currentTime: TimeInterval) {
-        // Idle: bag waiting to be thrown
         if bVelX == 0 && bVelY == 0 && !launchGrounded {
             let pulse = CGFloat(sin(currentTime * 5.0)) * vh(3)
             hintLbl.position = vs(bVX, bVY - 24 + pulse)
@@ -1084,43 +1069,37 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
             return
         }
 
-        // Grounded (landed on grass after a miss): wait for flingEnded timer
         if launchGrounded { return }
 
-        // Ballistic physics — constant vx/vy, gravity only on vz (identical to CornholeMiniGameScene)
         launchBVZ -= launchGravity
         launchBZ  += launchBVZ
         bVX       += bVelX
         bVY       += bVelY
         bRot      += bRotV
 
-        // Ground contact
         if launchBZ <= 0 {
             launchBZ = 0; launchBVZ = 0
 
             let dx = bVX - wellVX; let dy = bVY - wellVY
             if hypot(dx, dy) < wellIR {
-                // Landed in the well opening — begin descent
                 zoomFrames = 18
                 spawnSparks(at: vs(wellVX, wellVY), color: .yellow, count: 20)
                 playHoleEnter()
                 applyPhaseVisibility(.zoomIn)
             } else {
-                // Missed — bag lands on grass: stop, shrink, no spin
                 launchGrounded = true
                 bVelX = 0; bVelY = 0; bRotV = 0
-                bSz   = 30   // smaller than in-flight 56, like cornhole's off-board 0.75×
+                bSz   = 30
                 playMiss()
                 flingEnded(pts: 0, msg: "MISSED WELL!")
             }
         }
     }
 
-    // MARK: - ZoomIn animation
     private func updateZoomIn() {
         zoomFrames -= 1
         bRot += 0.15
-        bSz  = max(8, bSz * 0.94)   // gentler shrink, stays visible
+        bSz  = max(8, bSz * 0.94)
         bVX  += (wellVX - bVX) * 0.1
         bVY  += (wellVY - bVY) * 0.1
         if zoomFrames <= 0 {
@@ -1128,21 +1107,18 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
         }
     }
 
-    // MARK: - Descent physics
     private func updateDescent() {
         descentProg += 4.5
 
         bVX += tiltX * 3.5
-        bVY += tiltY * 1.5   // virtual Y: positive tiltY moves bag downward in virtual space
+        bVY += tiltY * 1.5
         bRot += 0.04
 
-        // Wall clamp
         if bVX < 52  { bVX = 52;  playBounce(); spawnSparks(at: vs(bVX, bVY), color: SKColor(red:0.7,green:0.3,blue:0.3,alpha:1), count: 4) }
         if bVX > 268 { bVX = 268; playBounce(); spawnSparks(at: vs(bVX, bVY), color: SKColor(red:0.7,green:0.3,blue:0.3,alpha:1), count: 4) }
         if bVY < 60  { bVY = 60 }
         if bVY > 360 { bVY = 360 }
 
-        // Wind forces
         for w in winds {
             let wScreenVY = w.depth - descentProg + 240
             if abs(bVY - wScreenVY) < 30 {
@@ -1151,7 +1127,6 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
             }
         }
 
-        // Cobweb collisions
         for i in cobwebs.indices where !cobwebs[i].cleared {
             let cwVY = cobwebs[i].depth - descentProg + 240
             if hypot(bVX - cobwebs[i].x, bVY - cwVY) < cobwebs[i].radius {
@@ -1160,55 +1135,46 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
                 spawnSparks(at: vs(cobwebs[i].x, cwVY), color: .white, count: 10)
                 showToast("STICKY COBWEB!")
                 HapticsManager.shared.warningFeedback()
-                tiltX = -tiltX * 0.5   // brief steering reversal
+                tiltX = -tiltX * 0.5
             }
         }
 
-        // Update obstacle node positions
         updateObstaclePositions()
-
-        // Scrolling walls
         updateWallScroll()
 
-        // Depth bar
         let barH  = vh(120)
         let ratio = min(descentProg / descentTotal, 1)
         depthBarBg.position  = CGPoint(x: W/2 - vw(26), y: 0)
         depthCursor.position = CGPoint(x: W/2 - vw(26), y: barH/2 - barH * ratio)
         steerLbl.position    = CGPoint(x: 0, y: -H/2 + vh(35))
 
-        // Approach phase — last 300 progress of descent.
-        // 1) Reveal the board off-screen below.
-        // 2) Slide it UP toward landingBoardCentreY so it rises into view and meets
-        //    the bag near the middle of the screen.
-        // 3) Once the slide finishes, activate SK physics so the bag falls onto it.
         if descentProg >= descentTotal - 300 && !physicsActive {
             animateBoardSlideUp()
         }
     }
 
-    /// Animates `boardContainer` rising from below the screen to its final position
-    /// during the approach phase, then hands off to physics-driven landing.
+    private func updateSinking() {
+        guard !hasScored else { return }
+        descentProg += 4.5
+        updateWallScroll()
+        updateObstaclePositions()
+    }
+
     private func animateBoardSlideUp() {
-        // First frame of approach — unhide the ground AND the board.
         if boardContainer.isHidden {
             boardContainer.isHidden = false
             boardContainer.position = CGPoint(x: 0, y: boardSlideStartY)
-            groundSprite.isHidden   = false      // ground appears at the same time
+            groundSprite.isHidden   = false
         }
 
-        let approachProg = (descentProg - (descentTotal - 300)) / 300   // 0 → 1
-        // Slide completes by 70 % of the approach window; remaining 30 % is the
-        // bag's physics fall before descentTotal triggers final scoring.
+        let approachProg = (descentProg - (descentTotal - 300)) / 300
         let slideDuration: CGFloat = 0.70
         let slideProg     = min(1.0, approachProg / slideDuration)
-        // Ease-out cubic so the board decelerates as it reaches the bag.
         let eased = 1 - pow(1 - slideProg, 3)
         let startY = boardSlideStartY
         let endY   = landingBoardCentreY
         boardContainer.position = CGPoint(x: 0, y: startY + (endY - startY) * eased)
 
-        // Slide is done → hand off to physics.
         if slideProg >= 1.0 {
             activatePhysicsLanding()
         }
@@ -1216,33 +1182,24 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
 
     // MARK: - Physics-driven landing
 
-    /// Switch the bag from manual control to SK physics.  Called once when the
-    /// descent enters its final 300 units.  Pins the board at a fixed Y, gives the
-    /// bag a downward starting velocity, and enables gravity.
     private func activatePhysicsLanding() {
         physicsActive = true
         hasScored = false
-        phase = .sinking                 // keeps walls/descentBg visible (no scene change)
+        phase = .sinking
         isSteering = false; tiltX = 0; tiltY = 0
 
-        // Board is already visible at landingBoardCentreY from initDescentPhase() —
-        // nothing to reveal here.  Just make sure its position hasn't drifted.
         boardContainer.position = CGPoint(x: 0, y: landingBoardCentreY)
         boardContainer.isHidden = false
 
-        // Snap the bag's visual position to its current virtual position one last
-        // time so physics starts from where the player can see the bag.  Then
-        // activate gravity.
         bagSprite.position = vs(bVX, bVY)
         if let body = bagSprite.physicsBody {
             body.isDynamic         = true
             body.affectedByGravity = true
-            body.velocity          = CGVector(dx: 0, dy: -120)   // head-start downward
+            // Give it a gentle downward nudge instead of a missile drop.
+            body.velocity          = CGVector(dx: 0, dy: -100)
         }
     }
 
-    /// SKPhysicsContactDelegate — fires once per contact pair.  Routes the bag
-    /// hitting board / hole-sensor / ground-sensor to the appropriate score.
     func didBegin(_ contact: SKPhysicsContact) {
         guard physicsActive, !hasScored else { return }
 
@@ -1264,22 +1221,19 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
     private enum LandingOutcome { case hole, board, miss }
 
     private func scorePhysics(_ outcome: LandingOutcome) {
-        // Freeze the bag immediately so it doesn't bounce off into something else.
-        if let body = bagSprite.physicsBody {
-            body.velocity        = .zero
-            body.angularVelocity = 0
-            body.isDynamic       = false
-        }
-        // IMPORTANT: keep physicsActive = true.  If we clear it here, updateBagVisual
-        // will no longer skip its position override and will snap the bag back to
-        // vs(bVX, bVY) — i.e., scene centre — after it just landed.  physicsActive is
-        // cleared in initLaunchPhase() when the next round begins.
+        depthBarBg.isHidden    = true
+        depthCursor.isHidden   = true
+        obstacleLayer.isHidden = true
+        steerLbl.isHidden      = true
 
         switch outcome {
         case .hole:
-            playHoleScore()
+            playSound("hole_score.wav")
+            playSound("hit.mp3")
             HapticsManager.shared.heavyImpact()
+            HapticsManager.shared.successFeedback()
             spawnSparks(at: bagSprite.position, color: .yellow, count: 24)
+            freezeBag()
             bagSprite.run(.sequence([
                 .group([
                     .scale(to: 0.05, duration: 0.45),
@@ -1289,16 +1243,34 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
                 .run { [weak self] in self?.flingEnded(pts: 3, msg: "3 PTS! HOLE-IN-ONE!") },
             ]))
         case .board:
+            // Board hit — let SK physics bounce the bag naturally for 1.5 s, THEN freeze.
             playHitBoard()
             HapticsManager.shared.mediumImpact()
             spawnSparks(at: bagSprite.position, color: .orange, count: 12)
-            flingEnded(pts: 1, msg: "1 PT! ON THE BOARD!")
+            
+            run(.sequence([
+                .wait(forDuration: 1.50), // Give it time to naturally settle
+                .run { [weak self] in
+                    guard let self else { return }
+                    // Freeze it ONLY after the bounce is done
+                    self.freezeBag()
+                    self.flingEnded(pts: 1, msg: "1 PT! ON THE BOARD!")
+                }
+            ]))
         case .miss:
             playMiss()
             HapticsManager.shared.lightImpact()
             spawnSparks(at: bagSprite.position, color: .gray, count: 8)
+            freezeBag()
             flingEnded(pts: 0, msg: "0 PTS! MISSED BOARD!")
         }
+    }
+
+    private func freezeBag() {
+        guard let body = bagSprite.physicsBody else { return }
+        body.velocity        = .zero
+        body.angularVelocity = 0
+        body.isDynamic       = false
     }
 
     private func updateObstaclePositions() {
@@ -1334,7 +1306,6 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
             cobwebNodes[i].shape.isHidden = !visible
             guard visible else { continue }
 
-            // Draw spider-web rings and spokes
             let r = vw(cw.radius)
             let webPath = CGMutablePath()
             var ring: CGFloat = vw(5)
@@ -1357,14 +1328,9 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
         let lx    = -W / 2 + wallW / 2
         let rx    =  W / 2 - wallW / 2
 
-        // Two tiles, each as tall as the screen.  As descentProg grows the tiles
-        // scroll UPWARD (walls pass the player going up as they fall down).
-        // offset ∈ [0, H): tile centres at (offset − H) and (offset).
-        // Proof of seamless coverage: combined range = [offset−3H/2, offset+H/2]
-        // which always contains [−H/2, H/2] for any offset ∈ [0, H). ✓
         let offset = descentProg.truncatingRemainder(dividingBy: wallTileH)
-        let y0 = offset - wallTileH   // lower tile  (rises from −H to 0)
-        let y1 = offset               // upper tile  (rises from  0 to H)
+        let y0 = offset - wallTileH
+        let y1 = offset
 
         wL1.position = CGPoint(x: lx, y: y0); wL1.xScale =  1
         wL2.position = CGPoint(x: lx, y: y1); wL2.xScale =  1
@@ -1428,7 +1394,6 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
         panel.addChild(lbl("BEST   \(String(format: "%04d", highScore))", sz: vw(6),
                             color: SKColor(red:0.2,green:0.9,blue:0.4,alpha:1), y: -panelH * 0.32))
 
-        // PLAY AGAIN button
         let btnBg = SKShapeNode(rectOf: CGSize(width: panelW * 0.7, height: vh(44)), cornerRadius: vw(8))
         btnBg.fillColor   = SKColor(red: 0.0, green: 0.627, blue: 0.784, alpha: 1)
         btnBg.strokeColor = SKColor(red: 0.4, green: 0.85, blue: 1.0, alpha: 1)
@@ -1447,8 +1412,6 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
     private func updateBagVisual() {
         guard phase != .gameOver else { return }
 
-        // Once physics is driving the bag, DO NOT override its position from the
-        // virtual coords — let SK physics move it freely under gravity.
         if physicsActive { return }
 
         var skPos = vs(bVX, bVY)
@@ -1456,11 +1419,9 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
 
         switch phase {
         case .launch, .zoomIn:
-            // Same arc-scale formula as CornholeMiniGameScene: bigger at peak of arc
             altScale  = 1.0 + launchBZ * 0.012
-            skPos.y  += launchBZ * 0.50   // lift visual position as bag rises (SK y-up)
+            skPos.y  += launchBZ * 0.50
         default:
-            // .descent / .sinking — bag position is simply vs(bVX, bVY), no altitude offset.
             altScale  = 1.0
         }
 
@@ -1504,20 +1465,16 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
         guard let touch = touches.first else { return }
         let loc = touch.location(in: self)
 
-        // Tutorial routing (must be first)
         if let overlay = TutorialOverlay.active(in: self) { overlay.advance(); return }
         for n in nodes(at: loc) where TutorialHelpButton.wasTapped(n) {
             presentTutorial(autoTriggered: false); return
         }
 
-        // HUD buttons
-        if nodes(at: loc).contains(where: { $0.name == "pauseBtn"    }) { return } // pause stub
+        if nodes(at: loc).contains(where: { $0.name == "pauseBtn"    }) { return }
         if nodes(at: loc).contains(where: { $0.name == "closeButton" }) { dismiss(); return }
 
-        // Game-over play again
         if phase == .gameOver {
             if nodes(at: loc).contains(where: { $0.name == "playAgain" }) {
-                // Flush any stale scene or sprite actions before rebuilding state
                 removeAllActions()
                 bagSprite.removeAllActions()
                 children.filter { $0.zPosition == 80 }.forEach { $0.removeFromParent() }
@@ -1526,17 +1483,15 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
             return
         }
 
-        // Launch: any touch starts the aiming line (cornhole-style direct swipe)
         if phase == .launch {
             touchStart = loc
             let line = SKShapeNode()
             line.strokeColor = SKColor(white: 1, alpha: 0.45)
-            line.lineWidth = 1; line.zPosition = 400  // above gameWorldNode, below HUD
+            line.lineWidth = 1; line.zPosition = 400
             addChild(line)
             aimingLine = line
         }
 
-        // Descent / landing steering
         if phase == .descent || phase == .landing {
             isSteering = true; steerRefX = loc.x; steerRefY = loc.y
         }
@@ -1558,7 +1513,6 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
             let dx = loc.x - steerRefX
             let dy = loc.y - steerRefY
             tiltX = max(-1, min(1,  dx / vw(45)))
-            // SK y-up: finger moves down (negative SK dy) → bag moves right in virtual (positive tiltY)
             tiltY = max(-1, min(1, -dy / vh(45)))
         }
     }
@@ -1573,11 +1527,10 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
             let dx = loc.x - start.x
             let dy = loc.y - start.y
             if hypot(dx, dy) > 10 {
-                // Swipe direction = throw direction; y-flip because SK is y-up, virtual is y-down
                 bVelX    =  dx * (320 / W) * launchPowerScale
                 bVelY    = -dy * (480 / H) * launchPowerScale
                 bRotV    = CGFloat.random(in: 0.1...0.3)
-                launchBVZ = launchVZInitial   // kick off the arc — same as cornhole
+                launchBVZ = launchVZInitial
                 spawnSparks(at: vs(bVX, bVY), color: .white, count: 12)
                 playLaunch()
                 HapticsManager.shared.lightImpact()
@@ -1607,9 +1560,6 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
     }
 
     // MARK: - Audio
-    // Uses existing project sound files via SKAction to avoid conflicting
-    // with SpriteKit's internal AVAudioEngine (SKScene.audioEngine).
-
     private func playSound(_ name: String) {
         run(.playSoundFileNamed(name, waitForCompletion: false))
     }
@@ -1622,3 +1572,5 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
     private func playMiss()      { playSound("round_end.wav") }
     private func playWind()      { /* no suitable file — skip */ }
 }
+
+
