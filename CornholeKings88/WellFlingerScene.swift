@@ -696,13 +696,24 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
 
             c.setStrokeColor(woodEdge); c.setLineWidth(2); c.stroke(body)
 
-            c.setFillColor(UIColor.black.cgColor)
-            c.fillEllipse(in: CGRect(x: holeCX - holeR, y: holeCY - holeR,
-                                     width: holeR * 2,  height: holeR * 2))
-            let rimR = holeR + 3
-            c.setStrokeColor(woodEdge); c.setLineWidth(3)
-            c.strokeEllipse(in: CGRect(x: holeCX - rimR, y: holeCY - rimR,
-                                       width: rimR * 2,   height: rimR * 2))
+            // Pixelated hole — drawn as a grid of 4-pt blocks matching the well texture style.
+            // Each block is either hole-black, rim-dark-wood, or transparent (skip).
+            let pix: CGFloat = 4
+            var py = holeCY - holeR - pix * 2
+            while py < holeCY + holeR + pix * 2 {
+                var px = holeCX - holeR - pix * 2
+                while px < holeCX + holeR + pix * 2 {
+                    let dist = hypot(px + pix / 2 - holeCX, py + pix / 2 - holeCY)
+                    let rect = CGRect(x: px, y: py, width: pix, height: pix)
+                    if dist <= holeR {
+                        c.setFillColor(UIColor.black.cgColor); c.fill(rect)
+                    } else if dist <= holeR + pix * 1.8 {
+                        c.setFillColor(woodEdge); c.fill(rect)
+                    }
+                    px += pix
+                }
+                py += pix
+            }
         }
 
         let tex = SKTexture(image: img)
