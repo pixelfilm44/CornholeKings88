@@ -29,7 +29,7 @@ final class MiniGamePickerScene: SKScene {
         MenuItem(label: "BEACH BALL",     subLabel: "pool blitz",    name: "beachball",  isLocked: false),
         MenuItem(label: "PIRANHA BRIDGE", subLabel: "bridge build",  name: "piranha",    isLocked: false),
         MenuItem(label: "SUBURBAN JOUSTERS", subLabel: "bike joust", name: "jousters",   isLocked: false),
-        MenuItem(label: "WELL FLINGER",   subLabel: "bag descent",   name: "wellflinger", isLocked: false),
+        MenuItem(label: "WELL DROPPER",   subLabel: "tilt to dodge", name: "wellflinger", isLocked: false),
         MenuItem(label: "EXPLORE",        subLabel: "open world",    name: "explore",    isLocked: true),
     ]
 
