@@ -1492,28 +1492,15 @@ final class BeachBallCornholeScene: SKScene {
     private func showConfirmQuit() {
         guard !confirmingQuit else { return }
         confirmingQuit = true
-
-        let panel = SKNode(); panel.zPosition = 1100
-        let bg = SKSpriteNode(
-            color: SKColor(red: 0.03, green: 0.07, blue: 0.16, alpha: 0.96),
-            size: CGSize(width: W * 0.72, height: H * 0.28))
-        panel.addChild(bg)
-
-        let lbl = makeLabel(text: "QUIT?", size: min(12, W / 22),
-                            color: SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 1))
-        lbl.position = CGPoint(x: 0, y: H * 0.066)
-        panel.addChild(lbl)
-
-        for (i, (txt, name)) in [("YES", "confirmQuitBtn"), ("NO", "cancelQuitBtn")].enumerated() {
-            panel.addChild(makeButtonNode(text: txt, name: name,
-                                          at: CGPoint(x: CGFloat(i * 2 - 1) * W * 0.15, y: -H * 0.035),
-                                          width: W * 0.26))
-        }
-        addChild(panel); confirmPanel = panel
+        let panel = QuitConfirmModal.make(sceneSize: size)
+        addChild(panel)
+        confirmPanel = panel
     }
 
     private func hideConfirmPanel() {
-        confirmingQuit = false; confirmPanel?.removeFromParent(); confirmPanel = nil
+        confirmingQuit = false
+        confirmPanel?.run(.sequence([.fadeOut(withDuration: 0.15), .removeFromParent()]))
+        confirmPanel = nil
     }
 
     // MARK: - Game Over

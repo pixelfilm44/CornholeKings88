@@ -17,6 +17,8 @@ final class BridgePiranhaScene: SKScene {
     private var W: CGFloat = 0, H: CGFloat = 0
     private var isPausedGame = false
     private var pauseOverlayNode: SKNode?
+    private var confirmingQuit = false
+    private var confirmPanel: SKNode?
     private var riverMinY: CGFloat = 0      // bottom edge of river
     private var riverMaxY: CGFloat = 0      // top edge of river
     private var throwLineY: CGFloat = 0     // player throw position
@@ -921,9 +923,17 @@ final class BridgePiranhaScene: SKScene {
             }
             return
         }
+        // Quit-confirm modal consumes all input until resolved.
+        if confirmingQuit {
+            for n in nodes(at: loc) {
+                if QuitConfirmModal.isQuit(n)   { hideConfirmPanel(); dismissScene(won: false); return }
+                if QuitConfirmModal.isCancel(n) { hideConfirmPanel(); return }
+            }
+            return
+        }
         if nodes(at: loc).contains(where: { $0.name == "pauseBtn" }) { pauseGame(); return }
         if nodes(at: loc).contains(where: { $0.name == "closeButton" }) {
-            if gameOver { dismissScene(won: gameResult) } else { dismissScene(won: false) }
+            if gameOver { dismissScene(won: gameResult) } else { showConfirmQuit() }
             return
         }
 
@@ -1039,6 +1049,22 @@ final class BridgePiranhaScene: SKScene {
         helpHint.fontColor = SKColor(white: 0.6, alpha: 0.8)
         helpHint.horizontalAlignmentMode = .center; helpHint.verticalAlignmentMode = .top
         helpHint.position = CGPoint(x: 0, y: -80); ov.addChild(helpHint)
+    }
+
+    // MARK: - Quit Confirmation
+
+    private func showConfirmQuit() {
+        guard !confirmingQuit else { return }
+        confirmingQuit = true
+        let panel = QuitConfirmModal.make(sceneSize: size)
+        addChild(panel)
+        confirmPanel = panel
+    }
+
+    private func hideConfirmPanel() {
+        confirmingQuit = false
+        confirmPanel?.run(.sequence([.fadeOut(withDuration: 0.15), .removeFromParent()]))
+        confirmPanel = nil
     }
 
     // MARK: - Dismiss

@@ -169,6 +169,8 @@ final class BikeDodgeScene: SKScene {
     private var brakeFrame:      CGRect = .zero
     private var pauseBtnFrame:   CGRect = .zero
     private var closeBtnFrame:   CGRect = .zero
+    private var confirmingQuit = false
+    private var confirmPanel: SKNode?
     private var mmBottom:    CGFloat = 0, mmHeight: CGFloat = 0
 
     // MARK: - Pause
@@ -611,7 +613,7 @@ final class BikeDodgeScene: SKScene {
 
     // MARK: - Update
     override func update(_ currentTime: TimeInterval) {
-        if isPausedGame { lastTime = currentTime; return }
+        if isPausedGame || confirmingQuit { lastTime = currentTime; return }
         let dt = CGFloat(lastTime == 0 ? 0.016 : min(currentTime - lastTime, 0.033))
         lastTime = currentTime
         switch gState {
@@ -2110,6 +2112,15 @@ final class BikeDodgeScene: SKScene {
                 overlay.advance(); return
             }
 
+            // Quit-confirm modal consumes all input until resolved.
+            if confirmingQuit {
+                for n in nodes(at: loc) {
+                    if QuitConfirmModal.isQuit(n)   { hideConfirmPanel(); dismissToMenu(); return }
+                    if QuitConfirmModal.isCancel(n) { hideConfirmPanel(); return }
+                }
+                return
+            }
+
             // Pause overlay — uses nodes(at:) since the panel has overlay-only buttons.
             if isPausedGame {
                 for n in nodes(at: loc) {
@@ -2131,7 +2142,7 @@ final class BikeDodgeScene: SKScene {
                     continue
                 }
                 if pauseBtnFrame.contains(loc) { pauseGame(); return }
-                if closeBtnFrame.contains(loc) { dismissToMenu(); return }
+                if closeBtnFrame.contains(loc) { showConfirmQuit(); return }
                 // Steering — last-input-wins to recover from any stuck opposite touches.
                 // Snap xVelocity to at least the kick threshold in the tapped direction
                 // so the bike responds within one frame whether reversing or starting
@@ -2154,7 +2165,7 @@ final class BikeDodgeScene: SKScene {
             }
 
             // Non-racing states — keep the slower nodes(at:) paths.
-            if closeBtnFrame.contains(loc) { dismissToMenu(); return }
+            if closeBtnFrame.contains(loc) { showConfirmQuit(); return }
 
             switch gState {
             case .menu: startCountdown(); return
@@ -2204,6 +2215,23 @@ final class BikeDodgeScene: SKScene {
     private func dismissToMenu() {
         bikeDodgeDelegate?.bikeDodgeSceneDidRequestDismiss(self)
         onComplete?(false)
+    }
+
+    // MARK: - Quit Confirmation
+    private func showConfirmQuit() {
+        guard !confirmingQuit else { return }
+        confirmingQuit = true
+        steerLeft = false; steerRight = false; isBraking = false
+        leftTouches.removeAll(); rightTouches.removeAll(); brakeTouches.removeAll()
+        let panel = QuitConfirmModal.make(sceneSize: size)
+        addChild(panel)
+        confirmPanel = panel
+    }
+
+    private func hideConfirmPanel() {
+        confirmingQuit = false
+        confirmPanel?.run(.sequence([.fadeOut(withDuration: 0.15), .removeFromParent()]))
+        confirmPanel = nil
     }
 
     // MARK: - Pause / Resume

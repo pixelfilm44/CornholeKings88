@@ -87,6 +87,8 @@ final class SuburbanJoustersScene: SKScene {
 
     private var W: CGFloat = 0
     private var H: CGFloat = 0
+    private var confirmingQuit = false
+    private var confirmPanel: SKNode?
     private var laneGapHalf: CGFloat = 0   // |player.x| = |rival.x|
     private var playerLaneY: CGFloat = 0
     private var rivalStartY: CGFloat = 0
@@ -1521,9 +1523,18 @@ final class SuburbanJoustersScene: SKScene {
             return
         }
 
+        // Quit-confirm modal consumes all input until resolved.
+        if confirmingQuit {
+            for n in nodes(at: loc) {
+                if QuitConfirmModal.isQuit(n)   { hideConfirmPanel(); dismissScene(playerWon: false); return }
+                if QuitConfirmModal.isCancel(n) { hideConfirmPanel(); return }
+            }
+            return
+        }
+
         // HUD chrome
         if nodes(at: loc).contains(where: { $0.name == "pauseBtn" })    { pauseGame(); return }
-        if nodes(at: loc).contains(where: { $0.name == "closeButton" }) { dismissScene(playerWon: false); return }
+        if nodes(at: loc).contains(where: { $0.name == "closeButton" }) { showConfirmQuit(); return }
 
         // Gameplay only when jousting
         guard state == .jousting else { return }
@@ -1634,6 +1645,22 @@ final class SuburbanJoustersScene: SKScene {
             }
         }
         addChild(overlay)
+    }
+
+    // MARK: - Quit Confirmation
+
+    private func showConfirmQuit() {
+        guard !confirmingQuit else { return }
+        confirmingQuit = true
+        let panel = QuitConfirmModal.make(sceneSize: size)
+        addChild(panel)
+        confirmPanel = panel
+    }
+
+    private func hideConfirmPanel() {
+        confirmingQuit = false
+        confirmPanel?.run(.sequence([.fadeOut(withDuration: 0.15), .removeFromParent()]))
+        confirmPanel = nil
     }
 
     // MARK: - Dismiss

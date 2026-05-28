@@ -41,6 +41,10 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
     private var camNode: SKCameraNode!
     private var worldNode: SKNode!
 
+    // Quit confirmation
+    private var confirmingQuit = false
+    private var confirmPanel: SKNode?
+
     // Bag
     private var bag: SKSpriteNode!
     private var bagShadow: SKSpriteNode!
@@ -880,6 +884,17 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
             overlay.advance(); return
         }
         let locScene = t.location(in: self)
+
+        // Quit-confirm modal consumes all input until resolved.
+        if confirmingQuit {
+            let locCam = t.location(in: camNode)
+            for n in camNode.nodes(at: locCam) {
+                if QuitConfirmModal.isQuit(n)   { hideConfirmPanel(); dismissScene(); return }
+                if QuitConfirmModal.isCancel(n) { hideConfirmPanel(); return }
+            }
+            return
+        }
+
         for n in nodes(at: locScene) where TutorialHelpButton.wasTapped(n) {
             presentTutorial(autoTriggered: false); return
         }
@@ -892,7 +907,7 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
                 isPaused.toggle()
                 return
             case "closeButton":
-                dismissScene()
+                showConfirmQuit()
                 return
             default: break
             }
@@ -956,6 +971,20 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
         n.setScale(0)
         n.run(.scale(to: 1.0, duration: 0.10))
         HapticsManager.shared.lightImpact()
+    }
+
+    private func showConfirmQuit() {
+        guard !confirmingQuit else { return }
+        confirmingQuit = true
+        let panel = QuitConfirmModal.make(sceneSize: size)
+        camNode.addChild(panel)
+        confirmPanel = panel
+    }
+
+    private func hideConfirmPanel() {
+        confirmingQuit = false
+        confirmPanel?.run(.sequence([.fadeOut(withDuration: 0.15), .removeFromParent()]))
+        confirmPanel = nil
     }
 
     private func dismissScene() {

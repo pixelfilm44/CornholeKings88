@@ -93,6 +93,8 @@ final class CornholeBaseballScene: SKScene {
 
     private var isPausedGame = false
     private var pauseOverlayNode: SKNode?
+    private var confirmingQuit = false
+    private var confirmPanel: SKNode?
 
     // Tracks which half is active for HUD display — stays stable through .tracking/.gameOver
     private var isUserBattingHalf = true
@@ -267,7 +269,7 @@ final class CornholeBaseballScene: SKScene {
     }
 
     @objc private func pauseButtonTapped() { pauseGame() }
-    @objc private func closeButtonTapped() { dismissScene(playerWon: false) }
+    @objc private func closeButtonTapped() { showConfirmQuit() }
 
     private static func resizedIcon(named: String, to pts: CGFloat) -> UIImage? {
         guard let src = UIImage(named: named) else { return nil }
@@ -906,7 +908,7 @@ final class CornholeBaseballScene: SKScene {
     // MARK: - Physics update
 
     override func update(_ currentTime: TimeInterval) {
-        if isPausedGame { return }
+        if isPausedGame || confirmingQuit { return }
         // Resume world after hit-stop timer.
         // IMPORTANT: hitStopEndTime is a CACurrentMediaTime() wall-clock value,
         // so we must compare against CACurrentMediaTime(), NOT the SpriteKit
@@ -1263,6 +1265,15 @@ final class CornholeBaseballScene: SKScene {
             presentTutorial(autoTriggered: false); return
         }
 
+        // Quit-confirm modal consumes all input until resolved.
+        if confirmingQuit {
+            for n in nodes(at: loc) {
+                if QuitConfirmModal.isQuit(n)   { hideConfirmPanel(); dismissScene(playerWon: false); return }
+                if QuitConfirmModal.isCancel(n) { hideConfirmPanel(); return }
+            }
+            return
+        }
+
         // Pause overlay routing
         if isPausedGame {
             for n in nodes(at: loc) {
@@ -1345,7 +1356,7 @@ final class CornholeBaseballScene: SKScene {
             var n: SKNode? = node
             while let cur = n {
                 switch cur.name {
-                case "closeButton":        dismissScene(playerWon: false);            return true
+                case "closeButton":        showConfirmQuit();                         return true
                 case "playAgainBtn":       resetGame();                               return true
                 case "exitBtn":            dismissScene(playerWon: userAvg >= aiAvg); return true
                 default:                   n = cur.parent
@@ -1747,6 +1758,24 @@ final class CornholeBaseballScene: SKScene {
         helpHint.fontColor = SKColor(white: 0.6, alpha: 0.8)
         helpHint.horizontalAlignmentMode = .center; helpHint.verticalAlignmentMode = .top
         helpHint.position = CGPoint(x: 0, y: -80); ov.addChild(helpHint)
+    }
+
+    // MARK: - Quit Confirmation
+
+    private func showConfirmQuit() {
+        guard !confirmingQuit else { return }
+        confirmingQuit = true
+        gameWorldNode.speed = 0
+        let panel = QuitConfirmModal.make(sceneSize: size)
+        addChild(panel)
+        confirmPanel = panel
+    }
+
+    private func hideConfirmPanel() {
+        confirmingQuit = false
+        if !isPausedGame { gameWorldNode.speed = 1 }
+        confirmPanel?.run(.sequence([.fadeOut(withDuration: 0.15), .removeFromParent()]))
+        confirmPanel = nil
     }
 
     // MARK: - Dismiss
