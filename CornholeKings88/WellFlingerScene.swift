@@ -52,6 +52,7 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
     // Game state
     private enum TurnState { case falling, settling, ended }
     private var turnState: TurnState = .falling
+    private var countdownActive = false   // blocks rock placement during the pre-turn countdown
     private var bagsLeft = 3
     private var score    = 0
     private var hasScoredThisTurn = false
@@ -126,7 +127,7 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
         addCrtOverlay()
 
         if TutorialManager.shared.hasSeen(TutorialManager.wellFlinger) {
-            startTurn()
+            startCountdown()
         } else {
             presentTutorial(autoTriggered: true)
         }
@@ -149,9 +150,63 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
         ]
         let overlay = TutorialOverlay(steps: steps, sceneSize: size) { [weak self] in
             TutorialManager.shared.markSeen(TutorialManager.wellFlinger)
-            if autoTriggered { self?.startTurn() }
+            if autoTriggered { self?.startCountdown() }
         }
         addChild(overlay)
+    }
+
+    // MARK: - Countdown
+
+    /// Same 3 / 2 / 1 / SHOOT! beat used by the beach-ball mini-game. The bag
+    /// stays frozen until the final beat fires startTurn().
+    private func startCountdown() {
+        countdownActive = true
+        let gold  = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 1)
+        let green = SKColor(red: 0.18, green: 0.90, blue: 0.40, alpha: 1)
+
+        func beatLabel(text: String, color: SKColor) -> SKAction {
+            return .run { [weak self] in
+                guard let self else { return }
+                let lbl = SKLabelNode(fontNamed: "PressStart2P-Regular")
+                lbl.text = text
+                lbl.fontSize = min(64, self.W / 5)
+                lbl.fontColor = color
+                lbl.horizontalAlignmentMode = .center
+                lbl.verticalAlignmentMode = .center
+                lbl.position = .zero
+                lbl.zPosition = 900
+                lbl.setScale(0.4)
+                self.camNode.addChild(lbl)
+                lbl.run(.sequence([
+                    .group([
+                        .scale(to: 1.0, duration: 0.15),
+                        .fadeIn(withDuration: 0.10),
+                    ]),
+                    .wait(forDuration: 0.50),
+                    .group([
+                        .scale(to: 1.4, duration: 0.25),
+                        .fadeOut(withDuration: 0.25),
+                    ]),
+                    .removeFromParent(),
+                ]))
+            }
+        }
+
+        let beat: TimeInterval = 0.85
+        run(.sequence([
+            beatLabel(text: "3", color: gold),
+            .wait(forDuration: beat),
+            beatLabel(text: "2", color: gold),
+            .wait(forDuration: beat),
+            beatLabel(text: "1", color: gold),
+            .wait(forDuration: beat),
+            beatLabel(text: "GO", color: green),
+            .wait(forDuration: 0.55),
+            .run { [weak self] in
+                self?.countdownActive = false
+                self?.startTurn()
+            },
+        ]))
     }
 
     // MARK: - World construction
@@ -405,11 +460,11 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
         bag.color            = SKColor(red: 0.90, green: 0.25, blue: 0.25, alpha: 1)
         bag.colorBlendFactor = 0.65
         bag.zPosition = 10
-        bag.position  = CGPoint(x: 0, y: 0)
+        bag.position  = CGPoint(x: 0, y: -H * 0.15)
         worldNode.addChild(bag)
 
         let body = SKPhysicsBody(circleOfRadius: bagSize * 0.7)
-        body.isDynamic           = true
+        body.isDynamic           = false   // frozen until startTurn — keeps the bag still during tutorial + countdown
         body.affectedByGravity   = true
         body.allowsRotation      = true
         body.mass                = 0.06
@@ -705,7 +760,7 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
 
     override func update(_ currentTime: TimeInterval) {
         // Apply tilt as a horizontal force while the bag is falling.
-        if turnState == .falling, !hasScoredThisTurn, let body = bag.physicsBody {
+        if turnState == .falling, !hasScoredThisTurn, !countdownActive, let body = bag.physicsBody {
             // Cap fall speed so the descent never gets away from the player.
             let maxFallSpeed: CGFloat = 180
             if body.velocity.dy < -maxFallSpeed {
@@ -925,8 +980,8 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
             }
         }
 
-        // Tap-to-place rock — only while the bag is falling.
-        if turnState == .falling {
+        // Tap-to-place rock — only while the bag is falling (not during countdown).
+        if turnState == .falling, !countdownActive {
             placePlayerRock(at: locScene)
         }
     }
