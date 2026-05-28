@@ -360,6 +360,8 @@ Bag `collisionBitMask = boardCategory \| groundCategory`. `usesPreciseCollisionD
 
 **Tutorial key** — `TutorialManager.wellFlinger` (`"tutorial.wellFlinger.v1"`).
 
+**Start flow (tutorial → countdown)** — the bag's physics body is built with `isDynamic = false` so it stays frozen at the top of the well during the tutorial (the game is effectively paused while cards are shown). After the tutorial (or immediately, if already seen), `startCountdown()` runs the same `3 / 2 / 1 / GO` beat sequence as `BeachBallCornholeScene` — labels are added to `camNode` (which tracks the bag) so they stay screen-centered. The final `GO` beat clears `countdownActive` and calls `startTurn()`, which makes the bag dynamic and releases the drop. While `countdownActive` is true, rock placement in `touchesBegan` is blocked and the `update()` stuck-detection (`"BAG STUCK!"`) is suppressed. Replay-after-loss (`resetForReplay()`) calls `startTurn()` directly — no countdown.
+
 **Asset requirement** — `cornholeBoard_side.png` (transparent side-view of a cornhole board with the hole at the left) must be in `Assets.xcassets`.
 
 ### Story System
