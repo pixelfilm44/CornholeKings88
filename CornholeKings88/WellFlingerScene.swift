@@ -1,13 +1,12 @@
 
 import SpriteKit
-import CoreMotion
 import UIKit
 
 // MARK: - WellFlingerScene (Well Dropper)
-// The bag is already falling down a stone well. Tilt the phone left/right to
-// nudge it past stones (which knock it sideways) and spider webs (which catch
-// and stop it). A yellow beam rises from the cornhole hole at the bottom.
-// 3 tries per game. Hole = 3 pts, board = 1 pt, miss/stuck = 0 pts.
+// The bag is already falling down a stone well. Tap to drop rocks that the bag
+// bounces off, steering it past stones (which knock it sideways) and spider
+// webs (which catch and stop it). A yellow beam rises from the cornhole hole at
+// the bottom. 3 tries per game. Hole = 3 pts, board = 1 pt, miss/stuck = 0 pts.
 
 final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
 
@@ -58,10 +57,6 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
     private var hasScoredThisTurn = false
     private let winThreshold = 3
     private var highScore = UserDefaults.standard.integer(forKey: "wellFlinger_high_v1")
-
-    // Tilt
-    private let motion = CMMotionManager()
-    private var tiltX: CGFloat = 0
 
     // Stuck detection — if the bag stops making downward progress (wedged
     // between a rock and the wall) for longer than this many seconds while
@@ -134,7 +129,6 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
     }
 
     override func willMove(from view: SKView) {
-        motion.stopDeviceMotionUpdates()
     }
 
     // MARK: - Tutorial
@@ -607,7 +601,6 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
     private func startTurn() {
         turnState = .falling
         hasScoredThisTurn = false
-        tiltX = 0
         stuckTimer = 0
         lastUpdate = 0
 
@@ -740,26 +733,10 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
         placedRocks.removeAll()
     }
 
-    // MARK: - Tilt input
-
-    private func startMotion() {
-        guard motion.isDeviceMotionAvailable else { return }
-        motion.deviceMotionUpdateInterval = 1.0 / 60.0
-        motion.startDeviceMotionUpdates(to: .main) { [weak self] data, _ in
-            guard let self, let data else { return }
-            // Phone portrait: gravity.x ∈ [-1, 1] — tilt the phone left → negative.
-            let raw = CGFloat(data.gravity.x)
-            // Deadzone + curve so neutral hands don't drift the bag.
-            let dead: CGFloat = 0.05
-            let v = abs(raw) < dead ? 0 : (raw - CGFloat(sign(raw)) * dead) / (1 - dead)
-            self.tiltX = max(-1, min(1, v))
-        }
-    }
-
     // MARK: - Update loop
 
     override func update(_ currentTime: TimeInterval) {
-        // Apply tilt as a horizontal force while the bag is falling.
+        // Clamp the bag's fall/lateral speed and run stuck detection while falling.
         if turnState == .falling, !hasScoredThisTurn, !countdownActive, let body = bag.physicsBody {
             // Cap fall speed so the descent never gets away from the player.
             let maxFallSpeed: CGFloat = 180
@@ -1043,7 +1020,6 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
     }
 
     private func dismissScene() {
-        motion.stopDeviceMotionUpdates()
         onComplete?(score >= winThreshold)
         if let prev = previousScene {
             view?.presentScene(prev, transition: .fade(withDuration: 0.25))
