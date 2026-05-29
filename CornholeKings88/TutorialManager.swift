@@ -18,6 +18,10 @@ final class TutorialManager {
     static let jousters    = "tutorial.jousters.v1"
     static let wellFlinger = "tutorial.wellFlinger.v1"
 
+    /// Every tutorial key — used by `resetAll()` and the Settings screen.
+    static let allKeys = [bike, cornhole, baseball, beehive,
+                          beachball, piranha, jousters, wellFlinger]
+
     func hasSeen(_ key: String) -> Bool {
         UserDefaults.standard.bool(forKey: key)
     }
@@ -30,5 +34,11 @@ final class TutorialManager {
     /// flows that should re-trigger the auto-show next launch.
     func reset(_ key: String) {
         UserDefaults.standard.removeObject(forKey: key)
+    }
+
+    /// Clears every tutorial seen-flag so all mini-games re-show their
+    /// onboarding on next play. Used by the Settings screen.
+    func resetAll() {
+        TutorialManager.allKeys.forEach { reset($0) }
     }
 }

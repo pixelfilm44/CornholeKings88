@@ -361,31 +361,15 @@ final class MainMenuScene: SKScene {
             push(to: s)
 
         case "settings":
-            showComingSoon()
+            let s = SettingsScene(size: size)
+            s.scaleMode = .resizeFill
+            push(to: s)
 
         case "resetStory":
             StoryManager.shared.reset()
 
         default: break
         }
-    }
-
-    private func showComingSoon() {
-        let font = "PressStart2P-Regular"
-        let lbl = SKLabelNode(fontNamed: font)
-        lbl.text = "COMING SOON"
-        lbl.fontSize = min(10, W / 30)
-        lbl.fontColor = SKColor(red: 0.78, green: 0.57, blue: 0.16, alpha: 1)
-        lbl.horizontalAlignmentMode = .center
-        lbl.verticalAlignmentMode = .center
-        lbl.position = CGPoint(x: 0, y: 0)
-        lbl.zPosition = 50
-        addChild(lbl)
-        lbl.run(.sequence([
-            .wait(forDuration: 1.0),
-            .fadeOut(withDuration: 0.3),
-            .removeFromParent(),
-        ]))
     }
 
     // MARK: - Helpers
