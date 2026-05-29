@@ -55,6 +55,12 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
     private var tutorialUp = false        // true while the tutorial overlay is on screen — freezes gameplay
     private var pausedBagVelocity: CGVector?   // bag motion saved while a tutorial pauses a live turn
     private var pausedBagAngular: CGFloat = 0
+    /// Total bags for this game. Defaults to 3 (picker path); world-map path
+    /// sets this to the player's `.bag` inventory count before presenting.
+    var availableBags: Int = 3
+    /// Cumulative bags thrown across all turns (including replays). Caller
+    /// (e.g. GameScene) reads this on completion to deduct from inventory.
+    private(set) var bagsUsed: Int = 0
     private var bagsLeft = 3
     private var score    = 0
     private var hasScoredThisTurn = false
@@ -99,6 +105,7 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
 
         if hasSetup { removeAllActions(); removeAllChildren() }
         hasSetup = true
+        bagsLeft = max(availableBags, 0)
 
         backgroundColor = SKColor(red: 0.04, green: 0.05, blue: 0.08, alpha: 1)
 
@@ -578,7 +585,7 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
 
     private func updateHUD() {
         scoreLbl.text = String(format: "%04d", score)
-        bagsLbl.text  = "\(bagsLeft)/3"
+        bagsLbl.text  = "\(bagsLeft)/\(availableBags)"
         highLbl.text  = String(format: "%04d", highScore)
     }
 
@@ -648,6 +655,7 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
         guard turnState != .ended else { return }
         turnState = .ended
         bagsLeft -= 1
+        bagsUsed += 1
         score += pts
         if score > highScore {
             highScore = score
@@ -739,7 +747,7 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
     private func resetForReplay() {
         endPanel?.removeFromParent()
         endPanel = nil
-        bagsLeft = 3
+        bagsLeft = max(availableBags, 0)
         score    = 0
 
         // Clear any rocks the player placed and re-randomize the obstacle layout.

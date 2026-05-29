@@ -79,6 +79,10 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     private var fencePositions: [CGPoint] = []
     private var nearbyFencePosition: CGPoint?
 
+    // Well interaction — tileset name contains "well"; launches Well Flinger
+    private var wellPositions: [CGPoint] = []
+    private var nearbyWellPosition: CGPoint?
+
     // Tutorial state
     private var hasShownDogTutorial = false
 
@@ -601,6 +605,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         extractBridgeStonePositions(from: m)
         extractBridgeWoodPositions(from: m)
         extractFencePositions(from: m)
+        extractWellPositions(from: m)
         cacheBridgePhysicsNodes(from: m)
         ySortStaticLayers(in: m)
 
@@ -951,6 +956,28 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         print("🏚️ Found \(fencePositions.count) fence tile(s) on the map")
     }
 
+    private func extractWellPositions(from m: TMXMap) {
+        wellPositions.removeAll()
+        let ranges = m.tilesetRanges
+            .filter { $0.name.contains("well") }
+            .map(\.gidRange)
+        guard !ranges.isEmpty else { return }
+        var seen = Set<String>()
+        for (_, grid) in m.layerGIDs {
+            for r in 0..<m.rows {
+                for c in 0..<m.cols {
+                    let gid = grid[r][c] & 0x0FFF_FFFF
+                    guard ranges.contains(where: { $0.contains(gid) }) else { continue }
+                    let key = "\(r),\(c)"
+                    guard !seen.contains(key) else { continue }
+                    seen.insert(key)
+                    wellPositions.append(m.tileCenter(col: c, row: r))
+                }
+            }
+        }
+        print("🪣 Found \(wellPositions.count) well tile(s) on the map")
+    }
+
     /// Stores references to the water-blocking physics nodes that sit under ImaginationFX
     /// bridge tiles so they can be removed when the bridge is unlocked.
     private func cacheBridgePhysicsNodes(from m: TMXMap) {
@@ -987,6 +1014,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         let poolRadius:        CGFloat = 36
         let bridgeWoodRadius:  CGFloat = 36
         let fenceRadius:       CGFloat = 36
+        let wellRadius:        CGFloat = 36
 
         // Find the single closest object across all categories.
         var bestDist         = CGFloat.infinity
@@ -1001,6 +1029,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         var bestBridgeWood:   CGPoint? = nil
         var bestStore:        CGPoint? = nil
         var bestFence:        CGPoint? = nil
+        var bestWell:         CGPoint? = nil
 
         for pos in cornholeBoardPositions {
             let d = hypot(player.position.x - pos.x, player.position.y - pos.y)
@@ -1083,6 +1112,15 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
             }
         }
 
+        for pos in wellPositions {
+            let d = hypot(player.position.x - pos.x, player.position.y - pos.y)
+            if d < wellRadius && d < bestDist {
+                bestDist = d; bestBoard = nil; bestChest = nil; bestStore = nil; bestBridgeStone = nil
+                bestBaseball = nil; bestTree = nil; bestAppleTree = nil
+                bestBeehive = nil; bestPool = nil; bestBridgeWood = nil; bestFence = nil; bestWell = pos
+            }
+        }
+
         // Story bat — only active during the bat-search phase
         var bestStoryBat: CGPoint? = nil
         if let batPos = storyBatPosition {
@@ -1107,6 +1145,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         nearbyPoolPosition        = bestPool
         nearbyBridgeWoodPosition  = bestBridgeWood
         nearbyFencePosition       = bestFence
+        nearbyWellPosition        = bestWell
         nearbyStoryBatPosition    = bestStoryBat
 
         // Auto-descend when the player walks away from the tree they climbed.
@@ -1125,6 +1164,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         else if let p = bestPool          { anchor = CGPoint(x: p.x, y: p.y + 22) }
         else if let p = bestBridgeWood    { anchor = CGPoint(x: p.x, y: p.y + 22) }
         else if let p = bestFence         { anchor = CGPoint(x: p.x, y: p.y + 22) }
+        else if let p = bestWell          { anchor = CGPoint(x: p.x, y: p.y + 22) }
         else if let p = bestStoryBat      { anchor = CGPoint(x: p.x, y: p.y + 22) }
         else                              { anchor = nil }
 
@@ -1513,6 +1553,31 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         view.presentScene(joust, transition: transition)
     }
 
+    private func openWellFlinger() {
+        guard let view = self.view else { return }
+        isTransitioning = true
+        player.moveDirection = .zero
+        player.physicsBody?.velocity = .zero
+        resetBeanbagControl()
+
+        let well = WellFlingerScene(size: self.size)
+        well.scaleMode     = self.scaleMode
+        well.previousScene = self
+        well.availableBags = inventory.counts[.bag, default: 0]
+        well.onComplete = { [weak self, weak well] _ in
+            guard let self else { return }
+            if let used = well?.bagsUsed, used > 0 {
+                let have = self.inventory.counts[.bag, default: 0]
+                self.inventory.consume(.bag, count: min(used, have))
+            }
+            self.isTransitioning = false
+        }
+
+        let transition = SKTransition.push(with: .up, duration: 0.38)
+        transition.pausesOutgoingScene = false
+        view.presentScene(well, transition: transition)
+    }
+
     private func unlockBridge() {
         UserDefaults.standard.set(true, forKey: bridgeUnlockedKey)
         map?.layerNodes["ImaginationFX"]?.isHidden = false
@@ -1787,6 +1852,12 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
                     showHintBanner("Beat Tom at baseball\nto unlock the joust.")
                 } else {
                     showHintBanner("In order to joust\non your bike, you need\nsomething to use\nas a lance.")
+                }
+            } else if nearbyWellPosition != nil {
+                if inventory.counts[.bag, default: 0] > 0 {
+                    openWellFlinger()
+                } else {
+                    showHintBanner("You need bean bags\nto throw down the well.")
                 }
             } else if nearbyTreePosition != nil {
                 if player.isInTree { player.descendTree() } else { player.climbTree() }
