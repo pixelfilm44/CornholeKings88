@@ -322,37 +322,33 @@ classic striped beachballs at a floating, drifting cornhole board in a pool.
 
 ### Well Flinger
 
-`WellFlingerScene` is a side-view cornhole-bag descent. The player flings a bag into a stone well opening; the camera then follows the bag falling down a scrolling brick shaft past wind gusts and cobwebs; near the bottom, a side-view cornhole board slides up to meet the bag, which then falls under **SK physics** and lands on the wood, in the hole, or on the dirt ground beside the board. 5 bags per round; 3 pts hole / 1 pt board / 0 pts miss.
+`WellFlingerScene` (internally "Well Dropper") is a **fully physics-driven** side-view well descent. The bag falls down a vertical brick shaft under SpriteKit gravity; the player taps to drop small rocks that the bag **bounces off**, steering it past spider webs toward a side-view cornhole board at the bottom. The camera follows the bag down. 3 bags per game; 3 pts hole / 1 pt board / 0 pts for a miss, a web catch, or getting stuck. `winThreshold = 3`.
 
-**Coordinate system** — the scene uses a virtual 320×480 (top-left origin, y-down) grid converted to SK (center origin, y-up) via `vs(vx, vy)`, `vw(d)`, `vh(d)` helpers. Most state (`bVX`, `bVY`, `bSz`, `wellVX`, `wellVY`, `bdX/bdY/bdW/bdH`, `hlX/hlY/hlR`) is in virtual units; only physics bodies and node sizes are in SK points.
+**World coordinates** — plain SK coordinates (center origin, y-up); there is **no** virtual-grid system. The bag spawns near the top (`y ≈ -H*0.15`) and falls toward `boardCenterY` (a large negative Y at the bottom of the `shaftHeight`-tall shaft). `worldNode` holds all world content; `camNode` follows the bag (clamped so the final landing stays on screen).
 
-**Phase machine** — `enum Phase { case launch, zoomIn, descent, landing, sinking, gameOver }`. `.landing` is unused (legacy; physics-driven landing replaced it). `.sinking` keeps descent visuals (walls, bg) visible so the result toast doesn't trigger a scene change.
+**State machine** — `enum TurnState { case falling, settling, ended }`. The whole game runs on real physics; there are no descent/approach/zoom phases. A turn begins in `.falling` (`startTurn()` makes the bag dynamic), and `endTurn(pts:msg:)` moves it to `.ended`, shows a toast, then either starts the next bag or shows the end panel.
 
-**Pipeline:**
-1. **`.launch`** — cornhole-style swipe-to-throw aim. `bVelX`/`bVelY` set from swipe; ballistic arc with `launchGravity=0.50`, `launchVZInitial=15.0`. On ground contact, hit-test against `wellIR = 30` virtual radius around the randomized well position. Miss → "MISSED WELL!" toast.
-2. **`.zoomIn`** — bag shrinks and eases toward `(wellVX, wellVY)` over `zoomFrames = 18` frames, then transitions to descent.
-3. **`.descent`** — `descentProg` accumulates by 4.5/frame up to `descentTotal = 1200`. Two seamless wall tiles scroll upward (`updateWallScroll`); wind/cobweb obstacles are placed at random depths and act on the bag as `descentProg` sweeps past them.
-4. **Approach phase** — when `descentProg >= descentTotal - 300`, `animateBoardSlideUp()` reveals the board (and dirt ground) from below-screen and slides it up via ease-out cubic over the first 70% of the approach window. At slide completion, `activatePhysicsLanding()` switches the bag to dynamic physics.
-5. **Physics landing** — gravity (`physicsWorld.gravity = (0, -45)`) pulls the bag onto the static board/ground bodies. The first `didBegin(_:)` contact resolves scoring via `scorePhysics(_:)`.
+**Pipeline (per bag):**
+1. `startTurn()` — repositions the bag near the top, makes its body dynamic, and gives it a small downward velocity. `turnState = .falling`.
+2. **Fall + steer** — gravity pulls the bag down the shaft. The player taps (`placePlayerRock(at:)`) to drop static warm-tinted rocks (`stoneCat`, `restitution 0.55`) that the bag bounces off. Rock placement is rejected on top of the bag, in the board/ground zone, or above the visible shaft top. The `update()` loop caps fall speed (180) and lateral speed (160).
+3. **Stuck detection** — `update()` tracks downward *progress* (not velocity); if the bag fails to descend `stuckProgressEps` (4) pts for `stuckLimit` (2.0) s it ends the turn with "BAG STUCK!" (0 pts).
+4. **Scoring** — resolved in `didBegin(_:)`: `holeCat` → 3 pts + `sinkIntoHole()`; `webCat` → 0 pts + `stickToWeb()`; `boardCat`/`groundCat` → `scheduleSettleCheck()` waits 0.45 s for the bag to come to rest (velocity < 80) before awarding 1 pt (board) or 0 pts (ground miss). `stoneCat`/`wallCat` just spark + haptic and let physics continue.
 
-**Physics layout** (all bodies set up once in `buildBagNodes`/`buildBoardNodes`/`buildGroundSensor`):
+**Physics layout** (built once in `buildShaft`/`buildBoardAndGround`/`buildBag`):
 
 | Category bit | Where | Role |
 |--------------|-------|------|
-| `bagCategory` (1) | `bagSprite.physicsBody` | Dynamic. Width = `vw(24)*0.85`, height = `vw(24)*0.5` — short body so the visible sprite plants INTO the wood instead of perching on top |
-| `boardCategory` (2) | Two static rect bodies inside `boardContainer` flanking the hole | Catch the bag when its X is over the board (not over the hole) |
-| `holeCategory` (4) | Static sensor inside the chunk gap (`collisionBitMask = 0`) | Fires `didBegin` when bag falls between the chunks |
-| `groundCategory` (8) | Solid static body on the visible dirt strip | Catches misses (bag X off-board); bag CANNOT pass through |
+| `bagCat` (1<<0) | `bag.physicsBody` | Dynamic circle (`radius = bagSize*0.7`); high linear/angular damping; `usesPreciseCollisionDetection`. Built `isDynamic = false` so it stays frozen during tutorial + countdown |
+| `wallCat` (1<<1) | Two static side walls running the shaft length | Bag bounces off the brick (`restitution 0.35`) |
+| `stoneCat` (1<<2) | Static stones placed by `buildObstacles()` **and** player-tapped rocks | Bouncy (`restitution 0.55`) — knocks the bag sideways |
+| `webCat` (1<<3) | Static sensor on spider-web obstacles | Catches the bag and ends the turn (0 pts) |
+| `boardCat` (1<<4) | Two static chunks flanking the hole inside the board node | Bag lands on the wood → 1 pt after settle |
+| `holeCat` (1<<5) | Static sensor in the gap between the chunks (`collisionBitMask = 0`) | Bag falls through → 3 pts |
+| `groundCat` (1<<6) | Solid static dirt strip below the board | Catches off-board misses → 0 pt; bag cannot pass through |
 
-Bag `collisionBitMask = boardCategory \| groundCategory`. `usesPreciseCollisionDetection = true` to prevent tunneling. `restitution = 0` everywhere — bag plants on impact, no bounce.
+Bag `collisionBitMask = wallCat | stoneCat | boardCat | groundCat` (it physically rests on these); `contactTestBitMask` additionally includes `webCat | holeCat` (sensors).
 
-**Transparent PNG handling** — `cornholeBoard_side.png` has padding/anti-aliasing around the wood art. `loadTrimmedBoardTexture()` re-renders the PNG into an RGBA buffer, finds the bounding box of pixels with `alpha > 128` (solid-only threshold), and returns an `SKTexture` cropped via `SKTexture(rect:in:)` plus the trimmed aspect ratio. The board's `bdW`/`bdH`/`hlX`/`hlR` are then rewritten in virtual units to match the trimmed sprite, so hit detection lines up with the visible wood. Chunks are sized to 80% of `bh` and pushed down by `bh * 0.10` so their top edge sits well below any residual halo.
-
-**`physicsActive` invariant** — set to `true` in `activatePhysicsLanding()` and **kept true after scoring**. `updateBagVisual()` skips its `bagSprite.position = vs(bVX, bVY)` override while `physicsActive == true`. If you clear it in `scorePhysics`, the bag visually snaps back to scene centre after landing. It is cleared in `initLaunchPhase()` when the next round starts.
-
-**Reveal/hide rules:**
-- Board (`boardContainer`) and `groundSprite` are hidden until the approach phase first frame, then revealed together. `applyPhaseVisibility(.launch)` re-hides both between rounds.
-- `.sinking` is treated as "descent visuals on" in `applyPhaseVisibility` — walls, depth bar, descent bg, and the board all stay visible so the final landing reads as one continuous view (no scene flicker).
+**Board / hole** — the wood board is drawn procedurally by `makeBoardTexture(...)` (no PNG asset). The hole sits at `holeLocalX` on the left; a pulsing additive **yellow guide beam** (`makeBeamTexture`) rises from the hole up the shaft so the player can aim toward it. Walls use `makeBrickTexture`, stones `makeStoneTexture`.
 
 **Entry points:**
 - `MiniGamePickerScene` → `"wellflinger"` card (`onComplete = { _ in }`).
@@ -362,7 +358,7 @@ Bag `collisionBitMask = boardCategory \| groundCategory`. `usesPreciseCollisionD
 
 **Start flow (tutorial → countdown)** — the bag's physics body is built with `isDynamic = false` so it stays frozen at the top of the well during the tutorial (the game is effectively paused while cards are shown). After the tutorial (or immediately, if already seen), `startCountdown()` runs the same `3 / 2 / 1 / GO` beat sequence as `BeachBallCornholeScene` — labels are added to `camNode` (which tracks the bag) so they stay screen-centered. The final `GO` beat clears `countdownActive` and calls `startTurn()`, which makes the bag dynamic and releases the drop. While `countdownActive` is true, rock placement in `touchesBegan` is blocked and the `update()` stuck-detection (`"BAG STUCK!"`) is suppressed. Replay-after-loss (`resetForReplay()`) calls `startTurn()` directly — no countdown.
 
-**Asset requirement** — `cornholeBoard_side.png` (transparent side-view of a cornhole board with the hole at the left) must be in `Assets.xcassets`.
+**Asset note** — the board, walls, stones, and guide beam are all generated procedurally (no `cornholeBoard_side.png` or other board asset needed). The bag uses `bag_16bit` from `Assets.xcassets`.
 
 ### Story System
 
