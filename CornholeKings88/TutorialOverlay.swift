@@ -133,8 +133,12 @@ final class TutorialOverlay: SKNode {
 
     private func finish() {
         let cb = onComplete; onComplete = nil
-        run(.sequence([.fadeOut(withDuration: 0.18), .removeFromParent(),
-                       .run { cb?() }]))
+        // Fire the callback BEFORE removeFromParent: once a node leaves the
+        // scene tree, later actions in the same sequence may not be evaluated,
+        // which would silently drop the completion handler.
+        run(.sequence([.fadeOut(withDuration: 0.18),
+                       .run { cb?() },
+                       .removeFromParent()]))
     }
 
     // MARK: - Panel construction

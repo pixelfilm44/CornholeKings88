@@ -52,6 +52,9 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
     private enum TurnState { case falling, settling, ended }
     private var turnState: TurnState = .falling
     private var countdownActive = false   // blocks rock placement during the pre-turn countdown
+    private var tutorialUp = false        // true while the tutorial overlay is on screen — freezes gameplay
+    private var pausedBagVelocity: CGVector?   // bag motion saved while a tutorial pauses a live turn
+    private var pausedBagAngular: CGFloat = 0
     private var bagsLeft = 3
     private var score    = 0
     private var hasScoredThisTurn = false
@@ -134,17 +137,37 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
     // MARK: - Tutorial
 
     private func presentTutorial(autoTriggered: Bool) {
+        // Freeze any live gameplay while the tutorial is up so the bag doesn't
+        // keep falling (and the camera doesn't keep panning) behind the overlay.
+        tutorialUp = true
+        if let body = bag.physicsBody, body.isDynamic {
+            pausedBagVelocity = body.velocity
+            pausedBagAngular  = body.angularVelocity
+            body.isDynamic = false
+        }
+
         let steps: [TutorialStep] = [
             .card(title: "WELL DROPPER",
-                  body: "The bag is falling down the well. TAP anywhere to drop a rock — the bag will bounce off it!"),
+                  body: "The bag is falling down the well. TAP anywhere to drop a rock — the bag will bounce off it! TAP a rock again to remove it."),
             .card(title: "WATCH OUT",
                   body: "Stones knock the bag sideways. SPIDER WEBS catch the bag and end the turn."),
             .card(title: "AIM FOR THE LIGHT",
                   body: "Use rocks to redirect the bag toward the yellow beam. Hole = 3 pts, board = 1 pt. You have 3 bags!"),
         ]
         let overlay = TutorialOverlay(steps: steps, sceneSize: size) { [weak self] in
+            guard let self else { return }
+            self.tutorialUp = false
             TutorialManager.shared.markSeen(TutorialManager.wellFlinger)
-            if autoTriggered { self?.startCountdown() }
+            if autoTriggered {
+                self.startCountdown()
+            } else if let v = self.pausedBagVelocity {
+                // Replay opened mid-turn — resume the bag exactly where it was.
+                self.lastUpdate = 0
+                self.bag.physicsBody?.isDynamic = true
+                self.bag.physicsBody?.velocity = v
+                self.bag.physicsBody?.angularVelocity = self.pausedBagAngular
+                self.pausedBagVelocity = nil
+            }
         }
         addChild(overlay)
     }
@@ -443,7 +466,7 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
     private func buildBag() {
         bagShadow = SKSpriteNode(color: .black,
                                  size: CGSize(width: bagSize * 1.3, height: bagSize * 0.5))
-        bagShadow.alpha = 0.35
+        bagShadow.alpha = 0          // hidden until the countdown finishes (startTurn)
         bagShadow.zPosition = 9
         worldNode.addChild(bagShadow)
 
@@ -455,6 +478,7 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
         bag.colorBlendFactor = 0.65
         bag.zPosition = 10
         bag.position  = CGPoint(x: 0, y: -H * 0.15)
+        bag.alpha     = 0           // hidden until the countdown finishes (startTurn)
         worldNode.addChild(bag)
 
         let body = SKPhysicsBody(circleOfRadius: bagSize * 0.7)
@@ -736,6 +760,10 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
     // MARK: - Update loop
 
     override func update(_ currentTime: TimeInterval) {
+        // While the tutorial overlay is up, gameplay is frozen — don't move the
+        // camera or run stuck detection.
+        if tutorialUp { return }
+
         // Clamp the bag's fall/lateral speed and run stuck detection while falling.
         if turnState == .falling, !hasScoredThisTurn, !countdownActive, let body = bag.physicsBody {
             // Cap fall speed so the descent never gets away from the player.
@@ -776,11 +804,14 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
         let clampedTop = -H * 0.05
         camNode.position = CGPoint(x: 0, y: min(clampedTop, targetY))
 
-        // Update bag shadow to track world ground depth subtly
-        bagShadow.position = CGPoint(x: bag.position.x, y: boardCenterY + 2)
-        let depthRatio = max(0, min(1, (0 - bag.position.y) / abs(boardCenterY)))
-        bagShadow.alpha = 0.15 + depthRatio * 0.35
-        bagShadow.xScale = 1.0 - depthRatio * 0.4
+        // Update bag shadow to track world ground depth subtly — but keep it
+        // hidden until the bag is revealed (startTurn, after the countdown).
+        if bag.alpha > 0 {
+            bagShadow.position = CGPoint(x: bag.position.x, y: boardCenterY + 2)
+            let depthRatio = max(0, min(1, (0 - bag.position.y) / abs(boardCenterY)))
+            bagShadow.alpha = 0.15 + depthRatio * 0.35
+            bagShadow.xScale = 1.0 - depthRatio * 0.4
+        }
     }
 
     // MARK: - Contact handling
@@ -959,8 +990,35 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
 
         // Tap-to-place rock — only while the bag is falling (not during countdown).
         if turnState == .falling, !countdownActive {
+            // Tapping an existing player rock removes it instead of placing a new one.
+            if let rock = placedRockHit(at: locScene) {
+                removePlacedRock(rock)
+                return
+            }
             placePlayerRock(at: locScene)
         }
+    }
+
+    /// Returns the closest player-placed rock within tap range of the point, if any.
+    private func placedRockHit(at p: CGPoint) -> SKNode? {
+        let tapR = shaftHalfW * 0.18   // generous tap target around the small rock
+        var best: SKNode?
+        var bestD = CGFloat.greatestFiniteMagnitude
+        for rock in placedRocks {
+            let d = hypot(rock.position.x - p.x, rock.position.y - p.y)
+            if d <= tapR && d < bestD { bestD = d; best = rock }
+        }
+        return best
+    }
+
+    private func removePlacedRock(_ rock: SKNode) {
+        rock.physicsBody = nil
+        if let idx = placedRocks.firstIndex(of: rock) { placedRocks.remove(at: idx) }
+        rock.run(.sequence([
+            .group([.scale(to: 0, duration: 0.12), .fadeOut(withDuration: 0.12)]),
+            .removeFromParent(),
+        ]))
+        HapticsManager.shared.lightImpact()
     }
 
     /// Drop a small player-placed rock at the tap position. The rock acts as a
@@ -968,11 +1026,16 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
     /// toward the hole. Quietly ignored if the tap is outside the shaft, too
     /// close to the bag, or below the board.
     private func placePlayerRock(at worldPos: CGPoint) {
-        let inset: CGFloat = 14
-        let minX = -shaftHalfW + inset
-        let maxX =  shaftHalfW - inset
+        let r = shaftHalfW * 0.09     // small, ~half the natural pebble size
+
+        // Keep a bag-width of clearance between the rock and either wall so the
+        // bag can always slip past on the wall side — otherwise a rock placed
+        // flush-ish against the brick leaves a pocket that wedges the bag.
+        let wallClearance = bagSize * 1.4 + 6
+        let minX = -shaftHalfW + wallClearance + r
+        let maxX =  shaftHalfW - wallClearance - r
         var p = worldPos
-        p.x = max(minX, min(maxX, p.x))
+        p.x = (minX <= maxX) ? max(minX, min(maxX, p.x)) : 0
 
         // Don't allow placing on top of the bag — it would teleport-launch it.
         if hypot(p.x - bag.position.x, p.y - bag.position.y) < bagSize * 1.8 { return }
@@ -981,7 +1044,6 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
         // Keep rocks below the top of the visible shaft (avoid the HUD area).
         if p.y > -H * 0.05 { return }
 
-        let r = shaftHalfW * 0.09     // small, ~half the natural pebble size
         let tex = makeStoneTexture(radius: r)
         let n = SKSpriteNode(texture: tex, size: CGSize(width: r * 2, height: r * 2))
         n.color            = SKColor(red: 1.0, green: 0.78, blue: 0.35, alpha: 1)
