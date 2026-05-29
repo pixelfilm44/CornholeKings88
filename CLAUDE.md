@@ -43,6 +43,7 @@ The main menu flow also branches to non-game scenes:
 - `StoryModuleScene` — story chapter viewer (launched from PLAY)
 - `MiniGamePickerScene` — mini-game selection (launched from MINI GAMES)
 - `StatsScene` — player stats screen (launched from STATS)
+- `SettingsScene` — settings screen (launched from SETTINGS); includes a "reset tutorials" action backed by `TutorialManager.resetAll()`
 - `BeachBallCornholeScene` — pool beachball cornhole blitz (launched from MINI GAMES or pool world trigger)
 
 ### Coordinate System & Pixel Scaling
@@ -236,7 +237,7 @@ Items scattered in the world can be walked over to collect them. The system has 
 
 Centralized framework that every mini-game uses for consistent first-play onboarding.
 
-- **`TutorialManager.swift`** — singleton tracking which tutorials have been seen (`UserDefaults`). Static keys per game: `.bike`, `.cornhole`, `.baseball`, `.beehive`, `.beachball`, `.piranha`. API: `hasSeen(_:)`, `markSeen(_:)`, `reset(_:)`.
+- **`TutorialManager.swift`** — singleton tracking which tutorials have been seen (`UserDefaults`). Static keys per game: `.bike`, `.cornhole`, `.baseball`, `.beehive`, `.beachball`, `.piranha`, `.jousters`, `.wellFlinger`; `allKeys` lists them all. API: `hasSeen(_:)`, `markSeen(_:)`, `reset(_:)`, and `resetAll()` (clears every key — used by `SettingsScene`).
 - **`TutorialOverlay.swift`** — full-screen `SKNode` overlay with shared styling (wood-iron panel, gold trim, `PressStart2P` font, pulsing prompt). Pass a `[TutorialStep]` and an `onComplete`; tap-to-advance, no skip. Step kinds:
   - `.card(title:body:)` — centered modal.
   - `.hint(at:title:body:)` — panel offset from a target point with a pulsing arrow.
@@ -330,7 +331,7 @@ classic striped beachballs at a floating, drifting cornhole board in a pool.
 
 **Pipeline (per bag):**
 1. `startTurn()` — repositions the bag near the top, makes its body dynamic, and gives it a small downward velocity. `turnState = .falling`.
-2. **Fall + steer** — gravity pulls the bag down the shaft. The player taps (`placePlayerRock(at:)`) to drop static warm-tinted rocks (`stoneCat`, `restitution 0.55`) that the bag bounces off. Rock placement is rejected on top of the bag, in the board/ground zone, or above the visible shaft top. The `update()` loop caps fall speed (180) and lateral speed (160).
+2. **Fall + steer** — gravity pulls the bag down the shaft. The player taps (`placePlayerRock(at:)`) to drop static warm-tinted rocks (`stoneCat`, `restitution 0.55`) that the bag bounces off. Rock placement is rejected on top of the bag, in the board/ground zone, or above the visible shaft top, and the tap X is clamped to keep at least a bag-width of clearance (`bagSize * 1.4 + 6`, plus the rock radius) from each wall so a rock can't wedge the bag in a wall pocket. Tapping an existing player rock **removes** it instead of placing a new one (`placedRockHit(at:)` finds the nearest within `shaftHalfW * 0.18`; `removePlacedRock(_:)` pops it out). The `update()` loop caps fall speed (180) and lateral speed (160).
 3. **Stuck detection** — `update()` tracks downward *progress* (not velocity); if the bag fails to descend `stuckProgressEps` (4) pts for `stuckLimit` (2.0) s it ends the turn with "BAG STUCK!" (0 pts).
 4. **Scoring** — resolved in `didBegin(_:)`: `holeCat` → 3 pts + `sinkIntoHole()`; `webCat` → 0 pts + `stickToWeb()`; `boardCat`/`groundCat` → `scheduleSettleCheck()` waits 0.45 s for the bag to come to rest (velocity < 80) before awarding 1 pt (board) or 0 pts (ground miss). `stoneCat`/`wallCat` just spark + haptic and let physics continue.
 
@@ -338,7 +339,7 @@ classic striped beachballs at a floating, drifting cornhole board in a pool.
 
 | Category bit | Where | Role |
 |--------------|-------|------|
-| `bagCat` (1<<0) | `bag.physicsBody` | Dynamic circle (`radius = bagSize*0.7`); high linear/angular damping; `usesPreciseCollisionDetection`. Built `isDynamic = false` so it stays frozen during tutorial + countdown |
+| `bagCat` (1<<0) | `bag.physicsBody` | Dynamic circle (`radius = bagSize*0.7`); high linear/angular damping; `usesPreciseCollisionDetection`. Built `isDynamic = false` (and `alpha = 0`, along with its shadow) so it stays frozen and hidden during tutorial + countdown |
 | `wallCat` (1<<1) | Two static side walls running the shaft length | Bag bounces off the brick (`restitution 0.35`) |
 | `stoneCat` (1<<2) | Static stones placed by `buildObstacles()` **and** player-tapped rocks | Bouncy (`restitution 0.55`) — knocks the bag sideways |
 | `webCat` (1<<3) | Static sensor on spider-web obstacles | Catches the bag and ends the turn (0 pts) |
@@ -356,7 +357,11 @@ Bag `collisionBitMask = wallCat | stoneCat | boardCat | groundCat` (it physicall
 
 **Tutorial key** — `TutorialManager.wellFlinger` (`"tutorial.wellFlinger.v1"`).
 
-**Start flow (tutorial → countdown)** — the bag's physics body is built with `isDynamic = false` so it stays frozen at the top of the well during the tutorial (the game is effectively paused while cards are shown). After the tutorial (or immediately, if already seen), `startCountdown()` runs the same `3 / 2 / 1 / GO` beat sequence as `BeachBallCornholeScene` — labels are added to `camNode` (which tracks the bag) so they stay screen-centered. The final `GO` beat clears `countdownActive` and calls `startTurn()`, which makes the bag dynamic and releases the drop. While `countdownActive` is true, rock placement in `touchesBegan` is blocked and the `update()` stuck-detection (`"BAG STUCK!"`) is suppressed. Replay-after-loss (`resetForReplay()`) calls `startTurn()` directly — no countdown.
+**Start flow (tutorial → countdown)** — the bag's physics body is built with `isDynamic = false` and the bag + shadow start at `alpha = 0`, so the bag stays frozen and invisible at the top of the well during the tutorial. `presentTutorial` sets `tutorialUp = true` and, if a turn is live (e.g. the `?` help button is opened mid-fall), saves the bag's velocity and freezes it; while `tutorialUp` the `update()` loop early-returns so the camera doesn't pan and stuck-detection doesn't run. On tutorial completion `tutorialUp` clears and either `startCountdown()` runs (first-play / `autoTriggered`) or the saved velocity is restored to resume a paused live turn.
+
+After the tutorial (or immediately, if already seen), `startCountdown()` runs the same `3 / 2 / 1 / GO` beat sequence as `BeachBallCornholeScene` — labels are added to `camNode` (which tracks the bag) so they stay screen-centered. The final `GO` beat clears `countdownActive` and calls `startTurn()`, which makes the bag dynamic, reveals it (`alpha = 1`), and releases the drop. While `countdownActive` is true, rock placement in `touchesBegan` is blocked and the `update()` stuck-detection (`"BAG STUCK!"`) is suppressed. Replay-after-loss (`resetForReplay()`) calls `startTurn()` directly — no countdown.
+
+> **TutorialOverlay completion** — `TutorialOverlay.finish()` fires its `onComplete` callback *before* `removeFromParent()` in the action sequence. Removing the node first can drop later actions in the same sequence (the node leaves the scene tree), which previously skipped the post-tutorial start path. This applies to every mini-game that starts on the tutorial callback.
 
 **Asset note** — the board, walls, stones, and guide beam are all generated procedurally (no `cornholeBoard_side.png` or other board asset needed). The bag uses `bag_16bit` from `Assets.xcassets`.
 
