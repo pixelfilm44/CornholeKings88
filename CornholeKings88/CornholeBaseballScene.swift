@@ -42,6 +42,15 @@ final class CornholeBaseballScene: SKScene {
     /// AI style injected by story mode; defaults to standard for free-play.
     var aiDifficulty: BaseballAIDifficulty = .standard
 
+    /// When true (free-play picker path), show the Jen/Tommy opponent picker
+    /// before play begins. Story path leaves this false and pre-sets aiDifficulty.
+    var showOpponentPicker = false
+    private var opponentPickerNode: SKNode?
+
+    /// Name shown for the AI in the score HUD ("BOT" by default; "JEN" / "TOM" /
+    /// "TOMMY" once an opponent is known). Set by the picker or derived from `aiDifficulty`.
+    private var opponentDisplayName = "BOT"
+
     // MARK: - HUD (SwiftUI overlay, owned by this scene)
     private let hudViewModel = BaseballHUDViewModel()
     private var hudHostingController: UIHostingController<BaseballHUDView>?
@@ -167,11 +176,131 @@ final class CornholeBaseballScene: SKScene {
         addCrtOverlay()
         addHelpButton()
 
+        if showOpponentPicker {
+            presentOpponentPicker()
+        } else {
+            opponentDisplayName = defaultOpponentName(for: aiDifficulty)
+            proceedToPlay()
+        }
+    }
+
+    /// HUD name for an opponent when no explicit pick was made (story / free play).
+    /// `.powerHitter` is story Jen here — the free-play Tommy path sets the name
+    /// explicitly in `selectOpponent`, so it never reaches this fallback.
+    private func defaultOpponentName(for d: BaseballAIDifficulty) -> String {
+        switch d {
+        case .powerHitter:  return "JEN"   // story Jen
+        case .greatFielder: return "TOM"   // story Tom
+        case .fastPitcher:  return "JEN"
+        case .standard:     return "BOT"
+        }
+    }
+
+    /// Run the tutorial (first play) or jump straight into the game.
+    private func proceedToPlay() {
         if TutorialManager.shared.hasSeen(TutorialManager.baseball) {
             startUserBatting(showModal: true)
         } else {
             presentTutorial(autoTriggered: true)
         }
+    }
+
+    // MARK: - Opponent Picker (free-play)
+
+    private func presentOpponentPicker() {
+        let W = size.width, H = size.height
+        let gold = SKColor(red: 0xf0/255.0, green: 0xc0/255.0, blue: 0x60/255.0, alpha: 1)
+
+        let container = SKNode()
+        container.zPosition = 200
+
+        let dim = SKSpriteNode(color: SKColor(white: 0, alpha: 0.72),
+                               size: CGSize(width: W, height: H))
+        dim.name = "oppPickerDim"
+        container.addChild(dim)
+
+        let title = SKLabelNode(fontNamed: "PressStart2P-Regular")
+        title.text = "CHOOSE OPPONENT"
+        title.fontSize = min(16, W / 18)
+        title.fontColor = gold
+        title.verticalAlignmentMode = .center
+        title.position = CGPoint(x: 0, y: H * 0.22)
+        container.addChild(title)
+
+        let cardW = min(W * 0.38, 150)
+        let cardH = min(H * 0.34, 220)
+        let gap = min(W * 0.06, 28)
+
+        let jen = makeOpponentCard(title: "JEN", subtitle: "FAST PITCHER",
+                                   desc: "THROWS HEAT", name: "baseballOpp_jen",
+                                   accent: SKColor(red: 0.85, green: 0.35, blue: 0.55, alpha: 1),
+                                   size: CGSize(width: cardW, height: cardH))
+        jen.position = CGPoint(x: -(cardW / 2 + gap / 2), y: -H * 0.02)
+        container.addChild(jen)
+
+        let tommy = makeOpponentCard(title: "TOMMY", subtitle: "POWER HITTER",
+                                     desc: "SWINGS BIG", name: "baseballOpp_tommy",
+                                     accent: SKColor(red: 0.35, green: 0.55, blue: 0.85, alpha: 1),
+                                     size: CGSize(width: cardW, height: cardH))
+        tommy.position = CGPoint(x: (cardW / 2 + gap / 2), y: -H * 0.02)
+        container.addChild(tommy)
+
+        addChild(container)
+        opponentPickerNode = container
+    }
+
+    private func makeOpponentCard(title: String, subtitle: String, desc: String,
+                                  name: String, accent: SKColor, size cardSize: CGSize) -> SKNode {
+        let gold = SKColor(red: 0xf0/255.0, green: 0xc0/255.0, blue: 0x60/255.0, alpha: 1)
+        let wood = SKColor(red: 0x1a/255.0, green: 0x0a/255.0, blue: 0x04/255.0, alpha: 1)
+
+        let card = SKSpriteNode(color: wood, size: cardSize)
+        card.name = name
+
+        let border = SKShapeNode(rectOf: cardSize)
+        border.strokeColor = gold
+        border.lineWidth = 2
+        border.fillColor = .clear
+        border.name = name
+        card.addChild(border)
+
+        let titleLabel = SKLabelNode(fontNamed: "PressStart2P-Regular")
+        titleLabel.text = title
+        titleLabel.fontSize = min(16, cardSize.width / 6)
+        titleLabel.fontColor = accent
+        titleLabel.verticalAlignmentMode = .center
+        titleLabel.position = CGPoint(x: 0, y: cardSize.height * 0.28)
+        titleLabel.name = name
+        card.addChild(titleLabel)
+
+        let subLabel = SKLabelNode(fontNamed: "PressStart2P-Regular")
+        subLabel.text = subtitle
+        subLabel.fontSize = min(8, cardSize.width / 13)
+        subLabel.fontColor = gold
+        subLabel.verticalAlignmentMode = .center
+        subLabel.position = .zero
+        subLabel.name = name
+        card.addChild(subLabel)
+
+        let descLabel = SKLabelNode(fontNamed: "PressStart2P-Regular")
+        descLabel.text = desc
+        descLabel.fontSize = min(7, cardSize.width / 15)
+        descLabel.fontColor = SKColor(white: 0.75, alpha: 1)
+        descLabel.verticalAlignmentMode = .center
+        descLabel.position = CGPoint(x: 0, y: -cardSize.height * 0.22)
+        descLabel.name = name
+        card.addChild(descLabel)
+
+        return card
+    }
+
+    private func selectOpponent(_ difficulty: BaseballAIDifficulty) {
+        guard opponentPickerNode != nil else { return }
+        aiDifficulty = difficulty
+        opponentDisplayName = (difficulty == .fastPitcher) ? "JEN" : "TOMMY"
+        opponentPickerNode?.removeFromParent()
+        opponentPickerNode = nil
+        proceedToPlay()
     }
 
     private func addHelpButton() {
@@ -618,7 +747,8 @@ final class CornholeBaseballScene: SKScene {
         // Restrict to bat barrel x range (-12…24) so every pitch is hittable
         pitch.bx = CGFloat.random(in: -10 ... 18)
         pitch.by = pitcherY                               // start at BOTTOM
-        pitch.vy = +CGFloat.random(in: 5.0 ... 8.5)      // travel UPWARD
+        // Jen (fastPitcher) throws heat — faster pitch, harder to time.
+        pitch.vy = +CGFloat.random(in: 5.0 ... 8.5) * (aiDifficulty == .fastPitcher ? 1.5 : 1.0)   // travel UPWARD
         pitch.vx = CGFloat.random(in: -0.10 ... 0.10)  // nearly straight
 
         pitch.node = makeBagNode(color: SKColor(red: 0.25, green: 0.48, blue: 0.90, alpha: 1), size: 22)
@@ -825,7 +955,7 @@ final class CornholeBaseballScene: SKScene {
                 .rotate(toAngle: 0,          duration: swingDur * 2),
             ]))
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
-            let label = aiCharge > 0.4 ? "AI WHIFF!" : "BOT WHIFFS!"
+            let label = aiCharge > 0.4 ? "\(opponentDisplayName) WHIFF!" : "\(opponentDisplayName) WHIFFS!"
             spawnFloatingText(label, at: CGPoint(x: pitch.bx, y: batY + 22),
                               color: SKColor(white: 0.58, alpha: 1))
             run(.wait(forDuration: 0.90)) { [weak self] in
@@ -1048,7 +1178,7 @@ final class CornholeBaseballScene: SKScene {
                         userPitchCount += 1
                         pushHUD()
                         removePitchBag()
-                        spawnFloatingText("BOT SWINGS WILD!", at: CGPoint(x: pitch.bx, y: batY + 22),
+                        spawnFloatingText("\(opponentDisplayName) SWINGS WILD!", at: CGPoint(x: pitch.bx, y: batY + 22),
                                           color: SKColor(white: 0.58, alpha: 1))
                         run(.wait(forDuration: 0.90)) { [weak self] in
                             self?.aiDistances.append(0)
@@ -1159,7 +1289,7 @@ final class CornholeBaseballScene: SKScene {
                 } else {
                     aiDistances.append(dist)
                     pushHUD()
-                    spawnFloatingText("BOT \(ftVal)FT!", at: CGPoint(x: hit.bx, y: hit.by + 22),
+                    spawnFloatingText("\(opponentDisplayName) \(ftVal)FT!", at: CGPoint(x: hit.bx, y: hit.by + 22),
                                       color: SKColor(red: 0.42, green: 0.62, blue: 1.0, alpha: 1))
                 }
                 run(.wait(forDuration: 1.4)) { [weak self] in
@@ -1257,6 +1387,15 @@ final class CornholeBaseballScene: SKScene {
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         guard let touch = touches.first else { return }
         let loc = touch.location(in: self)
+
+        // Opponent picker (free-play) swallows everything until a card is chosen.
+        if opponentPickerNode != nil {
+            for n in nodes(at: loc) {
+                if n.name == "baseballOpp_jen" { selectOpponent(.fastPitcher); return }
+                if n.name == "baseballOpp_tommy" { selectOpponent(.powerHitter); return }
+            }
+            return
+        }
 
         // Tutorial overlay — any tap advances it.
         if let overlay = TutorialOverlay.active(in: self) {
@@ -1463,6 +1602,7 @@ final class CornholeBaseballScene: SKScene {
     private func pushHUD() {
         let pitchInPhase = isUserBattingHalf ? aiPitchCount : userPitchCount
         let vm = hudViewModel
+        vm.opponentName = opponentDisplayName
         DispatchQueue.main.async {
             vm.cycle          = self.currentCycle
             vm.phaseIsbatting = self.isUserBattingHalf
@@ -1498,7 +1638,7 @@ final class CornholeBaseballScene: SKScene {
             sceneSize: size,
             won: playerWon && !tied,
             title: tied ? "IT'S A TIE!" : (playerWon ? "VICTORY!" : "DEFEAT"),
-            subtitle: "YOU \(userFt)ft  -  \(aiFt)ft BOT",
+            subtitle: "YOU \(userFt)ft  -  \(aiFt)ft \(opponentDisplayName)",
             detail: "\(totalCycles) CYCLES · AVG DISTANCE",
             rewards: rewards,
             buttons: [GameResultModal.Button(label: "PLAY AGAIN", name: "playAgainBtn", style: .primary),

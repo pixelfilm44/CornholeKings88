@@ -136,7 +136,7 @@ var awardsRewards: Bool   // default false
 
 `awardsRewards` gates **all** prizes — see **Result Modal & Reward Context** below.
 
-`CornholeBaseballScene` additionally injects a SwiftUI `BaseballHUDView` as a `UIHostingController` onto the host `SKView` in `didMove(to:)` and removes it in `willMove(from:)`.
+`CornholeBaseballScene` additionally injects a SwiftUI `BaseballHUDView` as a `UIHostingController` onto the host `SKView` in `didMove(to:)` and removes it in `willMove(from:)`. It also supports a free-play **Jen/Tommy opponent picker** gated by `showOpponentPicker` — see **Story System → Baseball AI difficulty**.
 
 `CornholeMiniGameScene` calls `CornholeStatsManager.shared.recordCornhole()` each time any bag enters the hole, and `recordWin()`/`recordLoss()` in `dismissScene(playerWon:)` before calling `onComplete`. This covers both in-world cornhole boards and the mini-games picker path.
 
@@ -422,7 +422,7 @@ After the tutorial (or immediately, if already seen), `startCountdown()` runs th
 | `StoryMiniGame` | `.cornholeVs(opponent:)` / `.baseballVs(difficulty:)` / `.beehive` / `.bike` |
 | `StorySpawnConfig` | Bundles `x?`, `y?`, `trigger?`, `nextModuleID?`, `flags[]` for a world spawn |
 | `StoryFlag` | `dogsEnabled` / `baseballEnabled` / `batFound` / `questAccepted` |
-| `BaseballAIDifficulty` | `standard` / `powerHitter` (Jen) / `greatFielder` (Tom) |
+| `BaseballAIDifficulty` | `standard` / `powerHitter` (story Jen, free-play Tommy) / `greatFielder` (Tom) / `fastPitcher` (free-play Jen) |
 
 `StoryManager.shared` persists three things to `UserDefaults`:
 - `currentModuleID` — which module to show next (key `storyCurrentModuleID_v1`)
@@ -454,8 +454,11 @@ When a trigger fires, `GameScene` clears `pendingWorldTrigger` and calls `launch
 #### Baseball AI difficulty
 
 `CornholeBaseballScene.aiDifficulty: BaseballAIDifficulty` (default `.standard`):
-- `.powerHitter` — AI hits 35% harder (`aiPowerBoost = 1.35`) and 45% wider (`vxSpread * 0.45`); used for Jen
-- `.greatFielder` — AI fielder error ±14 pt (vs standard ±38) and 10-frame reaction delay (vs 20); used for Tom
+- `.powerHitter` — AI hits 35% harder (`aiPowerBoost = 1.35`) and 45% wider (`vxSpread * 0.45`); used for story Jen **and** free-play Tommy
+- `.greatFielder` — AI fielder error ±14 pt (vs standard ±38) and 10-frame reaction delay (vs 20); used for story Tom
+- `.fastPitcher` — AI pitch travels 1.5× faster (`pitch.vy *= 1.5` in `throwAIPitch()`), so it's harder to time your swing; used for free-play Jen
+
+**Free-play opponent picker** — when launched from `MiniGamePickerScene` (the `"baseball"` card sets `scene.showOpponentPicker = true`), `CornholeBaseballScene` shows a two-card Bit-Wood picker in `didMove` before play: **JEN — FAST PITCHER** (`.fastPitcher`) and **TOMMY — POWER HITTER** (`.powerHitter`). `presentOpponentPicker()` builds the cards (named `"baseballOpp_jen"` / `"baseballOpp_tommy"`); `touchesBegan` routes a tap to `selectOpponent(_:)`, which sets `aiDifficulty` and calls `proceedToPlay()` (tutorial-or-start). The **story path leaves `showOpponentPicker == false`** and pre-sets `aiDifficulty` itself, so the picker never appears there — story sequencing (Jen → Tom) is unchanged.
 
 #### Bee difficulty ramp
 

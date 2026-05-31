@@ -11,6 +11,7 @@ final class BaseballHUDViewModel: ObservableObject {
     @Published var pitchesPerHalf: Int = 3
     @Published var playerAvgFt:    Int = 0
     @Published var aiAvgFt:        Int = 0
+    @Published var opponentName:   String = "BOT"
 }
 
 // MARK: - Root HUD View
@@ -70,7 +71,7 @@ struct BaseballHUDView: View {
                     Text("|")
                         .font(.custom("PressStart2P-Regular", size: 8))
                         .foregroundColor(ironGray)
-                    Text("BOT: \(viewModel.aiAvgFt)ft")
+                    Text("\(viewModel.opponentName): \(viewModel.aiAvgFt)ft")
                         .font(.custom("PressStart2P-Regular", size: 8))
                         .foregroundColor(blue)
                         .fixedSize()

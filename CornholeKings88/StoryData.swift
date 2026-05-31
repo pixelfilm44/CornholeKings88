@@ -16,6 +16,7 @@ enum BaseballAIDifficulty {
     case standard
     case powerHitter    // Jen — wide, hard-to-field hits
     case greatFielder   // Tom — tight fielding, covers more ground
+    case fastPitcher    // free-play Jen — faster pitches, harder to time
 }
 
 // MARK: - Mini-game types that story modules can trigger

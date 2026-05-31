@@ -713,6 +713,7 @@ final class MiniGamePickerScene: SKScene {
         case "baseball":
             let s = CornholeBaseballScene(size: ppSize)
             s.previousScene = self; s.scaleMode = .resizeFill
+            s.showOpponentPicker = true
             s.onComplete = { _ in }
             push(to: s)
 
