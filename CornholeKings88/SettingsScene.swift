@@ -111,6 +111,12 @@ final class SettingsScene: SKScene {
                  action: "RESET",
                  name: "resetTutorials",
                  at: CGPoint(x: 0, y: cardY), width: cardW, height: cardH)
+
+        drawCard(label: "BASEBALL AI",
+                 sub: "tune tom & jen difficulty",
+                 action: "TUNE",
+                 name: "tuneBaseball",
+                 at: CGPoint(x: 0, y: cardY - cardH - 16), width: cardW, height: cardH)
     }
 
     private func drawCard(label: String, sub: String, action: String, name: String,
@@ -159,7 +165,8 @@ final class SettingsScene: SKScene {
         actionLbl.zPosition = 21
         actionLbl.name = name
         addChild(actionLbl)
-        confirmLabel = actionLbl
+        // Only the tutorials card drives the shared "DONE!" confirmation flash.
+        if name == "resetTutorials" { confirmLabel = actionLbl }
     }
 
     // MARK: - Footer
@@ -238,9 +245,18 @@ final class SettingsScene: SKScene {
         case "resetTutorials":
             TutorialManager.shared.resetAll()
             flashConfirm()
+        case "tuneBaseball":
+            openBaseballTuning()
         default:
             break
         }
+    }
+
+    private func openBaseballTuning() {
+        let t = SKTransition.push(with: .left, duration: 0.3)
+        let scene = BaseballTuningScene(size: size)
+        scene.scaleMode = .resizeFill
+        view?.presentScene(scene, transition: t)
     }
 
     private func goBack() {

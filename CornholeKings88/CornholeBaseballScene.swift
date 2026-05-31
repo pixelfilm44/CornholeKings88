@@ -51,6 +51,21 @@ final class CornholeBaseballScene: SKScene {
     /// "TOMMY" once an opponent is known). Set by the picker or derived from `aiDifficulty`.
     private var opponentDisplayName = "BOT"
 
+    /// The player-tunable character matching the current opponent, or nil for the
+    /// generic BOT (never tuned). Maps by HUD name: JEN → jen, TOM/TOMMY → tom.
+    private var tuningCharacter: BaseballAISettings.Character? {
+        switch opponentDisplayName {
+        case "JEN":          return .jen
+        case "TOM", "TOMMY": return .tom
+        default:             return nil
+        }
+    }
+    /// Difficulty multiplier set by the player in Settings → Baseball AI (1.0 when untuned / BOT).
+    private func aiMult(_ stat: BaseballAISettings.Stat) -> CGFloat {
+        guard let c = tuningCharacter else { return 1.0 }
+        return BaseballAISettings.shared.multiplier(c, stat)
+    }
+
     // MARK: - HUD (SwiftUI overlay, owned by this scene)
     private let hudViewModel = BaseballHUDViewModel()
     private var hudHostingController: UIHostingController<BaseballHUDView>?
@@ -78,6 +93,9 @@ final class CornholeBaseballScene: SKScene {
     private let homeRunFt: CGFloat = 800   // a hit landing past this display-distance is a home run
     /// World Y of the outfield home-run wall (a hit landing at/below this clears it).
     private var homeRunWallY: CGFloat { batY - homeRunFt / distScale }
+    /// Field-side face of the home-run wall — a chasing fielder cannot run past this
+    /// into the crowd. (Wall sprite is `size.height * 0.06` tall, centred on `homeRunWallY`.)
+    private var fielderWallStopY: CGFloat { homeRunWallY + size.height * 0.03 + 6 }
 
     // MARK: - Game state
     private var phase: GamePhase = .userBatting
@@ -148,6 +166,9 @@ final class CornholeBaseballScene: SKScene {
     private var aiFielderMoveDelay:   Int = 0
     private var userFielderMoveDelay: Int = 0
     private var userFielderBoost:     CGFloat = 0
+    // Home-run-wall knockout: > 0 means the fielder is sprawled and frozen for that many frames.
+    private var userFielderStunFrames: Int = 0
+    private var aiFielderStunFrames:   Int = 0
     private let fielderSpeed:         CGFloat = 4.0
     private let fielderCatchRadius:   CGFloat = 30
 
@@ -865,7 +886,9 @@ final class CornholeBaseballScene: SKScene {
         userFielderNode.position = userFielderPos
         userFielderNode.isHidden = true
         userFielderNode.removeAction(forKey: "run")
-        userFielderNode.xScale = 1
+        userFielderNode.removeAction(forKey: "wallCrash")
+        userFielderNode.xScale    = 1
+        userFielderNode.zRotation = 0
         userFielderFacing      = nil
         if let idle = userIdleTexture { userFielderNode.texture = idle }
 
@@ -874,12 +897,16 @@ final class CornholeBaseballScene: SKScene {
         aiFielderNode.position = aiFielderPos
         aiFielderNode.isHidden = true
         aiFielderNode.removeAction(forKey: "run")
-        aiFielderNode.xScale = 1
+        aiFielderNode.removeAction(forKey: "wallCrash")
+        aiFielderNode.xScale    = 1
+        aiFielderNode.zRotation = 0
         aiFielderFacing      = nil
         if let idle = aiIdleTexture { aiFielderNode.texture = idle }
-        aiFielderMoveDelay   = 0
-        userFielderMoveDelay = 0
-        userFielderBoost     = 0
+        aiFielderMoveDelay    = 0
+        userFielderMoveDelay  = 0
+        userFielderBoost      = 0
+        aiFielderStunFrames   = 0
+        userFielderStunFrames = 0
 
         // The pitcher returns to the mound once the chase is over. The pitcher is the
         // AI while the user bats, and the user while the user pitches.
@@ -1022,7 +1049,7 @@ final class CornholeBaseballScene: SKScene {
         pitch.bx = CGFloat.random(in: -10 ... 18)
         pitch.by = pitcherY                               // start at BOTTOM
         // Jen (fastPitcher) throws heat — faster pitch, harder to time.
-        pitch.vy = +CGFloat.random(in: 5.0 ... 8.5) * (aiDifficulty == .fastPitcher ? 1.5 : 1.0)   // travel UPWARD
+        pitch.vy = +CGFloat.random(in: 5.0 ... 8.5) * (aiDifficulty == .fastPitcher ? 1.5 : 1.0) * aiMult(.pitch)   // travel UPWARD
         pitch.vx = CGFloat.random(in: -0.10 ... 0.10)  // nearly straight
 
         pitch.node = makeBagNode(color: SKColor(red: 0.25, green: 0.48, blue: 0.90, alpha: 1), size: 22)
@@ -1071,7 +1098,9 @@ final class CornholeBaseballScene: SKScene {
 
         // AI hit probability: base 95 %, drops slightly if power-swinging
         let preMissProb: Double = aiWillPowerSwing ? 0.15 : 0.05
-        aiWillHit    = Double.random(in: 0...1) > preMissProb
+        // Tunable contact likelihood (Tom/Jen): scale the base hit chance.
+        let preHitProb = min(1.0, max(0.0, (1.0 - preMissProb) * Double(aiMult(.hit))))
+        aiWillHit    = Double.random(in: 0...1) < preHitProb
         aiFrameCount = 0
         let travelFrames = max(10, Int((batY - pitcherY) / pitchSpeed))
         aiSwingFrame = max(5, travelFrames - Int.random(in: 2...7))
@@ -1204,7 +1233,9 @@ final class CornholeBaseballScene: SKScene {
 
         // Recalculate hit chance — AI is a strong hitter, power swing adds minor risk
         let missProb = 0.05 + Double(aiCharge) * 0.10
-        aiWillHit    = Double.random(in: 0...1) > missProb
+        // Tunable contact likelihood (Tom/Jen): scale the base hit chance.
+        let hitProb  = min(1.0, max(0.0, (1.0 - missProb) * Double(aiMult(.hit))))
+        aiWillHit    = Double.random(in: 0...1) < hitProb
 
         removePitchBag()
 
@@ -1253,7 +1284,8 @@ final class CornholeBaseballScene: SKScene {
         let power  = quality * CGFloat.random(in: 0.88...1.12) * chargeMult
         // Jen (powerHitter) hits 35% harder and spreads wider when it's her turn to bat.
         let aiPowerBoost: CGFloat = (!isUser && aiDifficulty == .powerHitter) ? 1.35 : 1.0
-        let baseVY = size.height * 0.009 * power * aiPowerBoost
+        // Tunable power dial (Tom/Jen) scales how hard the AI hits (player hits unaffected).
+        let baseVY = size.height * 0.009 * power * aiPowerBoost * (isUser ? 1.0 : aiMult(.power))
         let vxSpread = (!isUser && aiDifficulty == .powerHitter) ? baseVY * 0.45 : baseVY * 0.28
 
         let hit = HitBag()
@@ -1346,7 +1378,11 @@ final class CornholeBaseballScene: SKScene {
     private func updateFielders() {
         // AI fielder: waits for reaction delay then moves toward predicted landing
         if !aiFielderNode.isHidden {
-            if aiFielderMoveDelay > 0 {
+            if aiFielderStunFrames > 0 {
+                // Knocked out cold against the home-run wall — lie there, can't move.
+                aiFielderStunFrames -= 1
+                if aiFielderStunFrames == 0 { standFielderUp(aiFielderNode) }
+            } else if aiFielderMoveDelay > 0 {
                 aiFielderMoveDelay -= 1
                 stopFielderRun(node: aiFielderNode, idle: aiIdleTexture, facing: &aiFielderFacing)
             } else {
@@ -1354,12 +1390,22 @@ final class CornholeBaseballScene: SKScene {
                 let dy = aiFielderTarget.y - aiFielderPos.y
                 let d  = hypot(dx, dy)
                 if d > 1 {
-                    let step = min(fielderSpeed, d)
-                    aiFielderPos.x += dx / d * step
-                    aiFielderPos.y += dy / d * step
-                    aiFielderNode.position = aiFielderPos
-                    animateFielderRun(node: aiFielderNode, walk: aiWalkFrames,
-                                      facing: &aiFielderFacing, dx: dx, dy: dy)
+                    // Tunable run-speed dial (Tom/Jen) scales the AI fielder's chase speed.
+                    let step = min(fielderSpeed * aiMult(.run), d)
+                    let nx = aiFielderPos.x + dx / d * step
+                    let ny = aiFielderPos.y + dy / d * step
+                    if ny < fielderWallStopY {
+                        // Slammed into the home-run wall — stop dead and get knocked out.
+                        aiFielderPos = CGPoint(x: nx, y: fielderWallStopY)
+                        aiFielderNode.position = aiFielderPos
+                        aiFielderStunFrames = 60
+                        knockFielderIntoWall(aiFielderNode, idle: aiIdleTexture, facing: &aiFielderFacing)
+                    } else {
+                        aiFielderPos = CGPoint(x: nx, y: ny)
+                        aiFielderNode.position = aiFielderPos
+                        animateFielderRun(node: aiFielderNode, walk: aiWalkFrames,
+                                          facing: &aiFielderFacing, dx: dx, dy: dy)
+                    }
                 } else {
                     stopFielderRun(node: aiFielderNode, idle: aiIdleTexture, facing: &aiFielderFacing)
                 }
@@ -1368,7 +1414,10 @@ final class CornholeBaseballScene: SKScene {
 
         // User fielder: auto-runs to predicted landing; tapping adds a speed burst
         if !userFielderNode.isHidden {
-            if userFielderMoveDelay > 0 {
+            if userFielderStunFrames > 0 {
+                userFielderStunFrames -= 1
+                if userFielderStunFrames == 0 { standFielderUp(userFielderNode) }
+            } else if userFielderMoveDelay > 0 {
                 userFielderMoveDelay -= 1
                 stopFielderRun(node: userFielderNode, idle: userIdleTexture, facing: &userFielderFacing)
             } else {
@@ -1378,17 +1427,64 @@ final class CornholeBaseballScene: SKScene {
                 if d > 1 {
                     let speed = fielderSpeed + userFielderBoost
                     let step  = min(speed, d)
-                    userFielderPos.x += dx / d * step
-                    userFielderPos.y += dy / d * step
-                    userFielderNode.position = userFielderPos
-                    animateFielderRun(node: userFielderNode, walk: userWalkFrames,
-                                      facing: &userFielderFacing, dx: dx, dy: dy)
+                    let nx = userFielderPos.x + dx / d * step
+                    let ny = userFielderPos.y + dy / d * step
+                    if ny < fielderWallStopY {
+                        // Slammed into the home-run wall — stop dead and get knocked out.
+                        userFielderPos = CGPoint(x: nx, y: fielderWallStopY)
+                        userFielderNode.position = userFielderPos
+                        userFielderBoost = 0
+                        userFielderStunFrames = 60
+                        knockFielderIntoWall(userFielderNode, idle: userIdleTexture, facing: &userFielderFacing)
+                    } else {
+                        userFielderPos = CGPoint(x: nx, y: ny)
+                        userFielderNode.position = userFielderPos
+                        animateFielderRun(node: userFielderNode, walk: userWalkFrames,
+                                          facing: &userFielderFacing, dx: dx, dy: dy)
+                    }
                 } else {
                     stopFielderRun(node: userFielderNode, idle: userIdleTexture, facing: &userFielderFacing)
                 }
             }
             userFielderBoost = max(0, userFielderBoost - 0.18)
         }
+    }
+
+    /// Topple a fielder flat against the home-run wall with a dizzy-stars puff.
+    private func knockFielderIntoWall(_ node: SKSpriteNode, idle: SKTexture?,
+                                      facing: inout FieldFacing?) {
+        node.removeAction(forKey: "run")
+        if let idle = idle { node.texture = idle }
+        facing = nil
+
+        // Topple over in whichever way the fielder was facing.
+        node.removeAction(forKey: "wallCrash")
+        let dir: CGFloat = node.xScale < 0 ? 1 : -1
+        let topple = SKAction.rotate(toAngle: dir * .pi / 2, duration: 0.18)
+        topple.timingMode = .easeOut
+        node.run(topple, withKey: "wallCrash")
+
+        // Dizzy stars rise from the point of impact.
+        let stars = SKLabelNode(fontNamed: "PressStart2P-Regular")
+        stars.text      = "✦ ✦ ✦"
+        stars.fontSize  = 8
+        stars.fontColor = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 1)
+        stars.verticalAlignmentMode = .center
+        stars.position  = CGPoint(x: node.position.x, y: node.position.y + 18)
+        stars.zPosition = node.zPosition + 1
+        gameWorldNode.addChild(stars)
+        stars.run(.sequence([
+            .group([.fadeOut(withDuration: 0.9), .moveBy(x: 0, y: 12, duration: 0.9)]),
+            .removeFromParent(),
+        ]))
+
+        UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
+    }
+
+    /// Pick the fielder back up once the knockout wears off.
+    private func standFielderUp(_ node: SKSpriteNode) {
+        node.removeAction(forKey: "wallCrash")
+        node.run(.rotate(toAngle: 0, duration: 0.15))
     }
 
     private func predictLandingPoint(vx: CGFloat, vy: CGFloat, vz: CGFloat,
