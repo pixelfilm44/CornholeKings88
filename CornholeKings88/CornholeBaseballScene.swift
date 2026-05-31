@@ -75,6 +75,9 @@ final class CornholeBaseballScene: SKScene {
     private let pitchesPerHalf = 3
     private let gravity: CGFloat   = 0.22
     private let distScale: CGFloat = 0.55  // scene-units → display "ft"
+    private let homeRunFt: CGFloat = 800   // a hit landing past this display-distance is a home run
+    /// World Y of the outfield home-run wall (a hit landing at/below this clears it).
+    private var homeRunWallY: CGFloat { batY - homeRunFt / distScale }
 
     // MARK: - Game state
     private var phase: GamePhase = .userBatting
@@ -148,6 +151,24 @@ final class CornholeBaseballScene: SKScene {
     private let fielderSpeed:         CGFloat = 4.0
     private let fielderCatchRadius:   CGFloat = 30
 
+    // Opponent character art (jen_sprite / tom_sprite). Built once the opponent is
+    // known; the AI fielder runs a walk cycle from these and the AI pitcher figure
+    // shows the idle frame. nil for the generic "BOT" (keeps the plain square).
+    private enum FieldFacing { case down, up, right, left }
+    /// On-screen size of every character figure (player + opponent). The art sits
+    /// inside a padded 64×64 cell, so this is larger than the visible character.
+    private let characterRenderSize = CGSize(width: 120, height: 120)
+    private var aiWalkFrames: [FieldFacing: [SKTexture]] = [:]
+    private var aiIdleTexture: SKTexture?
+    private var aiFielderFacing: FieldFacing?
+    private var userWalkFrames: [FieldFacing: [SKTexture]] = [:]
+    private var userIdleTexture: SKTexture?
+    private var userFielderFacing: FieldFacing?
+    private var aiPitcherFigure:    SKSpriteNode!   // mound figure while AI pitches
+    private var playerPitcherFigure: SKSpriteNode!  // mound figure while user pitches
+    private var playerBatterFigure: SKSpriteNode!   // plate figure while user bats
+    private var aiBatterFigure:     SKSpriteNode!    // plate figure while AI bats
+
     // MARK: - Nodes
     private var gameWorldNode: SKEffectNode!
     private var cameraOffset:  SKNode!
@@ -198,6 +219,7 @@ final class CornholeBaseballScene: SKScene {
 
     /// Run the tutorial (first play) or jump straight into the game.
     private func proceedToPlay() {
+        applyOpponentAppearance()
         if TutorialManager.shared.hasSeen(TutorialManager.baseball) {
             startUserBatting(showModal: true)
         } else {
@@ -328,7 +350,7 @@ final class CornholeBaseballScene: SKScene {
     }
 
     private func preloadAssets() {
-        let textures = ["bag_16bit"].map { name -> SKTexture in
+        let textures = ["bag_16bit", "jeff_sprite", "jen_sprite", "tom_sprite"].map { name -> SKTexture in
             let t = SKTexture(imageNamed: name)
             t.filteringMode = .nearest
             return t
@@ -337,7 +359,7 @@ final class CornholeBaseballScene: SKScene {
 
         let sounds = ["bag_land.wav",    "phase_change.wav", "strike_call.wav",
                       "bat_whiff.wav",   "bat_crack.wav",    "out_caught.wav",
-                      "game_win.wav",    "game_lose.wav"]
+                      "game_win.wav",    "game_lose.wav",    "crowd_cheer.wav"]
         sounds.forEach { warmUpSound($0) }
     }
 
@@ -499,6 +521,109 @@ final class CornholeBaseballScene: SKScene {
             lbl.zPosition = -3
             gameWorldNode.addChild(lbl)
         }
+
+        buildHomeRunWall()
+    }
+
+    /// Builds the outfield home-run wall and the crowd stands behind it at the
+    /// `homeRunFt` distance. These sit far down the field, so the camera only
+    /// reveals them on a big hit that clears the wall.
+    private func buildHomeRunWall() {
+        let wallW = size.width * 2.6
+        let wallH = size.height * 0.06
+        let wallY = homeRunWallY
+
+        // Crowd stands behind (beyond) the wall — further from the batter (more negative Y).
+        let standsH = size.height * 0.55
+        let stands = SKSpriteNode(texture: makeCrowdTexture(
+            size: CGSize(width: wallW, height: standsH)))
+        stands.position  = CGPoint(x: 0, y: wallY - wallH * 0.5 - standsH * 0.5)
+        stands.zPosition = -190
+        stands.name      = "hrCrowd"
+        gameWorldNode.addChild(stands)
+
+        // Warning-track dirt strip in front of the wall (toward the batter).
+        let track = SKSpriteNode(
+            color: SKColor(red: 0.55, green: 0.36, blue: 0.18, alpha: 1),
+            size: CGSize(width: wallW, height: wallH * 0.7))
+        track.position  = CGPoint(x: 0, y: wallY + wallH * 0.5 + wallH * 0.35)
+        track.zPosition = -185
+        gameWorldNode.addChild(track)
+
+        // The wall itself (padded outfield fence + yellow home-run rail on top).
+        let wall = SKSpriteNode(texture: makeWallTexture(
+            size: CGSize(width: wallW, height: wallH)))
+        wall.position  = CGPoint(x: 0, y: wallY)
+        wall.zPosition = -180
+        gameWorldNode.addChild(wall)
+
+        // Distance call-out on the wall.
+        let lbl = SKLabelNode(fontNamed: "PressStart2P-Regular")
+        lbl.text      = "\(Int(homeRunFt))ft"
+        lbl.fontSize  = max(7, size.width * 0.040)
+        lbl.fontColor = SKColor(white: 0.95, alpha: 0.92)
+        lbl.horizontalAlignmentMode = .center
+        lbl.verticalAlignmentMode   = .center
+        lbl.position  = CGPoint(x: 0, y: wallY)
+        lbl.zPosition = -179
+        gameWorldNode.addChild(lbl)
+    }
+
+    /// Procedural crowd texture — dark stands speckled with randomly-colored spectators.
+    private func makeCrowdTexture(size: CGSize) -> SKTexture {
+        UIGraphicsBeginImageContextWithOptions(size, false, 1)
+        defer { UIGraphicsEndImageContext() }
+        guard let ctx = UIGraphicsGetCurrentContext() else { return SKTexture() }
+        // Dark stadium backing
+        ctx.setFillColor(UIColor(red: 0.10, green: 0.10, blue: 0.13, alpha: 1).cgColor)
+        ctx.fill(CGRect(origin: .zero, size: size))
+        // Speckled spectators
+        let palette: [UIColor] = [
+            UIColor(red: 0.85, green: 0.30, blue: 0.30, alpha: 1),
+            UIColor(red: 0.30, green: 0.55, blue: 0.90, alpha: 1),
+            UIColor(red: 0.95, green: 0.85, blue: 0.35, alpha: 1),
+            UIColor(red: 0.40, green: 0.80, blue: 0.45, alpha: 1),
+            UIColor(red: 0.90, green: 0.90, blue: 0.92, alpha: 1),
+            UIColor(red: 0.75, green: 0.45, blue: 0.85, alpha: 1),
+        ]
+        let dot: CGFloat = 4
+        var y: CGFloat = 2
+        while y < size.height - dot {
+            var x: CGFloat = CGFloat.random(in: 0...dot)
+            while x < size.width - dot {
+                let c = palette[Int.random(in: 0..<palette.count)]
+                ctx.setFillColor(c.cgColor)
+                ctx.fill(CGRect(x: x, y: y, width: dot - 1, height: dot - 1))
+                x += dot + CGFloat.random(in: 0...3)
+            }
+            y += dot + 1
+        }
+        let tex = SKTexture(image: UIGraphicsGetImageFromCurrentImageContext() ?? UIImage())
+        tex.filteringMode = .nearest
+        return tex
+    }
+
+    /// Procedural outfield-wall texture — green padding, vertical seams, yellow top rail.
+    private func makeWallTexture(size: CGSize) -> SKTexture {
+        UIGraphicsBeginImageContextWithOptions(size, false, 1)
+        defer { UIGraphicsEndImageContext() }
+        guard let ctx = UIGraphicsGetCurrentContext() else { return SKTexture() }
+        // Padded wall body
+        ctx.setFillColor(UIColor(red: 0.06, green: 0.22, blue: 0.10, alpha: 1).cgColor)
+        ctx.fill(CGRect(origin: .zero, size: size))
+        // Vertical pad seams
+        ctx.setFillColor(UIColor(red: 0.04, green: 0.14, blue: 0.07, alpha: 1).cgColor)
+        var x: CGFloat = 0
+        while x < size.width {
+            ctx.fill(CGRect(x: x, y: 0, width: 1, height: size.height))
+            x += 18
+        }
+        // Yellow home-run rail along the top
+        ctx.setFillColor(UIColor(red: 0.95, green: 0.82, blue: 0.18, alpha: 1).cgColor)
+        ctx.fill(CGRect(x: 0, y: size.height - 3, width: size.width, height: 3))
+        let tex = SKTexture(image: UIGraphicsGetImageFromCurrentImageContext() ?? UIImage())
+        tex.filteringMode = .nearest
+        return tex
     }
 
     private func setupBatter() {
@@ -510,13 +635,27 @@ final class CornholeBaseballScene: SKScene {
         plate.zPosition = 3
         gameWorldNode.addChild(plate)
 
-        // Batter figure (red = player)
-        let batter = SKSpriteNode(
+        // Batter figure (red = player) — shown while the user bats (left side).
+        // Anchored near the feet (y=0.18) so larger sprite art grows upward and
+        // stays grounded beside the plate.
+        playerBatterFigure = SKSpriteNode(
             color: SKColor(red: 0.85, green: 0.22, blue: 0.22, alpha: 1),
             size: CGSize(width: 14, height: 22))
-        batter.position  = CGPoint(x: -18, y: batY + 2)
-        batter.zPosition = 10
-        gameWorldNode.addChild(batter)
+        playerBatterFigure.anchorPoint = CGPoint(x: 0.5, y: 0.18)
+        playerBatterFigure.position    = CGPoint(x: -20, y: batY - 9)
+        playerBatterFigure.zPosition   = 10
+        gameWorldNode.addChild(playerBatterFigure)
+
+        // AI batter figure — shown while the AI bats (right side, mirrored to face
+        // the plate). Swapped to the opponent sprite in applyOpponentAppearance().
+        aiBatterFigure = SKSpriteNode(
+            color: SKColor(red: 0.25, green: 0.48, blue: 0.90, alpha: 1),
+            size: CGSize(width: 14, height: 22))
+        aiBatterFigure.anchorPoint = CGPoint(x: 0.5, y: 0.18)
+        aiBatterFigure.position    = CGPoint(x: 20, y: batY - 9)
+        aiBatterFigure.zPosition   = 10
+        aiBatterFigure.isHidden    = true
+        gameWorldNode.addChild(aiBatterFigure)
 
         // Bat sprite (player — left side)
         batNode = SKSpriteNode(texture: makeBatTexture(), size: CGSize(width: 52, height: 8))
@@ -570,13 +709,25 @@ final class CornholeBaseballScene: SKScene {
         mound.zPosition   = 5
         gameWorldNode.addChild(mound)
 
-        // Pitcher figure (blue = AI)
-        let pitcher = SKSpriteNode(
+        // Pitcher figure (blue = AI). Swapped for the opponent sprite once known.
+        // Shown while the AI pitches (user batting).
+        aiPitcherFigure = SKSpriteNode(
             color: SKColor(red: 0.25, green: 0.48, blue: 0.90, alpha: 1),
             size: CGSize(width: 14, height: 22))
-        pitcher.position  = CGPoint(x: 0, y: pitcherY + 8)
-        pitcher.zPosition = 10
-        gameWorldNode.addChild(pitcher)
+        aiPitcherFigure.anchorPoint = CGPoint(x: 0.5, y: 0.18)
+        aiPitcherFigure.position    = CGPoint(x: 0, y: pitcherY - 3)
+        aiPitcherFigure.zPosition   = 10
+        gameWorldNode.addChild(aiPitcherFigure)
+
+        // Player figure on the mound — shown while the user pitches (AI batting).
+        playerPitcherFigure = SKSpriteNode(
+            color: SKColor(red: 0.85, green: 0.22, blue: 0.22, alpha: 1),
+            size: CGSize(width: 14, height: 22))
+        playerPitcherFigure.anchorPoint = CGPoint(x: 0.5, y: 0.18)
+        playerPitcherFigure.position    = CGPoint(x: 0, y: pitcherY - 3)
+        playerPitcherFigure.zPosition   = 10
+        playerPitcherFigure.isHidden    = true
+        gameWorldNode.addChild(playerPitcherFigure)
     }
 
     // MARK: - Fielders (outfield characters)
@@ -606,6 +757,106 @@ final class CornholeBaseballScene: SKScene {
         return node
     }
 
+    // MARK: - Character art (jeff_sprite / jen_sprite / tom_sprite)
+
+    /// Sheet asset name for the current opponent, or nil for the generic BOT.
+    private func opponentSheetName() -> String? {
+        switch opponentDisplayName {
+        case "JEN":           return "jen_sprite"
+        case "TOM", "TOMMY":  return "tom_sprite"
+        default:              return nil
+        }
+    }
+
+    /// Slices a character sheet (64×64 frames, 8-col layout shared with `jeff_sprite`)
+    /// into walk-cycle frames per facing plus an idle frame.
+    /// Rows (top-down): idle 0/1/2, walk 3/4/5 for down/right/up.
+    private func buildSheetFrames(_ sheetName: String) -> (idle: SKTexture?, walk: [FieldFacing: [SKTexture]]) {
+        let sheet = SKTexture(imageNamed: sheetName)
+        sheet.filteringMode = .nearest
+        let texW = sheet.size().width, texH = sheet.size().height
+        guard texW > 0, texH > 0 else { return (nil, [:]) }
+
+        let frameW: CGFloat = 64, frameH: CGFloat = 64
+        let cols = 6
+        let nW = frameW / texW, nH = frameH / texH
+        func framesForRow(_ row: Int) -> [SKTexture] {
+            // SKTexture rect uses bottom-left origin; sheet rows are top-down.
+            let nY = 1.0 - CGFloat(row + 1) * nH
+            return (0..<cols).map { col in
+                let t = SKTexture(rect: CGRect(x: CGFloat(col) * nW, y: nY, width: nW, height: nH),
+                                  in: sheet)
+                t.filteringMode = .nearest
+                return t
+            }
+        }
+        let walk: [FieldFacing: [SKTexture]] = [
+            .down:  framesForRow(3),
+            .right: framesForRow(4),
+            .up:    framesForRow(5),
+            .left:  framesForRow(4),   // rendered mirrored via xScale
+        ]
+        return (framesForRow(0).first, walk)
+    }
+
+    /// Applies character sprites to the player figures (jeff_sprite) and, when the
+    /// opponent is Jen/Tom, to the AI pitcher/batter/fielder. BOT keeps plain squares.
+    private func applyOpponentAppearance() {
+        // Player always uses jeff_sprite at the shared character size — batting,
+        // pitching, and running the outfield to catch the AI's hits.
+        let jeff = buildSheetFrames("jeff_sprite")
+        userWalkFrames  = jeff.walk
+        userIdleTexture = jeff.idle
+        if let idle = jeff.idle {
+            for node in [playerBatterFigure, playerPitcherFigure, userFielderNode] {
+                node?.texture          = idle
+                node?.colorBlendFactor = 0
+                node?.size             = characterRenderSize
+            }
+        }
+
+        guard let sheetName = opponentSheetName() else { return }   // BOT keeps the square
+        let opp = buildSheetFrames(sheetName)
+        aiWalkFrames  = opp.walk
+        aiIdleTexture = opp.idle
+        if let idle = opp.idle {
+            for node in [aiFielderNode, aiPitcherFigure, aiBatterFigure] {
+                node?.texture          = idle
+                node?.colorBlendFactor = 0
+                node?.size             = characterRenderSize
+            }
+            // Batter stands on the right and faces the plate (left).
+            aiBatterFigure.xScale = -1
+        }
+    }
+
+    /// Runs a fielder's walk cycle, choosing the row from the movement direction and
+    /// mirroring for left. No-op for a plain-square fielder (no walk frames).
+    private func animateFielderRun(node: SKSpriteNode,
+                                   walk: [FieldFacing: [SKTexture]],
+                                   facing currentFacing: inout FieldFacing?,
+                                   dx: CGFloat, dy: CGFloat) {
+        guard !walk.isEmpty else { return }
+        let dir: FieldFacing
+        if abs(dx) > abs(dy) { dir = dx < 0 ? .left : .right }
+        else                 { dir = dy > 0 ? .up   : .down }
+        node.xScale = (dir == .left) ? -1 : 1
+        guard dir != currentFacing else { return }   // already running this way
+        currentFacing = dir
+        if let frames = walk[dir], !frames.isEmpty {
+            node.run(.repeatForever(.animate(with: frames, timePerFrame: 0.10)), withKey: "run")
+        }
+    }
+
+    /// Stops a fielder's walk cycle and shows its idle frame.
+    private func stopFielderRun(node: SKSpriteNode,
+                                idle: SKTexture?,
+                                facing currentFacing: inout FieldFacing?) {
+        node.removeAction(forKey: "run")
+        if let idle = idle { node.texture = idle }
+        currentFacing = nil
+    }
+
     private func resetFielders() {
         let startY = pitcherY - 80
 
@@ -613,14 +864,27 @@ final class CornholeBaseballScene: SKScene {
         userFielderTarget = userFielderPos
         userFielderNode.position = userFielderPos
         userFielderNode.isHidden = true
+        userFielderNode.removeAction(forKey: "run")
+        userFielderNode.xScale = 1
+        userFielderFacing      = nil
+        if let idle = userIdleTexture { userFielderNode.texture = idle }
 
         aiFielderPos    = CGPoint(x: -26, y: startY)
         aiFielderTarget = aiFielderPos
         aiFielderNode.position = aiFielderPos
         aiFielderNode.isHidden = true
+        aiFielderNode.removeAction(forKey: "run")
+        aiFielderNode.xScale = 1
+        aiFielderFacing      = nil
+        if let idle = aiIdleTexture { aiFielderNode.texture = idle }
         aiFielderMoveDelay   = 0
         userFielderMoveDelay = 0
         userFielderBoost     = 0
+
+        // The pitcher returns to the mound once the chase is over. The pitcher is the
+        // AI while the user bats, and the user while the user pitches.
+        aiPitcherFigure.isHidden     = !isUserBattingHalf
+        playerPitcherFigure.isHidden = isUserBattingHalf
     }
 
     // MARK: - Charge bar (scene-space, floats below batter)
@@ -679,6 +943,11 @@ final class CornholeBaseballScene: SKScene {
         chargeBarBg.isHidden = true
         batNode.isHidden   = false
         aiBatNode.isHidden = true
+        // User bats (left plate); AI pitches (mound).
+        playerBatterFigure.isHidden  = false
+        aiBatterFigure.isHidden      = true
+        aiPitcherFigure.isHidden     = false
+        playerPitcherFigure.isHidden = true
         resetBatVisual()
         strikeZone.isHidden = true
         resetFielders()
@@ -704,6 +973,11 @@ final class CornholeBaseballScene: SKScene {
         chargeBarBg.isHidden = true
         batNode.isHidden   = true
         aiBatNode.isHidden = false
+        // AI bats (right plate); user pitches (mound).
+        playerBatterFigure.isHidden  = true
+        aiBatterFigure.isHidden      = false
+        aiPitcherFigure.isHidden     = true
+        playerPitcherFigure.isHidden = false
         resetBatVisual()
         strikeZone.isHidden = false   // always visible so player can see where to aim
         resetFielders()
@@ -860,7 +1134,6 @@ final class CornholeBaseballScene: SKScene {
             spawnFloatingText("SWINGING STRIKE!", at: CGPoint(x: pitch.bx, y: batY + 22),
                               color: SKColor(red: 1, green: 0.18, blue: 0.18, alpha: 1))
             run(.wait(forDuration: 0.85)) { [weak self] in
-                self?.userDistances.append(0)
                 self?.checkBattingHalfDone()
             }
             return
@@ -879,7 +1152,6 @@ final class CornholeBaseballScene: SKScene {
             spawnFloatingText("WHIFF!", at: CGPoint(x: pitch.bx, y: batY + 22),
                               color: SKColor(white: 0.65, alpha: 1))
             run(.wait(forDuration: 0.85)) { [weak self] in
-                self?.userDistances.append(0)
                 self?.checkBattingHalfDone()
             }
             return
@@ -917,7 +1189,6 @@ final class CornholeBaseballScene: SKScene {
             spawnFloatingText("MISS!", at: CGPoint(x: pitch.bx, y: batY + 22),
                               color: SKColor(red: 1, green: 0.28, blue: 0.28, alpha: 1))
             run(.wait(forDuration: 0.85)) { [weak self] in
-                self?.userDistances.append(0)
                 self?.checkBattingHalfDone()
             }
         }
@@ -959,7 +1230,6 @@ final class CornholeBaseballScene: SKScene {
             spawnFloatingText(label, at: CGPoint(x: pitch.bx, y: batY + 22),
                               color: SKColor(white: 0.58, alpha: 1))
             run(.wait(forDuration: 0.90)) { [weak self] in
-                self?.aiDistances.append(0)
                 self?.checkPitchingHalfDone()
             }
         }
@@ -1018,6 +1288,8 @@ final class CornholeBaseballScene: SKScene {
         if isUser {
             // AI fielder auto-moves to predicted landing, with a reaction delay and aim error.
             // Tom (greatFielder) covers much more of the field with tighter positioning.
+            // The pitcher and fielder are the same person, so the pitcher leaves the mound.
+            aiPitcherFigure.isHidden = true
             aiFielderNode.isHidden = false
             let landing = predictLandingPoint(vx: hit.vx, vy: hit.vy, vz: hit.vz,
                                               bx: hit.bx, by: hit.by, bz: hit.bz)
@@ -1026,7 +1298,9 @@ final class CornholeBaseballScene: SKScene {
             aiFielderTarget    = CGPoint(x: landing.x + err, y: landing.y + err * 0.4)
             aiFielderMoveDelay = aiDifficulty == .greatFielder ? 10 : 20
         } else {
-            // User fielder auto-runs to predicted landing; tapping sprints
+            // User fielder auto-runs to predicted landing; tapping sprints.
+            // The pitcher and fielder are the same person, so the pitcher leaves the mound.
+            playerPitcherFigure.isHidden = true
             userFielderNode.isHidden = false
             let landing = predictLandingPoint(vx: hit.vx, vy: hit.vy, vz: hit.vz,
                                               bx: hit.bx, by: hit.by, bz: hit.bz)
@@ -1074,6 +1348,7 @@ final class CornholeBaseballScene: SKScene {
         if !aiFielderNode.isHidden {
             if aiFielderMoveDelay > 0 {
                 aiFielderMoveDelay -= 1
+                stopFielderRun(node: aiFielderNode, idle: aiIdleTexture, facing: &aiFielderFacing)
             } else {
                 let dx = aiFielderTarget.x - aiFielderPos.x
                 let dy = aiFielderTarget.y - aiFielderPos.y
@@ -1083,6 +1358,10 @@ final class CornholeBaseballScene: SKScene {
                     aiFielderPos.x += dx / d * step
                     aiFielderPos.y += dy / d * step
                     aiFielderNode.position = aiFielderPos
+                    animateFielderRun(node: aiFielderNode, walk: aiWalkFrames,
+                                      facing: &aiFielderFacing, dx: dx, dy: dy)
+                } else {
+                    stopFielderRun(node: aiFielderNode, idle: aiIdleTexture, facing: &aiFielderFacing)
                 }
             }
         }
@@ -1091,6 +1370,7 @@ final class CornholeBaseballScene: SKScene {
         if !userFielderNode.isHidden {
             if userFielderMoveDelay > 0 {
                 userFielderMoveDelay -= 1
+                stopFielderRun(node: userFielderNode, idle: userIdleTexture, facing: &userFielderFacing)
             } else {
                 let dx = userFielderTarget.x - userFielderPos.x
                 let dy = userFielderTarget.y - userFielderPos.y
@@ -1101,6 +1381,10 @@ final class CornholeBaseballScene: SKScene {
                     userFielderPos.x += dx / d * step
                     userFielderPos.y += dy / d * step
                     userFielderNode.position = userFielderPos
+                    animateFielderRun(node: userFielderNode, walk: userWalkFrames,
+                                      facing: &userFielderFacing, dx: dx, dy: dy)
+                } else {
+                    stopFielderRun(node: userFielderNode, idle: userIdleTexture, facing: &userFielderFacing)
                 }
             }
             userFielderBoost = max(0, userFielderBoost - 0.18)
@@ -1153,7 +1437,6 @@ final class CornholeBaseballScene: SKScene {
                     spawnFloatingText("STRIKE!", at: CGPoint(x: 0, y: batY + 22),
                                       color: SKColor(red: 1, green: 0.18, blue: 0.18, alpha: 1))
                     run(.wait(forDuration: 0.85)) { [weak self] in
-                        self?.userDistances.append(0)
                         self?.checkBattingHalfDone()
                     }
                 }
@@ -1181,7 +1464,6 @@ final class CornholeBaseballScene: SKScene {
                         spawnFloatingText("\(opponentDisplayName) SWINGS WILD!", at: CGPoint(x: pitch.bx, y: batY + 22),
                                           color: SKColor(white: 0.58, alpha: 1))
                         run(.wait(forDuration: 0.90)) { [weak self] in
-                            self?.aiDistances.append(0)
                             self?.checkPitchingHalfDone()
                         }
                     } else {
@@ -1204,7 +1486,6 @@ final class CornholeBaseballScene: SKScene {
                     spawnFloatingText("CALLED STRIKE!", at: CGPoint(x: 0, y: batY + 22),
                                       color: SKColor(red: 1, green: 0.85, blue: 0.22, alpha: 1))
                     run(.wait(forDuration: 0.85)) { [weak self] in
-                        self?.aiDistances.append(0)
                         self?.checkPitchingHalfDone()
                     }
                 } else {
@@ -1237,11 +1518,19 @@ final class CornholeBaseballScene: SKScene {
         hit.shadow.setScale(max(0.4, 1.0 - hit.bz * 0.005))
         hit.node.zPosition = 30 + hit.bz * 0.1
 
-        // Camera pans DOWN to follow bag into outfield
+        // Camera pans DOWN to follow bag into outfield.
         let targetX = -hit.bx * 0.65
         let targetY = -visualY + size.height * 0.08   // push world up so bag stays on-screen
-        cameraOffset.position.x += (targetX - cameraOffset.position.x) * 0.07
-        cameraOffset.position.y += (targetY - cameraOffset.position.y) * 0.07
+        cameraOffset.position.x += (targetX - cameraOffset.position.x) * 0.14
+        cameraOffset.position.y += (targetY - cameraOffset.position.y) * 0.14
+
+        // Hard guarantee the bag stays on-screen even on a fast/long home-run shot:
+        // the bag's on-screen position is cameraOffset.position + bag.position, so
+        // clamp the offset to keep it inside a safe margin of the viewport.
+        let marginX = size.width  * 0.40
+        let marginY = size.height * 0.34
+        cameraOffset.position.x = min(max(cameraOffset.position.x, -marginX - hit.bx), marginX - hit.bx)
+        cameraOffset.position.y = min(max(cameraOffset.position.y, -marginY - visualY), marginY - visualY)
 
         // Landing
         if hit.bz <= 0 && hit.vz <= 0 {
@@ -1250,6 +1539,9 @@ final class CornholeBaseballScene: SKScene {
 
             let dist  = hypot(hit.bx, hit.by - batY)
             let ftVal = Int(dist * distScale)
+            // A ball that lands at/beyond the outfield wall clears it — a home run,
+            // and can never be caught.
+            let isHomeRun = hit.by <= homeRunWallY
 
             UINotificationFeedbackGenerator().notificationOccurred(.success)
             // PLACEHOLDER: add bag_land.wav to Copy Bundle Resources
@@ -1257,11 +1549,16 @@ final class CornholeBaseballScene: SKScene {
             showLandingEffect(at: CGPoint(x: hit.bx, y: hit.by))
 
             if hit.isUserHit {
-                let caught = hypot(hit.bx - aiFielderPos.x, hit.by - aiFielderPos.y) < fielderCatchRadius
-                if caught {
+                let caught = !isHomeRun && hypot(hit.bx - aiFielderPos.x, hit.by - aiFielderPos.y) < fielderCatchRadius
+                if isHomeRun {
+                    celebrateHomeRun(isUser: true)
+                    userDistances.append(dist)
+                    pushHUD()
+                    spawnFloatingText("HOME RUN! \(ftVal)FT", at: CGPoint(x: hit.bx, y: hit.by + 22),
+                                      color: SKColor(red: 1, green: 0.85, blue: 0.28, alpha: 1))
+                } else if caught {
                     // PLACEHOLDER: add out_caught.wav to Copy Bundle Resources
                     run(SKAction.playSoundFileNamed("out_caught.wav", waitForCompletion: false))
-                    userDistances.append(0)
                     pushHUD()
                     spawnFloatingText("OUT!", at: CGPoint(x: hit.bx, y: hit.by + 22),
                                       color: SKColor(red: 0.35, green: 1.0, blue: 0.35, alpha: 1))
@@ -1278,11 +1575,16 @@ final class CornholeBaseballScene: SKScene {
                     self?.checkBattingHalfDone()
                 }
             } else {
-                let caught = hypot(hit.bx - userFielderPos.x, hit.by - userFielderPos.y) < fielderCatchRadius
-                if caught {
+                let caught = !isHomeRun && hypot(hit.bx - userFielderPos.x, hit.by - userFielderPos.y) < fielderCatchRadius
+                if isHomeRun {
+                    celebrateHomeRun(isUser: false)
+                    aiDistances.append(dist)
+                    pushHUD()
+                    spawnFloatingText("\(opponentDisplayName) HOME RUN! \(ftVal)FT", at: CGPoint(x: hit.bx, y: hit.by + 22),
+                                      color: SKColor(red: 0.42, green: 0.62, blue: 1.0, alpha: 1))
+                } else if caught {
                     // PLACEHOLDER: add out_caught.wav to Copy Bundle Resources
                     run(SKAction.playSoundFileNamed("out_caught.wav", waitForCompletion: false))
-                    aiDistances.append(0)
                     pushHUD()
                     spawnFloatingText("OUT!", at: CGPoint(x: hit.bx, y: hit.by + 22),
                                       color: SKColor(red: 1, green: 0.38, blue: 0.38, alpha: 1))
@@ -1527,6 +1829,29 @@ final class CornholeBaseballScene: SKScene {
             .group([.scale(to: 2.6, duration: 0.20), .fadeOut(withDuration: 0.28)]),
             .removeFromParent(),
         ]))
+    }
+
+    /// Home-run celebration: centred flash, crowd cheer (stands pulse), and a sound.
+    private func celebrateHomeRun(isUser: Bool) {
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+        // Requires crowd_cheer.wav in Copy Bundle Resources
+        run(SKAction.playSoundFileNamed("crowd_cheer.wav", waitForCompletion: false))
+        showCentreFlash(isUser ? "HOME RUN!" : "\(opponentDisplayName) GOES YARD!")
+        // Crowd jumps up and cheers
+        if let crowd = gameWorldNode.childNode(withName: "hrCrowd") {
+            crowd.removeAllActions()
+            let baseY = crowd.position.y
+            crowd.run(.repeat(.sequence([
+                .moveBy(x: 0, y: 4, duration: 0.10),
+                .moveBy(x: 0, y: -4, duration: 0.10),
+            ]), count: 8))
+            crowd.run(.sequence([
+                .colorize(with: .white, colorBlendFactor: 0.35, duration: 0.12),
+                .wait(forDuration: 1.0),
+                .colorize(withColorBlendFactor: 0, duration: 0.3),
+                .run { crowd.position.y = baseY },
+            ]))
+        }
     }
 
     private func showTapIndicator(at pos: CGPoint) {
