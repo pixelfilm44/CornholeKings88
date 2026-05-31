@@ -126,16 +126,56 @@ On scene load, GameScene checks the flag and calls `unlockBridge()` immediately 
 
 ### Mini-Game Pattern
 
-Both mini-games follow the same contract:
+Every mini-game follows the same contract:
 ```swift
 var previousScene: SKScene?
 var onComplete: ((Bool) -> Void)?
+var awardsRewards: Bool   // default false
 ```
-`GameScene` sets both before presenting the mini-game. The mini-game calls `onComplete?(won)` when finished, and `GameScene`'s closure re-presents itself. `hasSetup` in `GameScene` prevents double-initialization when the scene is re-presented after a mini-game returns.
+`GameScene` sets these before presenting the mini-game. The mini-game calls `onComplete?(won)` when finished, and `GameScene`'s closure re-presents itself. `hasSetup` in `GameScene` prevents double-initialization when the scene is re-presented after a mini-game returns.
+
+`awardsRewards` gates **all** prizes — see **Result Modal & Reward Context** below.
 
 `CornholeBaseballScene` additionally injects a SwiftUI `BaseballHUDView` as a `UIHostingController` onto the host `SKView` in `didMove(to:)` and removes it in `willMove(from:)`.
 
 `CornholeMiniGameScene` calls `CornholeStatsManager.shared.recordCornhole()` each time any bag enters the hole, and `recordWin()`/`recordLoss()` in `dismissScene(playerWon:)` before calling `onComplete`. This covers both in-world cornhole boards and the mini-games picker path.
+
+### Result Modal & Reward Context
+
+**One shared victory/defeat modal — `GameResultModal.swift`.** Every mini-game's end screen is built by `GameResultModal.make(sceneSize:won:title:subtitle:detail:hint:rewards:buttons:)`, which returns a fully-styled, pre-positioned `SKNode` (Bit-Wood Brawler look: dark-wood panel, gold-over-iron double border, `PressStart2P`, green title on win / red on loss, pulsing gold reward lines). Do **not** hand-roll a new game-over panel — extend this instead.
+
+- Each scene supplies its **own** `Button`s, whose `name`s match the names its existing `touchesBegan` already dispatches on (`playAgainBtn`/`exitBtn`, `again`/`quitGame`, `continueBtn`, `replayBtn`/`menuBtn`, …). The modal sets that name on the button container **and** every child (body, border, label) so `nodes(at:)` routing matches a tap anywhere on the button. Swapping a scene's bespoke panel for the modal changes visuals only, never the flow.
+- `Reward(item:count:text:)` renders a `+N ITEM` line with a colored item swatch; `Reward.unlock("…")` renders a plain gold line (e.g. `"BASEBALL UNLOCKED"`). The panel grows taller to fit reward rows + extra buttons.
+
+**`awardsRewards` is the single switch for "is this story/world play or menu play?"** Each scene defaults it to `false`. The contract:
+
+| Host | Sets `awardsRewards` | Grants items? |
+|------|----------------------|---------------|
+| `GameScene` (world-map triggers) | `true` | yes |
+| `StoryModuleScene` (narrative fights) + `BikeDodgeViewController` | `true` | yes |
+| `MiniGamePickerScene` (the menu) | leaves `false` | **never** |
+
+When `false`, scenes pass an empty `rewards:` array (no prize lines) and skip setting their `*Earned` properties, so the picker path can never grant a prize. Never re-introduce an item grant inside the picker — it violates this rule (two such leaks, a test fire-bag grant and a Jousters lance grant, were removed).
+
+**Reward table** (granted only when `awardsRewards == true`):
+
+| Mini-game / outcome | Reward |
+|---------------------|--------|
+| BeanBag Bike — 1st place | Unlocks the world map (`ProgressManager.worldUnlocked`); plus any golden bags earned mid-race |
+| Cornhole vs `.bully` | 10 coins (`coinsEarned`) |
+| Cornhole vs `.billy` (Billy) | 10 coins **+** 3 bomb bags (`coinsEarned` + `bombBagsEarned`) — stacked |
+| Cornhole vs `.spirit` | 6 magic bags (`magicBagsEarned`) |
+| Cornhole — beat both Tom **and** Jenny | Earns a baseball → baseball mini-game unlocked (`CornholeStatsManager.baseballUnlocked`) |
+| BeeHive win | 3 honey bags |
+| BeachBall win | 8 `floatingBag`s |
+| Piranha Bridge win | Earns the bridge (`unlockBridge()` — cross the river) |
+| Baseball — beat both Jen **and** Tom | Earns a bat → Suburban Jousters unlocked (`joustersUnlocked`) |
+| Suburban Jousters — first win | Golden Lance (`"goldenLanceEarned_v1"`) |
+| Well Flinger win | 3 fire bags (`fireBagsEarned`) |
+
+Scenes expose their winnings as `private(set) var …Earned` properties; the host's `onComplete` reads them after the closure fires and calls `inventory.collect(...)`. Consumable bags carried *into* a game (`available…Bags`) are deducted via `…BagsUsed` the same way.
+
+**`ProgressManager.swift`** — singleton owning cross-session progression flags that had no home, chiefly `worldUnlocked` (persisted `UserDefaults` key `"worldUnlocked_v1"`, set on the first BeanBag Bike win). It also exposes convenience accessors (`hasBaseball`, `hasBat`, `hasBridge`, `hasLance`) that mirror the existing stat/`UserDefaults` unlocks so gate checks read uniformly. **World-map gating note:** the world (`GameScene`) is reachable only through the story, which already sequences the bike race before the world, so the unlock is enforced by that ordering; the flag exists for any future direct free-roam entry point.
 
 ### Cornhole Opponents
 
@@ -154,7 +194,7 @@ var onComplete: ((Bool) -> Void)?
 
 **Bag destruction** — `destroyBag(_:)` sets `isDestroyed = true` and plays a scale/fade animation. Destroyed bags are skipped in `calculateRoundScore()` but stay in `activeBags` until round cleanup. `resolveBagCollisions()` skips destroyed bags.
 
-**Rewards** — beating Billy awards 3 bomb bags; beating the Tree Spirit awards 3 magic bags. These are added to `InventoryManager` via `bombBagsEarned` / `magicBagsEarned` in `dismissScene`.
+**Rewards** — beating Billy awards 3 bomb bags **+ 10 coins**; beating the Tree Spirit awards 6 magic bags; beating the generic `.bully` awards 10 coins. These are set on `bombBagsEarned` / `magicBagsEarned` / `coinsEarned` in `dismissScene` (only when `awardsRewards`) and collected by the host's `onComplete`. See **Result Modal & Reward Context**.
 
 ### Opponent Picker Layout
 
@@ -193,7 +233,7 @@ Navigation: `◄ BACK` strip at top (push-down transition back to `MainMenuScene
 
 Items scattered in the world can be walked over to collect them. The system has four files:
 
-- **`Item.swift`** — `ItemType` enum (`coin`, `bag`, `star`, `honeyBag`, `bombBag`, `magicBag`, `fireBag`, `goldenBag`, `dogBiscuit`, `goldenLance`) with `color`, `displayName`, and `hudSymbol`.
+- **`Item.swift`** — `ItemType` enum (`coin`, `bag`, `star`, `honeyBag`, `bombBag`, `magicBag`, `fireBag`, `goldenBag`, `dogBiscuit`, `floatingBag`, `goldenLance`) with `color`, `displayName`, and `hudSymbol`.
 - **`InventoryManager.swift`** — holds `[ItemType: Int]` counts; fires an `onChanged` closure when any item is collected. `GameScene` owns the instance.
 - **`CollectibleNode.swift`** — `SKNode` subclass placed in the map's `mapNode`. Draws an 8×8 colored tile + glow ring, bobs gently, and pops/fades out on contact. Physics body is a sensor (`collisionBitMask = 0`, `contactTestBitMask = PlayerNode.categoryBit`). Uses `collectibleBit = 0x1 << 2`.
 - **`InventoryHUDNode.swift`** — `SKNode` attached to `cameraNode`. Renders a horizontal row of dark pill slots (colored icon + `×N` count label) in the bottom chrome, vertically centered between the top of the D-pad cross and the stage bottom border. Call `refresh(counts:)` to redraw. Each slot container is named `"slot_<rawValue>"` (e.g. `"slot_dogBiscuit"`); `GameScene.handleTouchBegan` walks `nodes(at:)` for that prefix and routes the tap to `handleInventoryTap(_:)` for per-item world-use actions.
@@ -207,12 +247,15 @@ Items scattered in the world can be walked over to collect them. The system has 
 - **`honeyBag`** — immune to wind and bot knockback; sticks on board contact.
 - **`bombBag`** — landing on the board destroys all opponent board bags; landing in the hole destroys all opponent hole bags. Billy can also throw bomb bags (~25% chance). Awarded (3) by beating Billy the Bully.
 - **`magicBag`** — physically intercepts opponent board bags on collision (opponent bag destroyed, magic bag keeps moving). Scoring in the hole destroys all opponent bags already scored in the hole this round. Awarded (3) by beating the Tree Spirit.
-- **`fireBag`** — landing on the board burns all other board bags instantly (thrower keeps 1 pt, all others score 0); subsequent bags landing on the board that round are also destroyed. Sets `boardOnFire = true` until round reset. Landing in the hole burns all other cornholes scored that round by either player (thrower keeps 3 pts, all others score 0). Sets `holeFire = true`. Visuals: pulsing red-orange board overlay + rising ember particles + blinking "🔥 BOARD ON FIRE! 🔥" label. Reward source TBD.
+- **`fireBag`** — landing on the board burns all other board bags instantly (thrower keeps 1 pt, all others score 0); subsequent bags landing on the board that round are also destroyed. Sets `boardOnFire = true` until round reset. Landing in the hole burns all other cornholes scored that round by either player (thrower keeps 3 pts, all others score 0). Sets `holeFire = true`. Visuals: pulsing red-orange board overlay + rising ember particles + blinking "🔥 BOARD ON FIRE! 🔥" label. Awarded (3) by winning Well Flinger from the world map.
 
 `GameScene` passes `availableBombBags` / `availableMagicBags` / `availableFireBags` into `CornholeMiniGameScene` before presenting it, then deducts used counts and adds earned counts in the `onComplete` closure. `MiniGamePickerScene` reads the same `InventoryManager` (via a local instance) when launching cornhole directly from the picker.
 
 **World-use items** (placed in the open world by tapping the inventory slot):
 - **`dogBiscuit`** — earned from chests (50/50 with heart refill). Tapping the inventory slot calls `placeDogBiscuit()`, which decrements the count and spawns a bone-shaped `SKNode` at `player.position` (added to `map.mapNode`, tracked in `placedBiscuits: [PlacedBiscuit]`). In `updateDogs(dt:)`, any non-fleeing dog without a `biscuitTarget` checks for an unclaimed biscuit within an 80-unit sniff radius; first match wins and is claimed. The dog walks to the biscuit, eats for 3 seconds (`eatDuration` in `DogNode`), then `onFinishedEating` fires — the biscuit node pops/fades out and is removed from `placedBiscuits`. After eating, the dog resumes chasing the player.
+
+**Cross-game bonus items:**
+- **`floatingBag`** — awarded (8) by winning the BeachBall mini-game from the world map. Carried into `BridgePiranhaScene` via `availableFloatingBags`: they extend the bag pool beyond the base 12 (`bagsRemaining = baseBags + availableFloatingBags`). Only those thrown *beyond* the base 12 are consumed (`floatingBagsUsed`, deducted by `GameScene`'s `onComplete`). No cornhole or world-use action.
 
 **Permanent unlock items** (not consumed; awarded once and persist via `UserDefaults`):
 - **`goldenLance`** — awarded on first Suburban Jousters win (key `"goldenLanceEarned_v1"`). Reveals the `btnLance` action button in the world HUD. Used to interact with high objects in the world (TBD). The button is a dark gold-bordered circle drawn by `makeLanceButtonContent()` — a diagonal gold shaft, bright tip, and grip wrap.

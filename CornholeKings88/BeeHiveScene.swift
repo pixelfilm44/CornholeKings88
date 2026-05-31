@@ -12,6 +12,8 @@ final class BeeHiveScene: SKScene {
     // MARK: - Public contract (mirrors CornholeMiniGameScene pattern)
     var previousScene: SKScene?
     var onComplete: ((Bool) -> Void)?
+    /// True only when launched from the world map / story mode; gates prize display.
+    var awardsRewards: Bool = false
     private var closeUIButton: UIButton? = nil  // unused; replaced by SK closeBtn
     /// Set by GameScene before presenting — reflects player's current hearts.
     var startingHearts: Int = 3
@@ -957,79 +959,21 @@ final class BeeHiveScene: SKScene {
     private func showGameOverPanel(playerWon: Bool) {
         messageNode?.removeFromParent()
 
-        let panelW = size.width  * 0.82
-        let panelH = size.height * 0.56
-        let fs     = max(6, size.width * 0.048)
+        let rewards: [GameResultModal.Reward] = (awardsRewards && playerWon)
+            ? [GameResultModal.Reward(item: .honeyBag, count: 3)]
+            : []
 
-        let panel = SKNode()
-        panel.zPosition = 1000
-        panel.alpha     = 0
-
-        let backing = SKSpriteNode(
-            color: SKColor(red: 0.09, green: 0.07, blue: 0.05, alpha: 0.94),
-            size: CGSize(width: panelW, height: panelH))
-        panel.addChild(backing)
-
-        let border = SKShapeNode(rectOf: CGSize(width: panelW + 3, height: panelH + 3))
-        border.strokeColor = SKColor(red: 0.60, green: 0.42, blue: 0.15, alpha: 1)
-        border.fillColor   = .clear
-        border.lineWidth   = 3
-        panel.addChild(border)
-
-        let titleColor = playerWon
-            ? SKColor(red: 0.95, green: 0.75, blue: 0.15, alpha: 1)
-            : SKColor(red: 0.90, green: 0.20, blue: 0.20, alpha: 1)
-
-        let title = makeLabel(text: playerWon ? "YOU WIN!" : "STUNG OUT!",
-                              size: fs * 0.75, color: titleColor)
-        title.position = CGPoint(x: 0, y: panelH * 0.30)
-        panel.addChild(title)
-
-        if playerWon {
-            let reward = makeLabel(text: "+3 HONEY BAGS!",
-                                   size: fs * 0.55,
-                                   color: SKColor(red: 0.95, green: 0.82, blue: 0.10, alpha: 1))
-            reward.position = CGPoint(x: 0, y: panelH * 0.10)
-            panel.addChild(reward)
-
-            let detail = makeLabel(text: "STICKY IN CORNHOLE!",
-                                   size: fs * 0.44,
-                                   color: SKColor(white: 0.68, alpha: 1))
-            detail.position = CGPoint(x: 0, y: -panelH * 0.04)
-            panel.addChild(detail)
-        } else {
-            let sub = makeLabel(text: "BEES HIT: \(beesHit) / \(totalBees)",
-                                size: fs * 0.55,
-                                color: SKColor(white: 0.78, alpha: 1))
-            sub.position = CGPoint(x: 0, y: panelH * 0.08)
-            panel.addChild(sub)
-
-            let sub2 = makeLabel(text: "REACH \(totalBees) FOR HONEY",
-                                 size: fs * 0.45,
-                                 color: SKColor(white: 0.55, alpha: 1))
-            sub2.position = CGPoint(x: 0, y: -panelH * 0.05)
-            panel.addChild(sub2)
-        }
-
-        let tryBtn = makeButton(label: "TRY AGAIN",
-                                fg: .white,
-                                bg: SKColor(red: 0.18, green: 0.45, blue: 0.18, alpha: 1),
-                                size: CGSize(width: panelW * 0.60, height: fs * 1.8))
-        tryBtn.position = CGPoint(x: 0, y: -panelH * 0.24)
-        tryBtn.name     = "playAgainBtn"
-        panel.addChild(tryBtn)
-
-        let exitBtn = makeButton(label: "EXIT",
-                                 fg: .white,
-                                 bg: SKColor(red: 0.42, green: 0.10, blue: 0.10, alpha: 1),
-                                 size: CGSize(width: panelW * 0.40, height: fs * 1.8))
-        exitBtn.position = CGPoint(x: 0, y: -panelH * 0.38)
-        exitBtn.name     = "exitBtn"
-        panel.addChild(exitBtn)
-
+        let panel = GameResultModal.make(
+            sceneSize: size,
+            won: playerWon,
+            title: playerWon ? "VICTORY!" : "STUNG OUT!",
+            subtitle: playerWon ? "STICKY IN CORNHOLE!" : "BEES HIT: \(beesHit) / \(totalBees)",
+            detail: playerWon ? nil : "REACH \(totalBees) FOR HONEY",
+            rewards: rewards,
+            buttons: [GameResultModal.Button(label: "TRY AGAIN", name: "playAgainBtn", style: .primary),
+                      GameResultModal.Button(label: "EXIT", name: "exitBtn", style: .danger)])
         addChild(panel)
         messageNode = panel
-        panel.run(.fadeIn(withDuration: 0.28))
     }
 
     private func restartGame() {

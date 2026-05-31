@@ -700,8 +700,8 @@ final class MiniGamePickerScene: SKScene {
             let s = CornholeMiniGameScene(size: ppSize)
             s.previousScene = self; s.scaleMode = .resizeFill
             let inv = InventoryManager()
-            // TODO: remove before ship — grants 3 fire bags for testing
-            if inv.counts[.fireBag, default: 0] == 0 { inv.collect(.fireBag, count: 3) }
+            // Menu play uses whatever special bags the player already owns, but awards none
+            // (awardsRewards stays false), per the no-prize-from-menu rule.
             s.availableHoneyBags  = inv.counts[.honeyBag,  default: 0]
             s.availableBombBags   = inv.counts[.bombBag,   default: 0]
             s.availableMagicBags  = inv.counts[.magicBag,  default: 0]
@@ -744,13 +744,10 @@ final class MiniGamePickerScene: SKScene {
             s.previousScene = self; s.scaleMode = .resizeFill
             if HeartsManager.shared.currentHearts <= 0 { HeartsManager.shared.refill() }
             s.startingHearts = HeartsManager.shared.currentHearts
-            s.onComplete = { [weak s] won in
+            s.onComplete = { [weak s] _ in
                 guard let s = s else { return }
                 HeartsManager.shared.set(s.remainingHearts)
-                let key = "goldenLanceEarned_v1"
-                if won && !UserDefaults.standard.bool(forKey: key) {
-                    UserDefaults.standard.set(true, forKey: key)
-                }
+                // No Golden Lance award from the menu — prizes are world/story only.
             }
             push(to: s)
 

@@ -45,6 +45,7 @@ final class BikeDodgeViewController: UIViewController {
         let scene = BikeDodgeScene(size: skView.bounds.size)
         scene.scaleMode = .resizeFill
         scene.bikeDodgeDelegate = self
+        scene.awardsRewards = true   // bike is reached only via story → grants the world unlock
         scene.onComplete = { [weak self] won in self?.bikeResult = won }
         skView.presentScene(scene)
     }

@@ -21,6 +21,9 @@ enum ItemType: String, CaseIterable {
     case goldenBag
     /// Found in world chests. Place from inventory to distract a chasing dog for a few seconds.
     case dogBiscuit
+    /// Won by winning the Beach Ball mini-game. Floats on water — carried into the
+    /// Piranha Bridge mini-game as bonus bags the piranhas cannot sink.
+    case floatingBag
     /// Won by beating Suburban Jousters. Activates an action button that lets the player
     /// interact with high objects in the world (ladders, high ledges, etc.).
     case goldenLance
@@ -36,6 +39,7 @@ enum ItemType: String, CaseIterable {
         case .fireBag:  return SKColor(red: 0.95, green: 0.30, blue: 0.05, alpha: 1.0)
         case .goldenBag:  return SKColor(red: 1.00, green: 0.84, blue: 0.00, alpha: 1.0)
         case .dogBiscuit:  return SKColor(red: 0.80, green: 0.62, blue: 0.36, alpha: 1.0)
+        case .floatingBag: return SKColor(red: 0.35, green: 0.80, blue: 0.95, alpha: 1.0)
         case .goldenLance: return SKColor(red: 1.00, green: 0.84, blue: 0.00, alpha: 1.0)
         }
     }
@@ -51,6 +55,7 @@ enum ItemType: String, CaseIterable {
         case .fireBag:   return "FIRE BAG"
         case .goldenBag:  return "GOLDEN BAG"
         case .dogBiscuit:  return "DOG BISCUIT"
+        case .floatingBag: return "FLOAT BAG"
         case .goldenLance: return "GOLDEN LANCE"
         }
     }
@@ -66,6 +71,7 @@ enum ItemType: String, CaseIterable {
         case .fireBag:   return "F"
         case .goldenBag:  return "★"
         case .dogBiscuit:  return "D"
+        case .floatingBag: return "≈"
         case .goldenLance: return "⚡"
         }
     }

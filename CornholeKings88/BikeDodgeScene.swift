@@ -80,6 +80,8 @@ final class BikeDodgeScene: SKScene {
     weak var bikeDodgeDelegate: BikeDodgeSceneDelegate?
     var previousScene: SKScene?
     var onComplete: ((Bool) -> Void)?
+    /// True only when launched from story mode; gates prize display + the world-map unlock.
+    var awardsRewards: Bool = false
 
     // MARK: - Layout
     private var W: CGFloat = 0, H: CGFloat = 0
@@ -1913,8 +1915,7 @@ final class BikeDodgeScene: SKScene {
         guard gState == .racing else { return }
         gState = .gameOver
         let sub = aiWon ? "AN AI FINISHED FIRST" : "YOU CRASHED OUT"
-        let ov = buildEndOverlay(title: "RACE OVER", subtitle: sub,
-                                 titleColor: SKColor(red:0.95,green:0.25,blue:0.25,alpha:1))
+        let ov = buildEndOverlay(won: false, title: "RACE OVER", subtitle: sub, rewards: [])
         onComplete?(false); addChild(ov); overlayNode = ov
     }
 
@@ -1922,46 +1923,38 @@ final class BikeDodgeScene: SKScene {
         guard gState == .racing else { return }
         gState = .victory
         let bagCount = jumpBagsEarned
-        if bagCount > 0 { InventoryManager().collect(.goldenBag, count: bagCount) }
         let m = Int(elapsed)/60, s = Int(elapsed)%60
         let timeStr = String(format: "TIME  %d:%02d", m, s)
-        let rewardText: String? = bagCount > 0
-            ? "YOU EARNED \(bagCount) GOLDEN BAG\(bagCount == 1 ? "" : "S")!"
-            : nil
-        let ov = buildEndOverlay(title: "1ST PLACE!",
-                                 subtitle: timeStr,
-                                 titleColor: SKColor(red:0.95,green:0.85,blue:0.10,alpha:1),
-                                 reward: rewardText)
+
+        var rewards: [GameResultModal.Reward] = []
+        if awardsRewards {
+            // First-ever win unlocks the backyard world map.
+            ProgressManager.shared.worldUnlocked = true
+            rewards.append(.unlock("WORLD MAP UNLOCKED!"))
+            if bagCount > 0 {
+                InventoryManager().collect(.goldenBag, count: bagCount)
+                rewards.append(GameResultModal.Reward(item: .goldenBag, count: bagCount))
+            }
+        }
+        let ov = buildEndOverlay(won: true, title: "1ST PLACE!", subtitle: timeStr, rewards: rewards)
         onComplete?(true); addChild(ov); overlayNode = ov
     }
 
-    private func buildEndOverlay(title: String, subtitle: String, titleColor: SKColor,
-                                 reward: String? = nil) -> SKNode {
+    private func buildEndOverlay(won: Bool, title: String, subtitle: String,
+                                 rewards: [GameResultModal.Reward]) -> SKNode {
         let ov = buildOverlayContainer()
         let bg = SKShapeNode(rect: CGRect(x:-W/2,y:-H/2,width:W,height:H))
         bg.fillColor = SKColor(white:0,alpha:0.75); bg.strokeColor = .clear; ov.addChild(bg)
-        ov.addChild(label(title, font:"PressStart2P-Regular", size:min(22,W/16), color:titleColor, at:CGPoint(x:0,y:80)))
-        ov.addChild(label(subtitle, font:"PressStart2P-Regular", size:min(9,W/38), color:.white, at:CGPoint(x:0,y:40)))
 
-        if let reward = reward {
-            let rewardLbl = label(reward, font:"PressStart2P-Regular", size:min(8,W/44),
-                                  color:SKColor(red:1.0,green:0.84,blue:0.0,alpha:1), at:CGPoint(x:0,y:10))
-            rewardLbl.run(.repeatForever(.sequence([
-                .fadeAlpha(to:0.55,duration:0.6), .fadeAlpha(to:1.0,duration:0.6)
-            ])))
-            ov.addChild(rewardLbl)
-        }
-
-        let replayY: CGFloat = reward != nil ? -20 : -20
-        let replay = label("▶ PLAY AGAIN", font:"PressStart2P-Regular", size:min(13,W/26), color:.white, at:CGPoint(x:0,y:replayY - 18))
-        replay.name = "replayBtn"
-        replay.run(.repeatForever(.sequence([.scale(to:1.05,duration:0.5),.scale(to:0.95,duration:0.5)])))
-        ov.addChild(replay)
-
-        let menuLbl = label("MAIN MENU", font:"PressStart2P-Regular", size:min(10,W/34),
-                            color:SKColor(white:0.65,alpha:1), at:CGPoint(x:0,y:replayY - 56))
-        menuLbl.name = "menuBtn"
-        ov.addChild(menuLbl)
+        let panel = GameResultModal.make(
+            sceneSize: CGSize(width: W, height: H),
+            won: won,
+            title: won ? "VICTORY!" : "RACE OVER",
+            subtitle: subtitle,
+            rewards: rewards,
+            buttons: [GameResultModal.Button(label: "PLAY AGAIN", name: "replayBtn", style: .primary),
+                      GameResultModal.Button(label: "MAIN MENU", name: "menuBtn", style: .neutral)])
+        ov.addChild(panel)
         return ov
     }
 

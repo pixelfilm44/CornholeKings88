@@ -22,6 +22,10 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
     // Mini-game contract
     var previousScene: SKScene?
     var onComplete: ((Bool) -> Void)?
+    /// True only when launched from the world map / story mode; gates prize display.
+    var awardsRewards: Bool = false
+    /// Fire bags earned this game (awarded on a win); read by GameScene after onComplete.
+    private(set) var fireBagsEarned: Int = 0
 
     // Layout
     private var W: CGFloat = 0
@@ -682,66 +686,23 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
         turnState = .ended
         let won = score >= winThreshold
 
-        let panel = SKNode()
-        panel.zPosition = 900
+        // Reward: 3 fire bags on a win (world / story context only).
+        if awardsRewards && won { fireBagsEarned = 3 }
+        let rewards: [GameResultModal.Reward] = (awardsRewards && won)
+            ? [GameResultModal.Reward(item: .fireBag, count: 3)]
+            : []
+
+        let panel = GameResultModal.make(
+            sceneSize: CGSize(width: W, height: H),
+            won: won,
+            title: won ? "WELL DONE!" : "GAME OVER",
+            subtitle: "SCORE  \(score)",
+            detail: won ? "NICE AIM" : "NEED \(winThreshold) PTS TO WIN",
+            rewards: rewards,
+            buttons: [GameResultModal.Button(label: "PLAY AGAIN", name: "again", style: .primary),
+                      GameResultModal.Button(label: "QUIT", name: "quitGame", style: .danger)])
         camNode.addChild(panel)
         endPanel = panel
-
-        let bg = SKSpriteNode(color: SKColor(red: 0.07, green: 0.04, blue: 0.02, alpha: 0.95),
-                              size: CGSize(width: W * 0.82, height: H * 0.42))
-        bg.zPosition = 0
-        panel.addChild(bg)
-
-        let border = SKShapeNode(rect: CGRect(origin: CGPoint(x: -bg.size.width / 2, y: -bg.size.height / 2),
-                                              size: bg.size))
-        border.strokeColor = SKColor(red: 0.941, green: 0.753, blue: 0.376, alpha: 1)
-        border.lineWidth = 2
-        border.zPosition = 1
-        panel.addChild(border)
-
-        let title = SKLabelNode(fontNamed: "PressStart2P-Regular")
-        title.text = won ? "WELL DONE!" : "GAME OVER"
-        title.fontSize  = 18
-        title.fontColor = won
-            ? SKColor(red: 0.2, green: 0.9, blue: 0.4, alpha: 1)
-            : SKColor(red: 0.9, green: 0.35, blue: 0.3, alpha: 1)
-        title.position  = CGPoint(x: 0, y: bg.size.height * 0.30)
-        title.zPosition = 2
-        panel.addChild(title)
-
-        let scoreText = SKLabelNode(fontNamed: "PressStart2P-Regular")
-        scoreText.text      = "SCORE  \(score)"
-        scoreText.fontSize  = 13
-        scoreText.fontColor = SKColor(red: 0.941, green: 0.753, blue: 0.376, alpha: 1)
-        scoreText.position  = CGPoint(x: 0, y: bg.size.height * 0.07)
-        scoreText.zPosition = 2
-        panel.addChild(scoreText)
-
-        let hint = SKLabelNode(fontNamed: "PressStart2P-Regular")
-        hint.text      = won ? "NICE AIM" : "NEED \(winThreshold) PTS TO WIN"
-        hint.fontSize  = 9
-        hint.fontColor = .white
-        hint.position  = CGPoint(x: 0, y: -bg.size.height * 0.05)
-        hint.zPosition = 2
-        panel.addChild(hint)
-
-        let again = SKLabelNode(fontNamed: "PressStart2P-Regular")
-        again.text      = "PLAY AGAIN"
-        again.fontSize  = 12
-        again.fontColor = SKColor(red: 0.941, green: 0.753, blue: 0.376, alpha: 1)
-        again.position  = CGPoint(x: -bg.size.width * 0.22, y: -bg.size.height * 0.30)
-        again.zPosition = 2
-        again.name      = "again"
-        panel.addChild(again)
-
-        let quit = SKLabelNode(fontNamed: "PressStart2P-Regular")
-        quit.text      = "QUIT"
-        quit.fontSize  = 12
-        quit.fontColor = .white
-        quit.position  = CGPoint(x: bg.size.width * 0.25, y: -bg.size.height * 0.30)
-        quit.zPosition = 2
-        quit.name      = "quitGame"
-        panel.addChild(quit)
     }
 
     private func resetForReplay() {

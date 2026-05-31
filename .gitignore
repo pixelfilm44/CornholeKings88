@@ -27,3 +27,4 @@ Podfile.lock
 # Xcode project user data
 *.xcodeproj/xcuserdata/
 *.xcworkspace/xcuserdata/
+.claude/

@@ -12,6 +12,8 @@ final class SuburbanJoustersScene: SKScene {
     // MARK: - Public contract (mirrors BeeHiveScene)
     var previousScene: SKScene?
     var onComplete: ((Bool) -> Void)?
+    /// True only when launched from the world map / story mode; gates prize display.
+    var awardsRewards: Bool = false
     var startingHearts: Int = 5
     private(set) var remainingHearts: Int = 5
 
@@ -1353,39 +1355,7 @@ final class SuburbanJoustersScene: SKScene {
     }
 
     private func showGameOverPanel(won: Bool) {
-        let panelW = W * 0.82
-        let panelH = H * 0.42
-        let panel = SKNode(); panel.zPosition = 1500
-        let bg = SKSpriteNode(color: SKColor(red: 0.09, green: 0.07, blue: 0.05, alpha: 0.95),
-                              size: CGSize(width: panelW, height: panelH))
-        panel.addChild(bg)
-        let border = SKShapeNode(rectOf: CGSize(width: panelW + 3, height: panelH + 3))
-        border.strokeColor = SKColor(red: 0.60, green: 0.42, blue: 0.15, alpha: 1)
-        border.fillColor = .clear; border.lineWidth = 3
-        panel.addChild(border)
-
-        // Headline: who actually won the event. After 7 rounds the winner is
-        // whoever caused more dismounts (cornholes); the player wins ties.
         let tied = playerCornholes == rivalCornholes
-        let headline: String
-        if tied && won {
-            headline = "DRAW — YOU EDGE IT"          // tiebreaker favors player
-        } else if won {
-            headline = "YOU WIN THE JOUST!"
-        } else {
-            headline = "RIVAL WINS THE JOUST"
-        }
-        let title = makeLabel(headline, size: 14,
-                              color: won ? SKColor(red: 0.30, green: 0.92, blue: 0.30, alpha: 1)
-                                         : SKColor(red: 0.92, green: 0.30, blue: 0.30, alpha: 1))
-        title.position = CGPoint(x: 0, y: panelH * 0.32)
-        panel.addChild(title)
-
-        // Explicit final tally — dismounts (cornholes) for each rider.
-        let tally = makeLabel("DISMOUNTS:  YOU \(playerCornholes)   —   \(rivalCornholes) RIVAL",
-                              size: 9, color: SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 1))
-        tally.position = CGPoint(x: 0, y: panelH * 0.18)
-        panel.addChild(tally)
 
         // One-line reason / flavor that depends on how the match ended.
         let reason: String
@@ -1396,33 +1366,25 @@ final class SuburbanJoustersScene: SKScene {
         } else if remainingHearts <= 0 {
             reason = "OUT OF HEARTS"
         } else {
-            // Ran out the 7-round clock — decided on dismount count.
             reason = "AFTER \(maxRounds) ROUNDS — MOST DISMOUNTS WINS"
         }
-        let sub = makeLabel(reason, size: 7, color: SKColor(white: 0.78, alpha: 1))
-        sub.position = CGPoint(x: 0, y: panelH * 0.06)
-        panel.addChild(sub)
 
-        let btnW: CGFloat = panelW - 60, btnH: CGFloat = 36
-        let playAgain = SKShapeNode(rect: CGRect(x: -btnW / 2, y: -btnH / 2, width: btnW, height: btnH), cornerRadius: 6)
-        playAgain.fillColor = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 0.25)
-        playAgain.strokeColor = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 0.9)
-        playAgain.lineWidth = 1.5; playAgain.position = CGPoint(x: 0, y: -panelH * 0.05)
-        playAgain.name = "playAgainBtn"
-        panel.addChild(playAgain)
-        let pLbl = makeLabel("REMATCH", size: 11, color: SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 1))
-        pLbl.position = playAgain.position; pLbl.name = "playAgainBtn"
-        panel.addChild(pLbl)
+        // Reward: the Golden Lance on the first jousting win.
+        let rewards: [GameResultModal.Reward] = (awardsRewards && won && !ProgressManager.shared.hasLance)
+            ? [GameResultModal.Reward(item: .goldenLance, count: 1, text: "EARNED THE GOLDEN LANCE!")]
+            : []
 
-        let exit = SKShapeNode(rect: CGRect(x: -btnW / 2, y: -btnH / 2, width: btnW, height: btnH), cornerRadius: 6)
-        exit.strokeColor = SKColor.white.withAlphaComponent(0.5)
-        exit.fillColor = .clear; exit.lineWidth = 1
-        exit.position = CGPoint(x: 0, y: -panelH * 0.28); exit.name = "exitBtn"
-        panel.addChild(exit)
-        let eLbl = makeLabel("QUIT", size: 10, color: .white)
-        eLbl.position = exit.position; eLbl.name = "exitBtn"
-        panel.addChild(eLbl)
-
+        let headline = tied && won ? "DRAW — YOU EDGE IT"
+                                   : (won ? "VICTORY!" : "DEFEAT")
+        let panel = GameResultModal.make(
+            sceneSize: CGSize(width: W, height: H),
+            won: won,
+            title: headline,
+            subtitle: "DISMOUNTS:  YOU \(playerCornholes)  -  \(rivalCornholes) RIVAL",
+            detail: reason,
+            rewards: rewards,
+            buttons: [GameResultModal.Button(label: "REMATCH", name: "playAgainBtn", style: .primary),
+                      GameResultModal.Button(label: "QUIT", name: "exitBtn", style: .danger)])
         addChild(panel)
         pauseOverlayNode = panel
     }

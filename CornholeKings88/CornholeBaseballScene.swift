@@ -37,6 +37,8 @@ final class CornholeBaseballScene: SKScene {
     // MARK: - Public API
     var previousScene: SKScene?
     var onComplete: ((Bool) -> Void)?
+    /// True only when launched from the world map / story mode; gates prize display.
+    var awardsRewards: Bool = false
     /// AI style injected by story mode; defaults to standard for free-play.
     var aiDifficulty: BaseballAIDifficulty = .standard
 
@@ -1483,58 +1485,26 @@ final class CornholeBaseballScene: SKScene {
         let userFt    = Int(uAvg * distScale)
         let aiFt      = Int(aAvg * distScale)
 
-        let panel  = SKNode(); panel.zPosition = 1000
-        let panelW = size.width  * 0.82
-        let panelH = size.height * 0.54
+        // Reward: a bat is earned when beating Tom (greatFielder) completes both
+        // baseball wins — Jen already beaten. The bat unlocks Suburban Jousters.
+        var rewards: [GameResultModal.Reward] = []
+        if awardsRewards && playerWon
+            && aiDifficulty == .greatFielder
+            && CornholeStatsManager.shared.defeatedJenBaseball {
+            rewards = [.unlock("EARNED A BAT!"), .unlock("JOUSTERS UNLOCKED")]
+        }
 
-        let back = SKSpriteNode(color: SKColor(red: 0.08, green: 0.06, blue: 0.04, alpha: 0.95),
-                                size: CGSize(width: panelW, height: panelH))
-        panel.addChild(back)
-
-        let border = SKShapeNode(rectOf: CGSize(width: panelW + 3, height: panelH + 3))
-        border.strokeColor = SKColor(red: 0.60, green: 0.42, blue: 0.14, alpha: 1)
-        border.fillColor   = .clear; border.lineWidth = 3
-        panel.addChild(border)
-
-        let fs = max(8, size.width * 0.056)
-
-        let titleText  = tied ? "IT'S A TIE!" : (playerWon ? "YOU WIN!" : "BOT WINS!")
-        let titleColor: SKColor = tied
-            ? SKColor(red: 1.0, green: 0.85, blue: 0.28, alpha: 1)
-            : (playerWon ? SKColor(red: 0.90, green: 0.42, blue: 0.42, alpha: 1)
-                         : SKColor(red: 0.40, green: 0.60, blue: 0.90, alpha: 1))
-
-        let title = makeLabel(titleText, size: fs * 1.1, color: titleColor)
-        title.position = CGPoint(x: 0, y: panelH * 0.30); panel.addChild(title)
-
-        let youLbl = makeLabel("YOU AVG  \(userFt)ft", size: 10,
-                               color: SKColor(red: 0.90, green: 0.42, blue: 0.42, alpha: 1))
-        youLbl.position = CGPoint(x: 0, y: panelH * 0.10); panel.addChild(youLbl)
-
-        let botLbl = makeLabel("BOT AVG  \(aiFt)ft", size: 10,
-                               color: SKColor(red: 0.40, green: 0.60, blue: 0.90, alpha: 1))
-        botLbl.position = CGPoint(x: 0, y: -panelH * 0.06); panel.addChild(botLbl)
-
-        let subLbl = makeLabel("\(totalCycles) CYCLES · AVG DISTANCE", size: max(4, fs * 0.44),
-                               color: SKColor(white: 0.42, alpha: 1))
-        subLbl.position = CGPoint(x: 0, y: -panelH * 0.18); panel.addChild(subLbl)
-
-        let playBtn = makeButton("PLAY AGAIN", fg: .white,
-                                 bg: SKColor(red: 0.18, green: 0.44, blue: 0.18, alpha: 1),
-                                 size: CGSize(width: panelW * 0.60, height: fs * 1.85))
-        playBtn.position = CGPoint(x: 0, y: -panelH * 0.30); playBtn.name = "playAgainBtn"
-        panel.addChild(playBtn)
-
-        let exitBtn = makeButton("EXIT", fg: .white,
-                                 bg: SKColor(red: 0.42, green: 0.10, blue: 0.10, alpha: 1),
-                                 size: CGSize(width: panelW * 0.38, height: fs * 1.85))
-        exitBtn.position = CGPoint(x: 0, y: -panelH * 0.44); exitBtn.name = "exitBtn"
-        panel.addChild(exitBtn)
-
+        let panel = GameResultModal.make(
+            sceneSize: size,
+            won: playerWon && !tied,
+            title: tied ? "IT'S A TIE!" : (playerWon ? "VICTORY!" : "DEFEAT"),
+            subtitle: "YOU \(userFt)ft  -  \(aiFt)ft BOT",
+            detail: "\(totalCycles) CYCLES · AVG DISTANCE",
+            rewards: rewards,
+            buttons: [GameResultModal.Button(label: "PLAY AGAIN", name: "playAgainBtn", style: .primary),
+                      GameResultModal.Button(label: "EXIT", name: "exitBtn", style: .danger)])
         addChild(panel)
         gameOverPanel = panel
-        panel.alpha   = 0
-        panel.run(.fadeIn(withDuration: 0.30))
 
         onComplete?(playerWon)
     }

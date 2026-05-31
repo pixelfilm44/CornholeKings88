@@ -498,16 +498,29 @@ final class StoryModuleScene: SKScene {
         switch type {
 
         case .cornholeVs(let opponent):
+            let inv = InventoryManager()
             let s = CornholeMiniGameScene(size: ppSize)
             s.previousScene       = self
             s.scaleMode           = .resizeFill
             s.preSelectedOpponent = opponent
-            s.availableHoneyBags  = InventoryManager().counts[.honeyBag,  default: 0]
-            s.availableBombBags   = InventoryManager().counts[.bombBag,   default: 0]
-            s.availableMagicBags  = InventoryManager().counts[.magicBag,  default: 0]
-            s.availableFireBags   = InventoryManager().counts[.fireBag,   default: 0]
-            s.availableGoldenBags = InventoryManager().counts[.goldenBag, default: 0]
-            s.onComplete          = handleResult
+            s.awardsRewards       = true   // story mode grants prizes
+            s.availableHoneyBags  = inv.counts[.honeyBag,  default: 0]
+            s.availableBombBags   = inv.counts[.bombBag,   default: 0]
+            s.availableMagicBags  = inv.counts[.magicBag,  default: 0]
+            s.availableFireBags   = inv.counts[.fireBag,   default: 0]
+            s.availableGoldenBags = inv.counts[.goldenBag, default: 0]
+            s.onComplete = { [weak s] won in
+                if let used = s?.honeyBagsUsed,  used > 0 { inv.consume(.honeyBag,  count: used) }
+                if let used = s?.bombBagsUsed,   used > 0 { inv.consume(.bombBag,   count: used) }
+                if let used = s?.magicBagsUsed,  used > 0 { inv.consume(.magicBag,  count: used) }
+                if let used = s?.fireBagsUsed,   used > 0 { inv.consume(.fireBag,   count: used) }
+                if let used = s?.goldenBagsUsed, used > 0 { inv.consume(.goldenBag, count: used) }
+                if let e = s?.bombBagsEarned,  e > 0 { inv.collect(.bombBag,  count: e) }
+                if let e = s?.magicBagsEarned, e > 0 { inv.collect(.magicBag, count: e) }
+                if let e = s?.fireBagsEarned,  e > 0 { inv.collect(.fireBag,  count: e) }
+                if let e = s?.coinsEarned,     e > 0 { inv.collect(.coin,     count: e) }
+                handleResult(won)
+            }
             push(to: s)
 
         case .baseballVs(let difficulty):
@@ -515,15 +528,28 @@ final class StoryModuleScene: SKScene {
             s.previousScene  = self
             s.scaleMode      = .resizeFill
             s.aiDifficulty   = difficulty
-            s.onComplete     = handleResult
+            s.awardsRewards  = true
+            s.onComplete = { won in
+                // Record baseball-defeat stats so the bat / jousters unlock progresses.
+                if won {
+                    if difficulty == .powerHitter { CornholeStatsManager.shared.defeatedJenBaseball = true }
+                    if difficulty == .greatFielder { CornholeStatsManager.shared.defeatedTomBaseball = true }
+                }
+                handleResult(won)
+            }
             push(to: s)
 
         case .beehive:
+            let inv = InventoryManager()
             let s = BeeHiveScene(size: ppSize)
             s.previousScene  = self
             s.scaleMode      = .resizeFill
             s.startingHearts = 3
-            s.onComplete     = handleResult
+            s.awardsRewards  = true
+            s.onComplete = { won in
+                if won { inv.collect(.honeyBag, count: 3) }
+                handleResult(won)
+            }
             push(to: s)
 
         case .bike:

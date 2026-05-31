@@ -11,6 +11,13 @@ final class BridgePiranhaScene: SKScene {
     // MARK: - Public API
     var previousScene: SKScene?
     var onComplete: ((Bool) -> Void)?
+    /// True only when launched from the world map / story mode; gates prize display.
+    var awardsRewards: Bool = false
+    /// Floating bags carried in from a Beach Ball win — added on top of the base 12 as bonus throws.
+    var availableFloatingBags: Int = 0
+    /// Floating bags actually thrown (used beyond the base 12); GameScene consumes these.
+    private(set) var floatingBagsUsed: Int = 0
+    private let baseBags = 12
     private var closeUIButton: UIButton? = nil  // unused; replaced by SK closeBtn
 
     // MARK: - Layout
@@ -72,7 +79,7 @@ final class BridgePiranhaScene: SKScene {
     private var flyingBag: FlyingBag?
 
     // MARK: - Game state
-    private var bagsRemaining = 12
+    private lazy var bagsRemaining = baseBags + availableFloatingBags
     private var slotFilled    = Array(repeating: false, count: 8)
     private var slotBagNodes  = Array(repeating: nil as SKSpriteNode?, count: 8)
     private var gameOver      = false
@@ -340,7 +347,7 @@ final class BridgePiranhaScene: SKScene {
         addChild(help)
 
         // Zone B (center): BAGS and BRIDGE stats
-        let bagsLbl = makeLabel(text: "BAGS: 12", size: 9, color: dsGold)
+        let bagsLbl = makeLabel(text: "BAGS: \(bagsRemaining)", size: 9, color: dsGold)
         bagsLbl.horizontalAlignmentMode = .right
         bagsLbl.position  = CGPoint(x: -8, y: topY)
         bagsLbl.zPosition = 502
@@ -839,62 +846,18 @@ final class BridgePiranhaScene: SKScene {
     }
 
     private func showEndPanel(won: Bool) {
-        let panelW = W * 0.82
-        let panelH = H * 0.40
+        let rewards: [GameResultModal.Reward] = (awardsRewards && won)
+            ? [.unlock("YOU EARNED A BRIDGE!")]
+            : []
 
-        let panel = SKNode()
-        panel.zPosition = 600
+        let panel = GameResultModal.make(
+            sceneSize: CGSize(width: W, height: H),
+            won: won,
+            title: won ? "BRIDGE BUILT!" : "WASHED OUT!",
+            subtitle: won ? "YOU CROSSED THE RIVER!" : "BAGS GONE, BRIDGE BROKEN",
+            rewards: rewards,
+            buttons: [GameResultModal.Button(label: "CONTINUE", name: "continueBtn", style: .primary)])
         addChild(panel)
-
-        let bg = SKSpriteNode(
-            color: SKColor(red: 0.06, green: 0.04, blue: 0.02, alpha: 0.94),
-            size: CGSize(width: panelW, height: panelH))
-        bg.zPosition = 0
-        panel.addChild(bg)
-
-        let bdr = SKShapeNode(rect: CGRect(
-            x: -panelW / 2, y: -panelH / 2, width: panelW, height: panelH))
-        bdr.strokeColor = SKColor(red: 0.50, green: 0.35, blue: 0.15, alpha: 0.80)
-        bdr.fillColor   = .clear
-        bdr.lineWidth   = 1.5
-        bdr.zPosition   = 1
-        panel.addChild(bdr)
-
-        let titleText  = won ? "BRIDGE BUILT!" : "WASHED OUT!"
-        let titleColor: SKColor = won
-            ? SKColor(red: 0.35, green: 1.0, blue: 0.45, alpha: 1)
-            : SKColor(red: 1.0,  green: 0.25, blue: 0.25, alpha: 1)
-        let title = makeLabel(text: titleText, size: min(13, panelW / 18), color: titleColor)
-        title.position  = CGPoint(x: 0, y: panelH * 0.22)
-        title.zPosition = 2
-        panel.addChild(title)
-
-        let subText = won ? "YOU CROSSED THE RIVER!" : "BAGS GONE, BRIDGE BROKEN"
-        let sub = makeLabel(text: subText, size: min(7, panelW / 36),
-                            color: SKColor(white: 0.78, alpha: 1))
-        sub.position  = CGPoint(x: 0, y: panelH * 0.05)
-        sub.zPosition = 2
-        panel.addChild(sub)
-
-        let btnBg = SKSpriteNode(
-            color: SKColor(red: 0.25, green: 0.18, blue: 0.08, alpha: 1),
-            size: CGSize(width: 128, height: 38))
-        btnBg.name      = "continueBtn"
-        btnBg.position  = CGPoint(x: 0, y: -panelH * 0.24)
-        btnBg.zPosition = 2
-        panel.addChild(btnBg)
-
-        let btnLbl = makeLabel(
-            text: "CONTINUE",
-            size: min(9, panelW / 30),
-            color: SKColor(red: 0.90, green: 0.72, blue: 0.30, alpha: 1))
-        btnLbl.name      = "continueBtn"
-        btnLbl.position  = CGPoint(x: 0, y: -panelH * 0.24)
-        btnLbl.zPosition = 3
-        panel.addChild(btnLbl)
-
-        panel.alpha = 0
-        panel.run(.fadeIn(withDuration: 0.45))
 
         playSoundIfExists(won ? "game_win.wav" : "game_lose.wav")
     }
@@ -1070,6 +1033,9 @@ final class BridgePiranhaScene: SKScene {
     // MARK: - Dismiss
 
     private func dismissScene(won: Bool) {
+        // Base 12 bags are free; anything thrown beyond that consumed floating bags.
+        let totalUsed = (baseBags + availableFloatingBags) - bagsRemaining
+        floatingBagsUsed = min(availableFloatingBags, max(0, totalUsed - baseBags))
         let t = SKTransition.push(with: .down, duration: 0.35)
         t.pausesOutgoingScene = false
         if let prev = previousScene { view?.presentScene(prev, transition: t) }

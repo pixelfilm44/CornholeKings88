@@ -1393,6 +1393,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         mini.scaleMode              = self.scaleMode
         mini.previousScene          = self
         mini.preSelectedOpponent    = preSelectedOpponent
+        mini.awardsRewards          = true   // world / story context grants prizes
         mini.availableHoneyBags  = inventory.counts[.honeyBag,  default: 0]
         mini.availableBombBags   = inventory.counts[.bombBag,   default: 0]
         mini.availableMagicBags  = inventory.counts[.magicBag,  default: 0]
@@ -1407,6 +1408,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
             if let earned = mini?.bombBagsEarned,  earned > 0 { self?.inventory.collect(.bombBag,  count: earned) }
             if let earned = mini?.magicBagsEarned, earned > 0 { self?.inventory.collect(.magicBag, count: earned) }
             if let earned = mini?.fireBagsEarned,  earned > 0 { self?.inventory.collect(.fireBag,  count: earned) }
+            if let earned = mini?.coinsEarned,     earned > 0 { self?.inventory.collect(.coin,     count: earned) }
             if CornholeStatsManager.shared.baseballUnlocked { self?.unlockBaseball() }
             self?.isTransitioning = false
         }
@@ -1427,6 +1429,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         let baseball = CornholeBaseballScene(size: self.size)
         baseball.scaleMode     = self.scaleMode
         baseball.previousScene = self
+        baseball.awardsRewards = true
 
         // Sequence: face Jen (powerHitter) first, then Tom (greatFielder).
         // Once both are beaten the joust gate opens.
@@ -1464,6 +1467,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         let bee = BeeHiveScene(size: self.size)
         bee.scaleMode      = self.scaleMode
         bee.previousScene  = self
+        bee.awardsRewards  = true
         bee.startingHearts = playerHearts
         bee.onComplete = { [weak self, weak bee] playerWon in
             guard let self, let bee else { return }
@@ -1490,12 +1494,17 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         let beach = BeachBallCornholeScene(size: self.size)
         beach.scaleMode     = self.scaleMode
         beach.previousScene = self
+        beach.awardsRewards = true
         beach.onComplete = { [weak self] won in
             guard let self else { return }
             self.isTransitioning = false
-            if won && !UserDefaults.standard.bool(forKey: self.beachBallBeatenKey) {
-                UserDefaults.standard.set(true, forKey: self.beachBallBeatenKey)
-                self.showHintBanner("You won a bunch of\nfloating bean bags.\nHave fun.")
+            if won {
+                // 8 floating bags every win — usable as bonus bags in Piranha Bridge.
+                self.inventory.collect(.floatingBag, count: 8)
+                if !UserDefaults.standard.bool(forKey: self.beachBallBeatenKey) {
+                    UserDefaults.standard.set(true, forKey: self.beachBallBeatenKey)
+                    self.showHintBanner("You won 8 floating\nbean bags. Use them on\nthe piranha bridge!")
+                }
             }
         }
 
@@ -1514,8 +1523,13 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         let piranha = BridgePiranhaScene(size: self.size)
         piranha.scaleMode     = self.scaleMode
         piranha.previousScene = self
-        piranha.onComplete = { [weak self] won in
+        piranha.awardsRewards = true
+        piranha.availableFloatingBags = inventory.counts[.floatingBag, default: 0]
+        piranha.onComplete = { [weak self, weak piranha] won in
             guard let self else { return }
+            if let used = piranha?.floatingBagsUsed, used > 0 {
+                self.inventory.consume(.floatingBag, count: used)
+            }
             self.isTransitioning = false
             if won { self.unlockBridge() }
         }
@@ -1536,6 +1550,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         let joust = SuburbanJoustersScene(size: self.size)
         joust.scaleMode     = self.scaleMode
         joust.previousScene = self
+        joust.awardsRewards = true
         joust.startingHearts = HeartsManager.shared.currentHearts
         joust.onComplete = { [weak self, weak joust] won in
             guard let self, let joust else { return }
@@ -1563,12 +1578,16 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         let well = WellFlingerScene(size: self.size)
         well.scaleMode     = self.scaleMode
         well.previousScene = self
+        well.awardsRewards = true
         well.availableBags = inventory.counts[.bag, default: 0]
         well.onComplete = { [weak self, weak well] _ in
             guard let self else { return }
             if let used = well?.bagsUsed, used > 0 {
                 let have = self.inventory.counts[.bag, default: 0]
                 self.inventory.consume(.bag, count: min(used, have))
+            }
+            if let earned = well?.fireBagsEarned, earned > 0 {
+                self.inventory.collect(.fireBag, count: earned)
             }
             self.isTransitioning = false
         }

@@ -11,6 +11,8 @@ final class BeachBallCornholeScene: SKScene {
     // MARK: - Public API
     var previousScene: SKScene?
     var onComplete: ((Bool) -> Void)?
+    /// True only when launched from the world map / story mode; gates prize display.
+    var awardsRewards: Bool = false
     private var closeUIButton: UIButton? = nil  // unused; replaced by SK closeBtn
 
     // MARK: - Types
@@ -1039,12 +1041,17 @@ final class BeachBallCornholeScene: SKScene {
 
     private func checkDolphinCollision() {
         guard dolphinActive, !dolphinJumping else { return }
+        // Balls fly in an arc and are rendered at a visual height (by + bz * bzVisualScale),
+        // so compare the ball's ON-SCREEN position to the dolphin head, not its ground
+        // position. Use a generous radius (nose + ball) so hitting NEAR the dolphin counts.
+        let ballRadius: CGFloat = 19.0
+        let hitRadius = dolphinNoseRadius + ballRadius
         for ball in activeBalls {
             if ball.hasHitSurface || ball.hasScored { continue }
-            if ball.bz > 24 { continue }
+            let visualY = ball.by + ball.bz * bzVisualScale
             let dx = ball.bx - dolphinNosePos.x
-            let dy = ball.by - dolphinNosePos.y
-            if dx * dx + dy * dy <= dolphinNoseRadius * dolphinNoseRadius {
+            let dy = visualY - dolphinNosePos.y
+            if dx * dx + dy * dy <= hitRadius * hitRadius {
                 triggerDolphinJump(forOwner: ball.owner, hitBall: ball)
                 return
             }
@@ -1515,64 +1522,23 @@ final class BeachBallCornholeScene: SKScene {
     private func showGameOverPanel() {
         messageNode?.removeFromParent()
 
-        let panel   = SKNode(); panel.zPosition = 1000
-        let panelW  = W * 0.84
-        let panelH  = H * 0.52
-
-        let backing = SKSpriteNode(
-            color: SKColor(red: 0.03, green: 0.08, blue: 0.18, alpha: 0.96),
-            size: CGSize(width: panelW, height: panelH))
-        panel.addChild(backing)
-
         let tied      = playerScore == aiScore
         let playerWon = playerScore > aiScore
-        let headerTxt: String
-        let headerCol: SKColor
-        if tied {
-            headerTxt = "TIE GAME"
-            headerCol = SKColor(red: 0.90, green: 0.78, blue: 0.28, alpha: 1)
-        } else if playerWon {
-            headerTxt = "YOU WIN!"
-            headerCol = SKColor(red: 0.18, green: 0.88, blue: 0.44, alpha: 1)
-        } else {
-            headerTxt = "BOT WINS!"
-            headerCol = SKColor(red: 0.96, green: 0.24, blue: 0.16, alpha: 1)
-        }
 
-        let header = makeLabel(text: headerTxt, size: min(17, panelW / 14), color: headerCol)
-        header.position = CGPoint(x: 0, y: panelH * 0.28)
-        panel.addChild(header)
+        let rewards: [GameResultModal.Reward] = (awardsRewards && playerWon)
+            ? [GameResultModal.Reward(item: .floatingBag, count: 8)]
+            : []
 
-        let scoreLbl = makeLabel(text: "\(playerScore)  —  \(aiScore)",
-                                  size: min(13, panelW / 18),
-                                  color: SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 1))
-        scoreLbl.position = CGPoint(x: 0, y: panelH * 0.02)
-        panel.addChild(scoreLbl)
-
-        let sub = makeLabel(text: "YOU   BOT", size: min(6, panelW / 38),
-                            color: SKColor(white: 0.50, alpha: 1))
-        sub.position = CGPoint(x: 0, y: -panelH * 0.10)
-        panel.addChild(sub)
-
-        panel.addChild(makeButtonNode(text: "PLAY AGAIN", name: "playAgainBtn",
-                                       at: CGPoint(x: 0, y: -panelH * 0.28), width: panelW * 0.74))
-        panel.addChild(makeButtonNode(text: "EXIT", name: "exitBtn",
-                                       at: CGPoint(x: 0, y: -panelH * 0.42), width: panelW * 0.74))
-
+        let panel = GameResultModal.make(
+            sceneSize: CGSize(width: W, height: H),
+            won: playerWon,
+            title: tied ? "TIE GAME" : (playerWon ? "VICTORY!" : "DEFEAT"),
+            subtitle: "\(playerScore)  -  \(aiScore)",
+            detail: "YOU   BOT",
+            rewards: rewards,
+            buttons: [GameResultModal.Button(label: "PLAY AGAIN", name: "playAgainBtn", style: .primary),
+                      GameResultModal.Button(label: "EXIT", name: "exitBtn", style: .danger)])
         addChild(panel); messageNode = panel
-    }
-
-    private func makeButtonNode(text: String, name: String,
-                                 at pos: CGPoint, width: CGFloat) -> SKNode {
-        let container = SKNode(); container.position = pos; container.name = name
-        let bg = SKSpriteNode(
-            color: SKColor(red: 0.10, green: 0.07, blue: 0.04, alpha: 0.92),
-            size: CGSize(width: width, height: 30))
-        bg.name = name; container.addChild(bg)
-        let lbl = makeLabel(text: text, size: min(9, width / 16),
-                            color: SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 1))
-        lbl.name = name; container.addChild(lbl)
-        return container
     }
 
     // MARK: - Restart

@@ -11,6 +11,11 @@ final class CornholeMiniGameScene: SKScene {
     // MARK: - Public
     var previousScene: SKScene?
     var onComplete: ((Bool) -> Void)?
+    /// True only when launched from the world map / story mode. The mini-game menu leaves
+    /// this false so no prize lines are shown and no items are awarded.
+    var awardsRewards: Bool = false
+    /// Coins earned this match (awarded on a Billy win); read by GameScene after onComplete.
+    private(set) var coinsEarned: Int = 0
     private var closeUIButton: UIButton? = nil  // unused; SK close button replaces UIKit
     /// Honey bags from inventory injected by GameScene before presenting.
     var availableHoneyBags: Int = 0
@@ -2233,85 +2238,47 @@ final class CornholeMiniGameScene: SKScene {
     private func showGameOverPanel(playerWon: Bool) {
         messageNode?.removeFromParent()
 
-        let panel = SKNode()
-        panel.zPosition = 1000
-
-        let panelW = size.width * 0.82
-        let panelH = size.height * 0.52
-        let backing = SKSpriteNode(color: SKColor(red: 0.09, green: 0.07, blue: 0.05, alpha: 0.94),
-                                   size: CGSize(width: panelW, height: panelH))
-        panel.addChild(backing)
-
-        // Pixel-art border
-        let border = SKShapeNode(rectOf: CGSize(width: panelW + 3, height: panelH + 3))
-        border.strokeColor = SKColor(red: 0.60, green: 0.42, blue: 0.15, alpha: 1)
-        border.fillColor   = .clear
-        border.lineWidth   = 3
-        panel.addChild(border)
-
-        let fs = max(6, size.width * 0.050)
-
-        // Result title
-        let title = makeLabel(
-            text: playerWon ? "YOU WIN!" : "\(opponentName) WINS!",
-            size: fs * 0.7,
-            color: playerWon
-                ? SKColor(red: 0.90, green: 0.42, blue: 0.42, alpha: 1)
-                : SKColor(red: 0.40, green: 0.60, blue: 0.90, alpha: 1))
-        title.position = CGPoint(x: 0, y: panelH * 0.28)
-        panel.addChild(title)
-
-        // Final score
-        let scoreLbl = makeLabel(
-            text: "YOU \(playerScore)  —  \(aiScore) \(opponentName)",
-            size: fs * 0.60,
-            color: SKColor(white: 0.80, alpha: 1))
-        scoreLbl.position = CGPoint(x: 0, y: panelH * 0.06)
-        panel.addChild(scoreLbl)
-
-        // Win target reminder
-        let targetLbl = makeLabel(
-            text: "FIRST TO \(winScore)",
-            size: max(5, fs * 0.60),
-            color: SKColor(white: 0.50, alpha: 1))
-        targetLbl.position = CGPoint(x: 0, y: -panelH * 0.08)
-        panel.addChild(targetLbl)
-
-        // Spirit loss hint
+        // Spirit loss hint (steers the player toward special bags).
+        var hint: (text: String, color: SKColor)? = nil
         if !playerWon && selectedOpponent == .spirit {
-            let hintLbl = makeLabel(
-                text: "SPECIAL BAGS MAY HELP\nAGAINST SUCH A FOE...",
-                size: max(5, fs * 0.52),
-                color: SKColor(red: 0.12, green: 0.82, blue: 0.35, alpha: 1))
-            hintLbl.numberOfLines = 2
-            hintLbl.position = CGPoint(x: 0, y: -panelH * 0.18)
-            panel.addChild(hintLbl)
+            hint = ("SPECIAL BAGS MAY HELP\nAGAINST SUCH A FOE...",
+                    SKColor(red: 0.12, green: 0.82, blue: 0.35, alpha: 1))
         }
 
-        // Play Again
-        let playBtn = makeButton(label: "PLAY AGAIN",
-                                 fg: .white,
-                                 bg: SKColor(red: 0.18, green: 0.45, blue: 0.18, alpha: 1),
-                                 size: CGSize(width: panelW * 0.60, height: fs * 1.8))
-        playBtn.position = CGPoint(x: 0, y: -panelH * 0.30)
-        playBtn.name = "playAgainBtn"
-        panel.addChild(playBtn)
+        // Prize lines — only in reward context (world / story), never from the menu.
+        var rewards: [GameResultModal.Reward] = []
+        if awardsRewards && playerWon {
+            switch selectedOpponent {
+            case .billy:
+                rewards = [GameResultModal.Reward(item: .coin, count: 10),
+                           GameResultModal.Reward(item: .bombBag, count: 3)]
+            case .bully:
+                rewards = [GameResultModal.Reward(item: .coin, count: 10)]
+            case .spirit:
+                rewards = [GameResultModal.Reward(item: .magicBag, count: 6)]
+            case .tom, .jenny:
+                // This win completes the baseball unlock (both Tom & Jenny beaten).
+                let beatBoth = (selectedOpponent == .tom && CornholeStatsManager.shared.defeatedJenny)
+                            || (selectedOpponent == .jenny && CornholeStatsManager.shared.defeatedTom)
+                if beatBoth {
+                    rewards = [.unlock("EARNED A BASEBALL!"),
+                               .unlock("BASEBALL UNLOCKED")]
+                }
+            }
+        }
 
-        // Exit
-        let exitBtn = makeButton(label: "EXIT",
-                                 fg: .white,
-                                 bg: SKColor(red: 0.42, green: 0.10, blue: 0.10, alpha: 1),
-                                 size: CGSize(width: panelW * 0.40, height: fs * 1.8))
-        exitBtn.position = CGPoint(x: 0, y: -panelH * 0.43)
-        exitBtn.name = "exitBtn"
-        panel.addChild(exitBtn)
-
+        let panel = GameResultModal.make(
+            sceneSize: size,
+            won: playerWon,
+            title: playerWon ? "VICTORY!" : "DEFEAT",
+            subtitle: "YOU \(playerScore)  -  \(aiScore) \(opponentName)",
+            detail: "FIRST TO \(winScore)",
+            hint: hint,
+            rewards: rewards,
+            buttons: [GameResultModal.Button(label: "PLAY AGAIN", name: "playAgainBtn", style: .primary),
+                      GameResultModal.Button(label: "EXIT", name: "exitBtn", style: .danger)])
         addChild(panel)
         messageNode = panel
-
-        // Fade in
-        panel.alpha = 0
-        panel.run(SKAction.fadeIn(withDuration: 0.30))
     }
 
     private func showRoundResultMessage(roundPlayer: Int, roundAI: Int) {
@@ -3428,8 +3395,9 @@ final class CornholeMiniGameScene: SKScene {
         else         { CornholeStatsManager.shared.recordLoss() }
         if playerWon && selectedOpponent == .tom    { CornholeStatsManager.shared.recordDefeatedTom() }
         if playerWon && selectedOpponent == .jenny  { CornholeStatsManager.shared.recordDefeatedJenny() }
-        if playerWon && selectedOpponent == .billy  { bombBagsEarned  = 3 }
-        if playerWon && selectedOpponent == .spirit { magicBagsEarned = 3 }
+        if awardsRewards && playerWon && selectedOpponent == .billy  { bombBagsEarned  = 3; coinsEarned = 10 }
+        if awardsRewards && playerWon && selectedOpponent == .bully  { coinsEarned = 10 }
+        if awardsRewards && playerWon && selectedOpponent == .spirit { magicBagsEarned = 6 }
         onComplete?(playerWon)
         guard let view = self.view, let prev = previousScene else { return }
         let transition = SKTransition.push(with: .down, duration: 0.38)
