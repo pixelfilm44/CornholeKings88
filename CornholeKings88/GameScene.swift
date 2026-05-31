@@ -89,14 +89,14 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     // Enemy dogs
     private var dogs: [DogNode] = []
     private var dogSpawnTimer: TimeInterval = 0
-    private var nextDogSpawnInterval: TimeInterval = 7.0
-    private let maxDogs = 3
+    private var nextDogSpawnInterval: TimeInterval = 12.0
+    private let maxDogs = 1
 
     // Roaming bullies (Billy's gang) — spawn after p1_tom_win
     private var bullies: [BullyNode] = []
     private var bullySpawnTimer: TimeInterval = 0
-    private var nextBullySpawnInterval: TimeInterval = 1.5  // TESTING: fast first spawn
-    private let maxBullies = 2
+    private var nextBullySpawnInterval: TimeInterval = 12.0
+    private let maxBullies = 1
     /// Seconds remaining of post-victory peace; while > 0 no bully spawns and
     /// no contact with a roaming bully triggers a match.
     private var bullyCooldownRemaining: TimeInterval = 0
@@ -2260,7 +2260,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         if dogSpawnTimer >= nextDogSpawnInterval && dogs.count < maxDogs
             && StoryManager.shared.hasFlag(.dogsEnabled) {
             dogSpawnTimer = 0
-            nextDogSpawnInterval = TimeInterval.random(in: 6...12)
+            nextDogSpawnInterval = TimeInterval.random(in: 14...24)
             spawnDog()
         }
         // Attract non-distracted dogs toward any unclaimed biscuits within sniff range.
@@ -2399,7 +2399,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
             // TODO: re-enable story gate — `StoryManager.shared.hasFlag(.bulliesEnabled)` —
             // once bully testing is done. Currently always-on for testing.
             bullySpawnTimer = 0
-            nextBullySpawnInterval = TimeInterval.random(in: 9...18)
+            nextBullySpawnInterval = TimeInterval.random(in: 18...30)
             spawnBully()
         }
 
