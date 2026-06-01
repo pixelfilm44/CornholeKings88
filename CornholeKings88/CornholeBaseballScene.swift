@@ -86,8 +86,9 @@ final class CornholeBaseballScene: SKScene {
     }
 
     // MARK: - Constants
-    private let totalCycles    = 3
-    private let pitchesPerHalf = 3
+    private let totalCycles    = 3   // innings
+    private let outsPerHalf    = 3   // a batting half ends after 3 outs
+    private let strikesPerOut  = 3   // 3 strikes = 1 out (a hit resets the running count)
     private let gravity: CGFloat   = 0.22
     private let distScale: CGFloat = 0.55  // scene-units → display "ft"
     private let homeRunFt: CGFloat = 800   // a hit landing past this display-distance is a home run
@@ -100,8 +101,13 @@ final class CornholeBaseballScene: SKScene {
     // MARK: - Game state
     private var phase: GamePhase = .userBatting
     private var currentCycle  = 1
-    private var aiPitchCount  = 0
-    private var userPitchCount = 0
+    // Out / strike tracking for the current half-inning. A half ends at `outsPerHalf`
+    // outs; the running strike count rolls to an out at `strikesPerOut` and is reset
+    // to 0 by any hit (safe or caught) — i.e. whenever a new batter steps up.
+    private var userOuts    = 0
+    private var aiOuts      = 0
+    private var userStrikes = 0
+    private var aiStrikes   = 0
     private var userDistances: [CGFloat] = []
     private var aiDistances:   [CGFloat] = []
 
@@ -962,7 +968,8 @@ final class CornholeBaseballScene: SKScene {
     private func startUserBatting(showModal: Bool = true) {
         isUserBattingHalf = true
         phase         = .userBatting
-        aiPitchCount  = 0
+        userOuts      = 0
+        userStrikes   = 0
         userHasSwung  = false
         pitchInFlight = false
         isBatCharging = false
@@ -992,7 +999,8 @@ final class CornholeBaseballScene: SKScene {
     private func startUserPitching() {
         isUserBattingHalf = false
         phase          = .userPitching
-        userPitchCount = 0
+        aiOuts         = 0
+        aiStrikes      = 0
         pitchInFlight  = false
         isBatCharging  = false
         aiWillPowerSwing = false
@@ -1032,9 +1040,8 @@ final class CornholeBaseballScene: SKScene {
     // MARK: - AI pitch  (bottom → top, +vy)
 
     private func throwAIPitch() {
-        guard phase == .userBatting, aiPitchCount < pitchesPerHalf, pitchBag == nil else { return }
+        guard phase == .userBatting, userOuts < outsPerHalf, pitchBag == nil else { return }
 
-        aiPitchCount  += 1
         pitchInFlight  = false
         swingWindowOpen = false
         userHasSwung    = false
@@ -1065,7 +1072,7 @@ final class CornholeBaseballScene: SKScene {
     // MARK: - Player pitch  (swipe up from bottom half → +vy toward AI at top)
 
     private func launchUserPitch(start: CGPoint, end: CGPoint, elapsed: TimeInterval) {
-        guard phase == .userPitching, userPitchCount < pitchesPerHalf, pitchBag == nil else { return }
+        guard phase == .userPitching, aiOuts < outsPerHalf, pitchBag == nil else { return }
 
         let dy = end.y - start.y                              // positive = swiped up
         // Map swipe distance → speed. Dividing elapsed by 16ms normalises to a
@@ -1162,6 +1169,7 @@ final class CornholeBaseballScene: SKScene {
             }
             spawnFloatingText("SWINGING STRIKE!", at: CGPoint(x: pitch.bx, y: batY + 22),
                               color: SKColor(red: 1, green: 0.18, blue: 0.18, alpha: 1))
+            registerUserStrike()
             run(.wait(forDuration: 0.85)) { [weak self] in
                 self?.checkBattingHalfDone()
             }
@@ -1180,6 +1188,7 @@ final class CornholeBaseballScene: SKScene {
             }
             spawnFloatingText("WHIFF!", at: CGPoint(x: pitch.bx, y: batY + 22),
                               color: SKColor(white: 0.65, alpha: 1))
+            registerUserStrike()
             run(.wait(forDuration: 0.85)) { [weak self] in
                 self?.checkBattingHalfDone()
             }
@@ -1217,6 +1226,7 @@ final class CornholeBaseballScene: SKScene {
             }
             spawnFloatingText("MISS!", at: CGPoint(x: pitch.bx, y: batY + 22),
                               color: SKColor(red: 1, green: 0.28, blue: 0.28, alpha: 1))
+            registerUserStrike()
             run(.wait(forDuration: 0.85)) { [weak self] in
                 self?.checkBattingHalfDone()
             }
@@ -1260,6 +1270,7 @@ final class CornholeBaseballScene: SKScene {
             let label = aiCharge > 0.4 ? "\(opponentDisplayName) WHIFF!" : "\(opponentDisplayName) WHIFFS!"
             spawnFloatingText(label, at: CGPoint(x: pitch.bx, y: batY + 22),
                               color: SKColor(white: 0.58, alpha: 1))
+            registerAIStrike()
             run(.wait(forDuration: 0.90)) { [weak self] in
                 self?.checkPitchingHalfDone()
             }
@@ -1532,6 +1543,7 @@ final class CornholeBaseballScene: SKScene {
                     run(SKAction.playSoundFileNamed("strike_call.wav", waitForCompletion: false))
                     spawnFloatingText("STRIKE!", at: CGPoint(x: 0, y: batY + 22),
                                       color: SKColor(red: 1, green: 0.18, blue: 0.18, alpha: 1))
+                    registerUserStrike()
                     run(.wait(forDuration: 0.85)) { [weak self] in
                         self?.checkBattingHalfDone()
                     }
@@ -1547,18 +1559,14 @@ final class CornholeBaseballScene: SKScene {
             if aiFrameCount >= aiSwingFrame && distToAI < size.height * 0.10 {
                 pitchInFlight = false
                 if inZone {
-                    let p = pitch
-                    userPitchCount += 1
-                    pushHUD()
-                    aiSwings(pitch: p)
+                    aiSwings(pitch: pitch)
                 } else {
-                    // 25% chance AI chases a ball outside the zone — always misses
+                    // 25% chance AI chases a ball outside the zone — always misses (a strike)
                     if CGFloat.random(in: 0...1) < 0.25 {
-                        userPitchCount += 1
-                        pushHUD()
                         removePitchBag()
                         spawnFloatingText("\(opponentDisplayName) SWINGS WILD!", at: CGPoint(x: pitch.bx, y: batY + 22),
                                           color: SKColor(white: 0.58, alpha: 1))
+                        registerAIStrike()
                         run(.wait(forDuration: 0.90)) { [weak self] in
                             self?.checkPitchingHalfDone()
                         }
@@ -1576,11 +1584,10 @@ final class CornholeBaseballScene: SKScene {
                 pitchInFlight = false
                 removePitchBag()
                 if inZone {
-                    // Called strike — pitch counts, AI took it
-                    userPitchCount += 1
-                    pushHUD()
+                    // Called strike — AI took a pitch in the zone
                     spawnFloatingText("CALLED STRIKE!", at: CGPoint(x: 0, y: batY + 22),
                                       color: SKColor(red: 1, green: 0.85, blue: 0.22, alpha: 1))
+                    registerAIStrike()
                     run(.wait(forDuration: 0.85)) { [weak self] in
                         self?.checkPitchingHalfDone()
                     }
@@ -1649,18 +1656,18 @@ final class CornholeBaseballScene: SKScene {
                 if isHomeRun {
                     celebrateHomeRun(isUser: true)
                     userDistances.append(dist)
-                    pushHUD()
+                    registerUserSafeHit()
                     spawnFloatingText("HOME RUN! \(ftVal)FT", at: CGPoint(x: hit.bx, y: hit.by + 22),
                                       color: SKColor(red: 1, green: 0.85, blue: 0.28, alpha: 1))
                 } else if caught {
                     // PLACEHOLDER: add out_caught.wav to Copy Bundle Resources
                     run(SKAction.playSoundFileNamed("out_caught.wav", waitForCompletion: false))
-                    pushHUD()
-                    spawnFloatingText("OUT!", at: CGPoint(x: hit.bx, y: hit.by + 22),
+                    registerUserCaughtOut()
+                    spawnFloatingText("CAUGHT! OUT \(userOuts)", at: CGPoint(x: hit.bx, y: hit.by + 22),
                                       color: SKColor(red: 0.35, green: 1.0, blue: 0.35, alpha: 1))
                 } else {
                     userDistances.append(dist)
-                    pushHUD()
+                    registerUserSafeHit()
                     spawnFloatingText("\(ftVal)FT!", at: CGPoint(x: hit.bx, y: hit.by + 22),
                                       color: SKColor(red: 1, green: 0.85, blue: 0.28, alpha: 1))
                 }
@@ -1675,18 +1682,18 @@ final class CornholeBaseballScene: SKScene {
                 if isHomeRun {
                     celebrateHomeRun(isUser: false)
                     aiDistances.append(dist)
-                    pushHUD()
+                    registerAISafeHit()
                     spawnFloatingText("\(opponentDisplayName) HOME RUN! \(ftVal)FT", at: CGPoint(x: hit.bx, y: hit.by + 22),
                                       color: SKColor(red: 0.42, green: 0.62, blue: 1.0, alpha: 1))
                 } else if caught {
                     // PLACEHOLDER: add out_caught.wav to Copy Bundle Resources
                     run(SKAction.playSoundFileNamed("out_caught.wav", waitForCompletion: false))
-                    pushHUD()
-                    spawnFloatingText("OUT!", at: CGPoint(x: hit.bx, y: hit.by + 22),
+                    registerAICaughtOut()
+                    spawnFloatingText("CAUGHT! OUT \(aiOuts)", at: CGPoint(x: hit.bx, y: hit.by + 22),
                                       color: SKColor(red: 1, green: 0.38, blue: 0.38, alpha: 1))
                 } else {
                     aiDistances.append(dist)
-                    pushHUD()
+                    registerAISafeHit()
                     spawnFloatingText("\(opponentDisplayName) \(ftVal)FT!", at: CGPoint(x: hit.bx, y: hit.by + 22),
                                       color: SKColor(red: 0.42, green: 0.62, blue: 1.0, alpha: 1))
                 }
@@ -1700,10 +1707,62 @@ final class CornholeBaseballScene: SKScene {
         }
     }
 
+    // MARK: - Outs & strikes (standard 3-out innings)
+
+    private let outRed = SKColor(red: 1, green: 0.28, blue: 0.28, alpha: 1)
+
+    /// A strike against the user at bat. The 3rd strike becomes an out and resets
+    /// the running count. Floats a "STRIKEOUT!" call on the out.
+    private func registerUserStrike() {
+        userStrikes += 1
+        if userStrikes >= strikesPerOut {
+            userStrikes = 0
+            userOuts += 1
+            spawnFloatingText("STRIKEOUT! OUT \(userOuts)", at: CGPoint(x: 0, y: batY + 44),
+                              color: outRed)
+        }
+        pushHUD()
+    }
+
+    /// A caught fly ball while the user bats — an immediate out; new batter (strikes reset).
+    private func registerUserCaughtOut() {
+        userOuts += 1
+        userStrikes = 0
+        pushHUD()
+    }
+
+    /// A safe hit (single/home run) while the user bats — no out; new batter (strikes reset).
+    private func registerUserSafeHit() {
+        userStrikes = 0
+        pushHUD()
+    }
+
+    private func registerAIStrike() {
+        aiStrikes += 1
+        if aiStrikes >= strikesPerOut {
+            aiStrikes = 0
+            aiOuts += 1
+            spawnFloatingText("\(opponentDisplayName) STRIKES OUT! OUT \(aiOuts)",
+                              at: CGPoint(x: 0, y: batY + 44), color: outRed)
+        }
+        pushHUD()
+    }
+
+    private func registerAICaughtOut() {
+        aiOuts += 1
+        aiStrikes = 0
+        pushHUD()
+    }
+
+    private func registerAISafeHit() {
+        aiStrikes = 0
+        pushHUD()
+    }
+
     // MARK: - Half-inning advancement
 
     private func checkBattingHalfDone() {
-        if aiPitchCount >= pitchesPerHalf {
+        if userOuts >= outsPerHalf {
             afterBattingHalf()
         } else {
             // Restore phase so throwAIPitch()'s guard (phase == .userBatting) passes.
@@ -1715,7 +1774,7 @@ final class CornholeBaseballScene: SKScene {
     }
 
     private func checkPitchingHalfDone() {
-        if userPitchCount >= pitchesPerHalf {
+        if aiOuts >= outsPerHalf {
             afterPitchingHalf()
         } else {
             // Restore phase so the player's swipe-up gesture is accepted again.
@@ -2021,13 +2080,16 @@ final class CornholeBaseballScene: SKScene {
     }
 
     private func pushHUD() {
-        let pitchInPhase = isUserBattingHalf ? aiPitchCount : userPitchCount
+        // Outs / strikes belong to whoever is currently batting.
+        let outs    = isUserBattingHalf ? userOuts    : aiOuts
+        let strikes = isUserBattingHalf ? userStrikes : aiStrikes
         let vm = hudViewModel
         vm.opponentName = opponentDisplayName
         DispatchQueue.main.async {
             vm.cycle          = self.currentCycle
             vm.phaseIsbatting = self.isUserBattingHalf
-            vm.pitchCount     = pitchInPhase
+            vm.outs           = outs
+            vm.strikes        = strikes
             vm.playerAvgFt    = Int(self.userAvg * self.distScale)
             vm.aiAvgFt        = Int(self.aiAvg   * self.distScale)
         }
@@ -2060,7 +2122,7 @@ final class CornholeBaseballScene: SKScene {
             won: playerWon && !tied,
             title: tied ? "IT'S A TIE!" : (playerWon ? "VICTORY!" : "DEFEAT"),
             subtitle: "YOU \(userFt)ft  -  \(aiFt)ft \(opponentDisplayName)",
-            detail: "\(totalCycles) CYCLES · AVG DISTANCE",
+            detail: "\(totalCycles) INNINGS · AVG DISTANCE",
             rewards: rewards,
             buttons: [GameResultModal.Button(label: "PLAY AGAIN", name: "playAgainBtn", style: .primary),
                       GameResultModal.Button(label: "EXIT", name: "exitBtn", style: .danger)])
@@ -2074,6 +2136,10 @@ final class CornholeBaseballScene: SKScene {
         gameOverPanel?.removeFromParent()
         gameOverPanel    = nil
         currentCycle     = 1
+        userOuts         = 0
+        aiOuts           = 0
+        userStrikes      = 0
+        aiStrikes        = 0
         userDistances    = []
         aiDistances      = []
         isBatCharging    = false
@@ -2217,7 +2283,7 @@ final class CornholeBaseballScene: SKScene {
             .card(title: "BEANBAG BASEBALL",
                   body:  "BAT AND PITCH AGAINST THE BOT. HIGHEST AVERAGE HIT DISTANCE AFTER 3 INNINGS WINS."),
             .card(title: "BATTING",
-                  body:  "HOLD ANYWHERE TO CHARGE YOUR SWING. RELEASE WHEN THE PITCH CROSSES THE STRIKE ZONE."),
+                  body:  "HOLD ANYWHERE TO CHARGE YOUR SWING. RELEASE WHEN THE PITCH CROSSES THE STRIKE ZONE. 3 STRIKES OR A CAUGHT BALL IS AN OUT - A HIT RESETS YOUR STRIKES. BAT TILL 3 OUTS."),
             .card(title: "PITCHING & FIELDING",
                   body:  "WHEN PITCHING, SWIPE UP TO THROW. WHEN FIELDING, TAP A FIELDER TO SPRINT THEM AT THE BAG."),
         ]

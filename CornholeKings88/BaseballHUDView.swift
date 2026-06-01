@@ -7,8 +7,8 @@ final class BaseballHUDViewModel: ObservableObject {
     @Published var cycle:          Int = 1
     @Published var totalCycles:    Int = 3
     @Published var phaseIsbatting: Bool = true
-    @Published var pitchCount:     Int = 0
-    @Published var pitchesPerHalf: Int = 3
+    @Published var outs:           Int = 0
+    @Published var strikes:        Int = 0
     @Published var playerAvgFt:    Int = 0
     @Published var aiAvgFt:        Int = 0
     @Published var opponentName:   String = "BOT"
@@ -76,6 +76,12 @@ struct BaseballHUDView: View {
                         .foregroundColor(blue)
                         .fixedSize()
                 }
+
+                // Count row — outs (red) and strikes (gold) for the current batter
+                HStack(spacing: 8) {
+                    countGroup(label: "OUT", count: viewModel.outs, total: 3, color: red)
+                    countGroup(label: "STR", count: viewModel.strikes, total: 3, color: gold)
+                }
             }
 
             Spacer(minLength: 0)
@@ -95,6 +101,23 @@ struct BaseballHUDView: View {
                 )
         )
     }
+
+    /// A labelled row of small pips ("OUT ● ● ○"), filled up to `count`.
+    private func countGroup(label: String, count: Int, total: Int, color: Color) -> some View {
+        HStack(spacing: 4) {
+            Text(label)
+                .font(.custom("PressStart2P-Regular", size: 7))
+                .foregroundColor(ironGray)
+                .fixedSize()
+            HStack(spacing: 3) {
+                ForEach(0..<total, id: \.self) { i in
+                    Circle()
+                        .frame(width: 7, height: 7)
+                        .foregroundColor(i < count ? color : ironGray.opacity(0.35))
+                }
+            }
+        }
+    }
 }
 
 // MARK: - Preview
@@ -105,8 +128,9 @@ struct BaseballHUDView: View {
         BaseballHUDView(viewModel: {
             let vm = BaseballHUDViewModel()
             vm.cycle = 2
-            vm.phaseIsbatting = false
-            vm.pitchCount = 1
+            vm.phaseIsbatting = true
+            vm.outs = 1
+            vm.strikes = 2
             vm.playerAvgFt = 142
             vm.aiAvgFt = 118
             return vm
