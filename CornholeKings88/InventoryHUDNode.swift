@@ -7,7 +7,7 @@ final class InventoryHUDNode: SKNode {
     private let slotWidth:   CGFloat = 56
     private let slotHeight:  CGFloat = 22
     private let slotSpacing: CGFloat = 8
-    private let maxVisible   = 3
+    private let maxVisible   = 6
 
     private var slotNodes: [SKNode] = []
 

@@ -184,8 +184,9 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     private var btnA: SKShapeNode?
     private var btnB: SKShapeNode?
     private var btnBiscuit: SKShapeNode?
-    private var btnLance: SKShapeNode?
     private var btnAxe: SKShapeNode?
+    /// Passive Golden Lance indicator in the top HUD (not an action button).
+    private var lanceIndicator: SKNode?
     private let actionBtnRadius: CGFloat = 26
 
     // HUD elements (so we can update them later).
@@ -329,6 +330,18 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         menuBtn.name = "menuButton"
         cameraNode.addChild(menuBtn)
         menuButtonPosition = menuBtn.position
+
+        // Golden Lance inventory indicator — sits just left of the close icon. Not tappable;
+        // the lance is a passive item used automatically. Hidden until earned.
+        let lanceIcon = SKNode()
+        lanceIcon.position = CGPoint(x: W / 2 - 50, y: hudY)
+        lanceIcon.zPosition = 10_001
+        lanceIcon.isHidden = !UserDefaults.standard.bool(forKey: goldenLanceKey)
+        let lanceArt = makeLanceButtonContent()
+        lanceArt.setScale(0.72)
+        lanceIcon.addChild(lanceArt)
+        cameraNode.addChild(lanceIcon)
+        lanceIndicator = lanceIcon
     }
 
     /// Vertical center for the controls — within the bottom chrome but above
@@ -481,28 +494,15 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         cameraNode.addChild(biscuit)
         btnBiscuit = biscuit
 
-        // Golden lance button — permanent unlock after winning Suburban Jousters.
-        let lanceX = biscuitX - 2 * actionBtnRadius - 14
-        let lance = SKShapeNode(circleOfRadius: actionBtnRadius)
-        lance.fillColor = SKColor(red: 0.18, green: 0.14, blue: 0.06, alpha: 1.0)
-        lance.strokeColor = SKColor(red: 1.00, green: 0.84, blue: 0.00, alpha: 1.0)
-        lance.lineWidth = 2.0
-        lance.zPosition = 10_000
-        lance.position = CGPoint(x: lanceX, y: btnY)
-        lance.name = "btn_lance"
-        lance.isHidden = !UserDefaults.standard.bool(forKey: goldenLanceKey)
-        lance.addChild(makeLanceButtonContent())
-        cameraNode.addChild(lance)
-        btnLance = lance
-
-        // Axe button — permanent unlock after collecting the axe in the world.
-        let axeX = lanceX - 2 * actionBtnRadius - 14
+        // Axe button — permanent unlock after collecting the axe. Stacked directly
+        // below the A button so it sits within easy reach of the player's thumb.
+        let axeY = btnY - 2 * actionBtnRadius - 6
         let axe = SKShapeNode(circleOfRadius: actionBtnRadius)
         axe.fillColor = SKColor(red: 0.18, green: 0.14, blue: 0.06, alpha: 1.0)
         axe.strokeColor = SKColor(red: 0.85, green: 0.82, blue: 0.40, alpha: 1.0)
         axe.lineWidth = 2.0
         axe.zPosition = 10_000
-        axe.position = CGPoint(x: axeX, y: btnY)
+        axe.position = CGPoint(x: aX, y: axeY)
         axe.name = "btn_axe"
         axe.isHidden = !UserDefaults.standard.bool(forKey: axeEarnedKey)
         axe.addChild(makeAxeButtonContent())
@@ -619,6 +619,12 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         }
         updateBiscuitButton()
         updateThrowButton()
+        // Mirror permanent unlocks (Golden Lance) into the inventory pill row so the
+        // player can see what they're carrying. Lance is a single-quantity item.
+        if UserDefaults.standard.bool(forKey: goldenLanceKey),
+           inventory.counts[.goldenLance, default: 0] == 0 {
+            inventory.collect(.goldenLance, count: 1)
+        }
         // Initial HUD render — without this, items collected in a prior session
         // don't appear until the next inventory change.
         inventoryHUD?.refresh(counts: inventory.counts)
@@ -1127,33 +1133,82 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         return false
     }
 
-    /// Hides every map tile (across all layers) belonging to a tree/apple tileset within
-    /// `radius` world-units of `worldPos`. Used both to chop a tree on demand and to
-    /// re-apply persisted chops on scene load.
-    private func hideTreeTiles(near worldPos: CGPoint, in m: TMXMap, radius: CGFloat = 32) {
+    /// Hides every map tile (across all layers) in the connected cluster of tree/apple
+    /// tiles starting at `worldPos`. Uses a flood-fill across the 8 surrounding neighbours
+    /// so multi-tile tree sprites are removed in their entirety. Also seeds the fill from
+    /// every tree tile within a small radius, in case the chop point lands on a transparent
+    /// edge tile and isn't directly connected to the trunk.
+    private func hideTreeTiles(near worldPos: CGPoint, in m: TMXMap) {
         let treeRanges = m.tilesetRanges
             .filter { $0.name.contains("tree") || $0.name.contains("apple") }
             .map(\.gidRange)
         guard !treeRanges.isEmpty else { return }
         let tw = m.tileSize.width
         let th = m.tileSize.height
+
+        func isTreeTile(_ r: Int, _ c: Int) -> Bool {
+            guard r >= 0, r < m.rows, c >= 0, c < m.cols else { return false }
+            for (_, grid) in m.layerGIDs {
+                let gid = grid[r][c] & 0x0FFF_FFFF
+                if gid != 0 && treeRanges.contains(where: { $0.contains(gid) }) { return true }
+            }
+            return false
+        }
+
+        // Convert worldPos to a tile coordinate (matches m.tileCenter inversion).
+        let seedCol = Int(floor(worldPos.x / tw))
+        let seedRow = m.rows - 1 - Int(floor(worldPos.y / th))
+
+        // Seed with every tree tile in a 2-tile radius around the chop point — covers cases
+        // where the chop center lands on an off-by-one neighbour of the trunk.
+        var stack: [(r: Int, c: Int)] = []
+        let seedSpan = 2
+        for dr in -seedSpan...seedSpan {
+            for dc in -seedSpan...seedSpan {
+                let r = seedRow + dr, c = seedCol + dc
+                if isTreeTile(r, c) { stack.append((r, c)) }
+            }
+        }
+        // Fallback: if nothing nearby is a tree tile (shouldn't happen — caller already
+        // verified one was), just bail.
+        guard !stack.isEmpty else { return }
+
+        // Flood-fill: 8-connected so diagonally-touching canopy tiles get pulled in too.
+        var visited = Set<Int>()
+        let cols = m.cols
+        var clusterCells: [(r: Int, c: Int)] = []
+        while let cell = stack.popLast() {
+            let key = cell.r * cols + cell.c
+            if visited.contains(key) { continue }
+            visited.insert(key)
+            guard isTreeTile(cell.r, cell.c) else { continue }
+            clusterCells.append(cell)
+            for dr in -1...1 {
+                for dc in -1...1 where !(dr == 0 && dc == 0) {
+                    stack.append((cell.r + dr, cell.c + dc))
+                }
+            }
+        }
+
+        // Hide only the sprites belonging to a tree tileset at each cluster cell. We
+        // skip the Ground/Collisions/etc. tiles underneath so the existing grass keeps
+        // showing through once the tree is gone.
         for (layerName, grid) in m.layerGIDs {
-            for r in 0..<m.rows {
-                for c in 0..<m.cols {
-                    let gid = grid[r][c] & 0x0FFF_FFFF
-                    guard gid != 0 else { continue }
-                    guard treeRanges.contains(where: { $0.contains(gid) }) else { continue }
-                    let center = m.tileCenter(col: c, row: r)
-                    if hypot(center.x - worldPos.x, center.y - worldPos.y) <= radius {
-                        // Hide every layer-child sprite that sits on this tile.
-                        if let layerNode = m.layerNodes[layerName] {
-                            for child in layerNode.children {
-                                if abs(child.position.x - center.x) < tw / 2 + 1 &&
-                                   abs(child.position.y - center.y) < th / 2 + 1 {
-                                    child.isHidden = true
-                                }
-                            }
-                        }
+            guard let layerNode = m.layerNodes[layerName] else { continue }
+            // Only consider cells in this layer that hold a tree-range GID. Avoids
+            // hiding the matching grass/ground tile at the same world position.
+            let layerTreeCenters: [CGPoint] = clusterCells.compactMap { cell in
+                let gid = grid[cell.r][cell.c] & 0x0FFF_FFFF
+                guard gid != 0, treeRanges.contains(where: { $0.contains(gid) }) else { return nil }
+                return m.tileCenter(col: cell.c, row: cell.r)
+            }
+            guard !layerTreeCenters.isEmpty else { continue }
+            for child in layerNode.children {
+                for center in layerTreeCenters {
+                    if abs(child.position.x - center.x) < tw / 2 + 1 &&
+                       abs(child.position.y - center.y) < th / 2 + 1 {
+                        child.isHidden = true
+                        break
                     }
                 }
             }
@@ -1492,18 +1547,40 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         showPickupText("+ AXE", at: pos)
     }
 
-    /// Chops the climbable or apple tree currently in proximity. Hides every tree tile in the
-    /// cluster, drops it from interaction lists, persists the chop, and grants +1 wood.
+    /// Chops the nearest tree tile (any tree/apple tileset, not just the climbable ones).
+    /// Hides every tile in the cluster, drops it from interaction lists, persists the chop,
+    /// and grants +1 wood.
     private func chopNearbyTree() {
         // If the player is climbing the tree, descend first so they're not stranded mid-air.
         if player.isInTree { player.descendTree() }
 
-        let target: CGPoint?
-        if let p = nearbyTreePosition { target = p }
-        else if let p = nearbyAppleTreePosition { target = p }
-        else { target = nil }
+        // Search every map layer for any tile from a tileset whose name contains "tree" or
+        // "apple", and pick the closest one inside the chop radius.
+        guard let m = map else { return }
+        let chopRadius: CGFloat = 28
+        let treeRanges = m.tilesetRanges
+            .filter { $0.name.contains("tree") || $0.name.contains("apple") }
+            .map(\.gidRange)
 
-        guard let pos = target, let m = map else {
+        var bestPos: CGPoint? = nil
+        var bestDist = CGFloat.infinity
+        for (_, grid) in m.layerGIDs {
+            for r in 0..<m.rows {
+                for c in 0..<m.cols {
+                    let gid = grid[r][c] & 0x0FFF_FFFF
+                    guard gid != 0,
+                          treeRanges.contains(where: { $0.contains(gid) }) else { continue }
+                    let center = m.tileCenter(col: c, row: r)
+                    let d = hypot(center.x - player.position.x, center.y - player.position.y)
+                    if d < chopRadius && d < bestDist && !isChopped(center) {
+                        bestDist = d
+                        bestPos = center
+                    }
+                }
+            }
+        }
+
+        guard let pos = bestPos else {
             showHintBanner("Stand next to a tree\nto chop it.")
             return
         }
@@ -1835,7 +1912,8 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
             HeartsManager.shared.set(joust.remainingHearts)
             if won && !UserDefaults.standard.bool(forKey: self.goldenLanceKey) {
                 UserDefaults.standard.set(true, forKey: self.goldenLanceKey)
-                self.btnLance?.isHidden = false
+                self.lanceIndicator?.isHidden = false
+                self.inventory.collect(.goldenLance, count: 1)
                 self.showHintBanner("You won the\nGolden Lance!")
             }
             self.isTransitioning = false
@@ -1905,10 +1983,12 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         let fences = m.layerGIDs["fences"]
         let ground = m.layerGIDs["Ground"]
         let interactions = m.layerGIDs["Interactions"]
-        // Mountain layers act as walls until the player earns the Golden Lance.
-        let mountainGrids: [[[Int]]] = UserDefaults.standard.bool(forKey: goldenLanceKey)
-            ? []
-            : m.layerGIDs.filter { $0.key.lowercased().contains("mountain") }.map { $0.value }
+        let hasLance = UserDefaults.standard.bool(forKey: goldenLanceKey)
+        // Every mountain-layer grid is always scanned so we can both *add* walls (no lance)
+        // and *subtract* Collisions-layer walls that overlap mountain tiles (with lance).
+        let mountainGrids: [[[Int]]] = m.layerGIDs
+            .filter { $0.key.lowercased().contains("mountain") }
+            .map { $0.value }
 
         func isWater(_ gid: Int) -> Bool {
             // water1: 22..45, water2: 257..280, water3: 281..304 (see World1.tmx).
@@ -1922,9 +2002,13 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
 
         for r in 0..<m.rows {
             for c in 0..<m.cols {
-                let blocked = (collisions?[r][c] ?? 0) != 0
+                let onMountain = isMountain(r, c)
+                // With the lance, mountain cells are walkable — even if they're also
+                // painted on the Collisions layer.
+                let collisionHere = (collisions?[r][c] ?? 0) != 0 && !(hasLance && onMountain)
+                let blocked = collisionHere
                                     || (fences?[r][c] ?? 0) != 0
-                                    || isMountain(r, c)
+                                    || (!hasLance && onMountain)
                 let waterHere = isWater(ground?[r][c] ?? 0)
                 // A bridge (any tile on the Interactions layer at this cell)
                 // overrides the water block so the player can cross it.
@@ -2107,10 +2191,6 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
 
         // Action buttons.
         let btnHit = (actionBtnRadius + 6) * (actionBtnRadius + 6)
-        if let lance = btnLance, !lance.isHidden, distanceSquared(pInCam, lance.position) < btnHit {
-            // TODO: interact with nearby high object when that system is added
-            return
-        }
         if let axe = btnAxe, !axe.isHidden, distanceSquared(pInCam, axe.position) < btnHit {
             chopNearbyTree()
             return
@@ -2636,17 +2716,19 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         let row = m.rows - 1 - Int(floor(worldPos.y / th))
         guard col >= 0, col < m.cols, row >= 0, row < m.rows else { return false }
 
+        let hasLance = UserDefaults.standard.bool(forKey: goldenLanceKey)
+        // Check mountain layers first so we can exempt overlapping Collisions tiles.
+        var onMountain = false
+        for (name, grid) in m.layerGIDs where name.lowercased().contains("mountain") {
+            if (grid[row][col] & 0x0FFF_FFFF) != 0 { onMountain = true; break }
+        }
+        if onMountain && !hasLance { return false }
+        // With the lance, mountain cells override a same-tile Collisions block.
         if let collisions = m.layerGIDs["Collisions"], collisions[row][col] != 0 {
-            return false
+            if !(hasLance && onMountain) { return false }
         }
         if let fences = m.layerGIDs["fences"], fences[row][col] != 0 {
             return false
-        }
-        // Mountain layers are walls until the lance is earned.
-        if !UserDefaults.standard.bool(forKey: goldenLanceKey) {
-            for (name, grid) in m.layerGIDs where name.lowercased().contains("mountain") {
-                if (grid[row][col] & 0x0FFF_FFFF) != 0 { return false }
-            }
         }
         let groundGid = (m.layerGIDs["Ground"]?[row][col] ?? 0) & 0x0FFF_FFFF
         let isWater = (22...45).contains(groundGid) || (257...304).contains(groundGid)
