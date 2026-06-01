@@ -11,6 +11,8 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     private var hasSetup = false  // prevents double-init when scene is re-presented after mini-game
     /// When set, the player spawns here instead of the map's Spawn layer (used by story mode).
     var storySpawnOverride: CGPoint?
+    /// Set just before presenting a mini-game; on return the player is placed here (just south of the triggering tile).
+    private var pendingReturnPosition: CGPoint?
 
     // Cornhole board interaction
     private var cornholeBoardPositions: [CGPoint] = []
@@ -208,6 +210,12 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         guard !hasSetup else {
             // Resync in case hearts changed while a modal mini-game (bike race) was up
             resyncHeartsDisplay()
+            if let p = pendingReturnPosition {
+                player.position = p
+                player.moveDirection = .zero
+                player.physicsBody?.velocity = .zero
+                pendingReturnPosition = nil
+            }
             return
         }
         hasSetup = true
@@ -1382,6 +1390,19 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         return root
     }
 
+    /// Stash a "return here on exit" point just south of the triggering tile so the player
+    /// ends up next to the challenge after the mini-game ends. Applied in `didMove(to:)`.
+    private func setMiniGameReturnPosition(near tile: CGPoint) {
+        let offset: CGFloat = 24
+        var p = CGPoint(x: tile.x, y: tile.y - offset)
+        if let m = map {
+            let half: CGFloat = 6
+            p.x = max(half, min(m.sizeInPoints.width  - half, p.x))
+            p.y = max(half, min(m.sizeInPoints.height - half, p.y))
+        }
+        pendingReturnPosition = p
+    }
+
     private func openCornholeMiniGame(preSelectedOpponent: CornholeMiniGameScene.AIOpponent? = nil) {
         guard let view = self.view else { return }
         isTransitioning = true
@@ -1829,51 +1850,60 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
 
             if nearbyStoryBatPosition != nil {
                 collectStoryBat()
-            } else if nearbyBoardPosition != nil {
+            } else if let p = nearbyBoardPosition {
                 if trigger == StoryManager.triggerCornhole {
                     StoryManager.shared.pendingWorldTrigger = nil
                     launchStoryAtCurrentModule()
                 } else {
+                    setMiniGameReturnPosition(near: p)
                     openCornholeMiniGame()
                 }
             } else if nearbyChestPosition != nil {
                 openChest()
             } else if nearbyStorePosition != nil {
                 openStore()
-            } else if nearbyBridgeStonePosition != nil {
+            } else if let p = nearbyBridgeStonePosition {
+                setMiniGameReturnPosition(near: p)
                 openBeachBallCornhole()
-            } else if nearbyAppleTreePosition != nil {
+            } else if let p = nearbyAppleTreePosition {
+                setMiniGameReturnPosition(near: p)
                 openCornholeMiniGame(preSelectedOpponent: .spirit)
-            } else if nearbyBaseballPosition != nil {
+            } else if let p = nearbyBaseballPosition {
                 if trigger == StoryManager.triggerBaseball || trigger == StoryManager.triggerQuestOffer {
                     StoryManager.shared.pendingWorldTrigger = nil
                     launchStoryAtCurrentModule()
                 } else {
+                    setMiniGameReturnPosition(near: p)
                     openCornholeBaseball()
                 }
-            } else if nearbyBeehivePosition != nil {
+            } else if let p = nearbyBeehivePosition {
+                setMiniGameReturnPosition(near: p)
                 openBeeHiveMiniGame()
-            } else if nearbyPoolPosition != nil {
+            } else if let p = nearbyPoolPosition {
+                setMiniGameReturnPosition(near: p)
                 openBeachBallCornhole()
-            } else if nearbyBridgeWoodPosition != nil {
+            } else if let p = nearbyBridgeWoodPosition {
                 if trigger == StoryManager.triggerBridge {
                     StoryManager.shared.pendingWorldTrigger = nil
                     launchStoryAtCurrentModule()
                 } else if UserDefaults.standard.bool(forKey: beachBallBeatenKey) {
+                    setMiniGameReturnPosition(near: p)
                     openBridgePiranha()
                 } else {
                     showHintBanner("You need bean bags\nthat can float\nbefore coming here.")
                 }
-            } else if nearbyFencePosition != nil {
+            } else if let p = nearbyFencePosition {
                 if CornholeStatsManager.shared.joustersUnlocked {
+                    setMiniGameReturnPosition(near: p)
                     openSuburbanJousters()
                 } else if CornholeStatsManager.shared.defeatedJenBaseball {
                     showHintBanner("Beat Tom at baseball\nto unlock the joust.")
                 } else {
                     showHintBanner("In order to joust\non your bike, you need\nsomething to use\nas a lance.")
                 }
-            } else if nearbyWellPosition != nil {
+            } else if let p = nearbyWellPosition {
                 if inventory.counts[.bag, default: 0] > 0 {
+                    setMiniGameReturnPosition(near: p)
                     openWellFlinger()
                 } else {
                     showHintBanner("You need bean bags\nto throw down the well.")
