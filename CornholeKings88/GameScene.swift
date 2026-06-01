@@ -1611,6 +1611,9 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
             if let earned = well?.fireBagsEarned, earned > 0 {
                 self.inventory.collect(.fireBag, count: earned)
             }
+            if let earned = well?.goldenBagsEarned, earned > 0 {
+                self.inventory.collect(.goldenBag, count: earned)
+            }
             self.isTransitioning = false
         }
 

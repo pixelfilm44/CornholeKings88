@@ -26,6 +26,8 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
     var awardsRewards: Bool = false
     /// Fire bags earned this game (awarded on a win); read by GameScene after onComplete.
     private(set) var fireBagsEarned: Int = 0
+    /// Golden bags earned this game (one per cornhole); read by GameScene after onComplete.
+    private(set) var goldenBagsEarned: Int = 0
 
     // Layout
     private var W: CGFloat = 0
@@ -639,6 +641,11 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
         stuckTimer = 0
         lastUpdate = 0
 
+        // The bag is now in flight — decrement the visible "bags in hand" count
+        // immediately so the HUD reflects it. (bagsUsed still increments in endTurn.)
+        bagsLeft = max(bagsLeft - 1, 0)
+        updateHUD()
+
         // Place the bag a bit below the top of the shaft, already moving downward
         // so it feels mid-fall as soon as the scene appears.
         bag.position = CGPoint(x: CGFloat.random(in: -shaftHalfW * 0.25 ... shaftHalfW * 0.25),
@@ -658,7 +665,6 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
     private func endTurn(pts: Int, msg: String) {
         guard turnState != .ended else { return }
         turnState = .ended
-        bagsLeft -= 1
         bagsUsed += 1
         score += pts
         if score > highScore {
@@ -688,9 +694,13 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
 
         // Reward: 3 fire bags on a win (world / story context only).
         if awardsRewards && won { fireBagsEarned = 3 }
-        let rewards: [GameResultModal.Reward] = (awardsRewards && won)
-            ? [GameResultModal.Reward(item: .fireBag, count: 3)]
-            : []
+        var rewards: [GameResultModal.Reward] = []
+        if awardsRewards && won {
+            rewards.append(GameResultModal.Reward(item: .fireBag, count: 3))
+        }
+        if awardsRewards && goldenBagsEarned > 0 {
+            rewards.append(GameResultModal.Reward(item: .goldenBag, count: goldenBagsEarned))
+        }
 
         let panel = GameResultModal.make(
             sceneSize: CGSize(width: W, height: H),
@@ -796,7 +806,8 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
             HapticsManager.shared.successFeedback()
             playSound("hit.mp3")
             sinkIntoHole()
-            endTurn(pts: 3, msg: "CORNHOLE! +3")
+            if awardsRewards { goldenBagsEarned += 1 }
+            endTurn(pts: 3, msg: awardsRewards ? "CORNHOLE! +3  +1 GOLD BAG" : "CORNHOLE! +3")
             return
         }
         if cats & Self.webCat != 0 {
