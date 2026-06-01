@@ -1429,6 +1429,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
             if let earned = mini?.bombBagsEarned,  earned > 0 { self?.inventory.collect(.bombBag,  count: earned) }
             if let earned = mini?.magicBagsEarned, earned > 0 { self?.inventory.collect(.magicBag, count: earned) }
             if let earned = mini?.fireBagsEarned,  earned > 0 { self?.inventory.collect(.fireBag,  count: earned) }
+            if let earned = mini?.goldenBagsEarned, earned > 0 { self?.inventory.collect(.goldenBag, count: earned) }
             if let earned = mini?.coinsEarned,     earned > 0 { self?.inventory.collect(.coin,     count: earned) }
             if CornholeStatsManager.shared.baseballUnlocked { self?.unlockBaseball() }
             self?.isTransitioning = false

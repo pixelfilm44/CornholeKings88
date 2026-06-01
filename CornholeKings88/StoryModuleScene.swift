@@ -518,6 +518,7 @@ final class StoryModuleScene: SKScene {
                 if let e = s?.bombBagsEarned,  e > 0 { inv.collect(.bombBag,  count: e) }
                 if let e = s?.magicBagsEarned, e > 0 { inv.collect(.magicBag, count: e) }
                 if let e = s?.fireBagsEarned,  e > 0 { inv.collect(.fireBag,  count: e) }
+                if let e = s?.goldenBagsEarned, e > 0 { inv.collect(.goldenBag, count: e) }
                 if let e = s?.coinsEarned,     e > 0 { inv.collect(.coin,     count: e) }
                 handleResult(won)
             }

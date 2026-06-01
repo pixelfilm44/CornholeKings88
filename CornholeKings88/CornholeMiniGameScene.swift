@@ -53,6 +53,8 @@ final class CornholeMiniGameScene: SKScene {
     private(set) var goldenBagsUsed: Int = 0
     /// Whether the player has opted in to throwing a golden bag on the next throw.
     private var goldenBagSelected = false
+    /// Golden bags earned this match (awarded mid-game on a 4x cornhole streak); read by host after onComplete.
+    private(set) var goldenBagsEarned: Int = 0
 
     // MARK: - Types
 
@@ -240,6 +242,8 @@ final class CornholeMiniGameScene: SKScene {
     private var aiScore          = 0
     private var lastThrower: BagOwner = .ai
     private var hasCalculatedScore = false
+    /// Consecutive player cornholes in the current match (resets on a player throw that misses).
+    private var playerCornholeStreak = 0
 
     // Fire bag round state — reset each round
     private var boardOnFire = false   // board burns subsequent bags that land on it
@@ -1234,6 +1238,14 @@ final class CornholeMiniGameScene: SKScene {
     private func handleTurnEnd() {
         guard gameState == .resolving else { return }
 
+        // Reset the cornhole streak if the player's most recent throw missed the hole.
+        if lastThrower == .player {
+            let lastPlayerBag = activeBags.last(where: { $0.owner == .player })
+            if lastPlayerBag?.hasScored != true {
+                playerCornholeStreak = 0
+            }
+        }
+
         if allBagsThrown {
             calculateRoundScore()
         } else if lastThrower == .player {
@@ -1487,6 +1499,7 @@ final class CornholeMiniGameScene: SKScene {
                 if dist <= holeRadius && !bag.hasScored {
                     bag.hasScored  = true
                     CornholeStatsManager.shared.recordCornhole()
+                    if bag.owner == .player { handlePlayerCornholeStreak() }
                     bag.isGrounded = true
                     bag.vx = 0; bag.vy = 0; bag.vz = 0; bag.rotV = 0
                     UINotificationFeedbackGenerator().notificationOccurred(.success)
@@ -2301,6 +2314,68 @@ final class CornholeMiniGameScene: SKScene {
             SKAction.fadeIn(withDuration: 0.25),
             SKAction.wait(forDuration: 1.4),
             SKAction.fadeOut(withDuration: 0.30),
+            SKAction.removeFromParent(),
+        ]))
+    }
+
+    private func handlePlayerCornholeStreak() {
+        playerCornholeStreak += 1
+        switch playerCornholeStreak {
+        case ..<2:
+            break
+        case 2:
+            showStreakBanner(lines: ["2x NICE SHOT!"],
+                             color: SKColor(red: 0.95, green: 0.82, blue: 0.30, alpha: 1))
+        case 3:
+            let canAward = awardsRewards
+            var lines = ["3x IN A ROW!", "YOU ARE ON FIRE!"]
+            if canAward { lines.append("TAKE A FIRE BEAN BAG!") }
+            showStreakBanner(lines: lines,
+                             color: SKColor(red: 1.0, green: 0.45, blue: 0.18, alpha: 1))
+            if canAward {
+                availableFireBags += 1
+                fireBagsEarned    += 1
+                updateSatchelButton()
+                refreshSatchelPanelRows()
+            }
+        default:
+            // 4 or more consecutive — cornholio. Award one golden bag, then keep the streak running.
+            let canAward = awardsRewards
+            var lines = ["YOU ARE CORNHOLIO!"]
+            if canAward { lines.append("TAKE A GOLDEN BAG!") }
+            showStreakBanner(lines: lines,
+                             color: SKColor(red: 1.0, green: 0.85, blue: 0.30, alpha: 1))
+            if canAward {
+                availableGoldenBags += 1
+                goldenBagsEarned    += 1
+                updateSatchelButton()
+                refreshSatchelPanelRows()
+            }
+        }
+    }
+
+    private func showStreakBanner(lines: [String], color: SKColor) {
+        let container = SKNode()
+        container.zPosition = 850
+        container.alpha = 0
+        let fontSize = max(8, size.width * 0.045)
+        let lineGap: CGFloat = fontSize * 1.25
+        let totalH = lineGap * CGFloat(lines.count - 1)
+        for (i, text) in lines.enumerated() {
+            let lbl = makeLabel(text: text, size: fontSize, color: color)
+            lbl.position = CGPoint(x: 0, y: totalH / 2 - CGFloat(i) * lineGap)
+            container.addChild(lbl)
+        }
+        addChild(container)
+
+        container.run(SKAction.sequence([
+            SKAction.group([
+                SKAction.fadeIn(withDuration: 0.18),
+                SKAction.scale(to: 1.15, duration: 0.18),
+            ]),
+            SKAction.scale(to: 1.0, duration: 0.10),
+            SKAction.wait(forDuration: 1.3),
+            SKAction.fadeOut(withDuration: 0.28),
             SKAction.removeFromParent(),
         ]))
     }
