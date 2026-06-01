@@ -302,6 +302,7 @@ final class CornholeMiniGameScene: SKScene {
     var preSelectedOpponent: AIOpponent? = nil
     private var selectedOpponent: AIOpponent = .tom
     private var opponentPortrait: SKSpriteNode?
+    private var playerPortrait: SKSpriteNode?
     private var opponentName: String {
         switch selectedOpponent {
         case .tom:    return "TOM"
@@ -651,22 +652,26 @@ final class CornholeMiniGameScene: SKScene {
         addChild(wLabel)
         windLabel = wLabel
 
-        // Round bag counters — left and right
+        // Round bag counters — opponent count beside opponent portrait (left side),
+        // player count beside Jeff portrait (right side). Portraits are placed in
+        // addPlayerPortrait() / addOpponentPortrait() at x = ±(W/2 - 28).
+        let rndALabel = makeLabel(text: "", size: 9,
+                                  color: SKColor(red: 0.40, green: 0.60, blue: 0.90, alpha: 1))
+        rndALabel.horizontalAlignmentMode = .left
+        rndALabel.position  = CGPoint(x: -size.width / 2 + 56, y: botBarY)
+        rndALabel.zPosition = 502
+        rndALabel.name = "rndAILabel"
+        addChild(rndALabel)
+
         let rndPLabel = makeLabel(text: "", size: 9,
                                   color: SKColor(red: 0.90, green: 0.42, blue: 0.42, alpha: 1))
-        rndPLabel.horizontalAlignmentMode = .left
-        rndPLabel.position  = CGPoint(x: -size.width / 2 + 14, y: botBarY)
+        rndPLabel.horizontalAlignmentMode = .right
+        rndPLabel.position  = CGPoint(x: size.width / 2 - 56, y: botBarY)
         rndPLabel.zPosition = 502
         rndPLabel.name = "rndPlayerLabel"
         addChild(rndPLabel)
 
-        let rndALabel = makeLabel(text: "", size: 9,
-                                  color: SKColor(red: 0.40, green: 0.60, blue: 0.90, alpha: 1))
-        rndALabel.horizontalAlignmentMode = .right
-        rndALabel.position  = CGPoint(x: size.width / 2 - 8, y: botBarY)
-        rndALabel.zPosition = 502
-        rndALabel.name = "rndAILabel"
-        addChild(rndALabel)
+        addPlayerPortrait()
 
         // Iron bolts — bottom corners
         addIronBolt(at: CGPoint(x: -size.width / 2 + 5, y: botBarY + bottomH / 2 - 5), color: dsIronGray)
@@ -2407,9 +2412,9 @@ final class CornholeMiniGameScene: SKScene {
     private func updateRoundLabels() {
         // Show live per-round bag counts in bottom chrome
         (childNode(withName: "rndPlayerLabel") as? SKLabelNode)?.text =
-            playerBagsThrown > 0 ? "▪\(playerBagsThrown)/\(bagsPerPlayer)" : ""
+            playerBagsThrown > 0 ? "\(playerBagsThrown)/\(bagsPerPlayer)▪" : ""
         (childNode(withName: "rndAILabel") as? SKLabelNode)?.text =
-            aiBagsThrown > 0 ? "\(aiBagsThrown)/\(bagsPerPlayer)▪" : ""
+            aiBagsThrown > 0 ? "▪\(aiBagsThrown)/\(bagsPerPlayer)" : ""
     }
 
     private func updateTurnIndicator() {
@@ -3190,9 +3195,10 @@ final class CornholeMiniGameScene: SKScene {
 
     private func spawnCrow() {
         guard crowNode == nil, gameState != .gameOver else { scheduleCrow(); return }
-        crowFlyingRight = Bool.random()
-        let startX: CGFloat = crowFlyingRight ? -(size.width * 0.65) : (size.width * 0.65)
-        let endX:   CGFloat = crowFlyingRight ?  (size.width * 0.65) : -(size.width * 0.65)
+        crowFlyingRight = true
+        let margin: CGFloat = 168 * distanceScale * 0.5 + 20
+        let startX: CGFloat = -size.width / 2 - margin
+        let endX:   CGFloat =  size.width / 2 + margin
 
         let crow = makeCrowSprite(facingRight: crowFlyingRight)
         crow.position  = CGPoint(x: startX, y: crowY)
@@ -3237,9 +3243,9 @@ final class CornholeMiniGameScene: SKScene {
 
     private func makeCrowSprite(facingRight: Bool) -> SKSpriteNode {
         let frames = CornholeMiniGameScene.crowFlyFrames
-        let sprite = SKSpriteNode(texture: frames[0], size: CGSize(width: 56, height: 56))
-        // Duck sheet art faces right; flip xScale when flying left.
-        if !facingRight { sprite.xScale = -1 }
+        let sprite = SKSpriteNode(texture: frames[0], size: CGSize(width: 168, height: 168))
+        // Duck sheet art faces left; flip xScale when flying right.
+        if facingRight { sprite.xScale = -1 }
         sprite.run(SKAction.repeatForever(
             SKAction.animate(with: frames, timePerFrame: 0.08, resize: false, restore: false)
         ))
@@ -3254,7 +3260,7 @@ final class CornholeMiniGameScene: SKScene {
             let visualY = bag.by + bag.bz * 0.5
             let dx = bag.bx - crowPos.x
             let dy = visualY - crowPos.y
-            if dx * dx + dy * dy < 26 * 26 {
+            if dx * dx + dy * dy < 78 * 78 {
                 crowHitByBag(bag)
                 return
             }
@@ -3448,6 +3454,19 @@ final class CornholeMiniGameScene: SKScene {
         portrait.zPosition = 650
         addChild(portrait)
         opponentPortrait = portrait
+    }
+
+    private func addPlayerPortrait() {
+        playerPortrait?.removeFromParent()
+        let tex = SKTexture(imageNamed: "jeff")
+        tex.filteringMode = .nearest
+        let bottomH = size.height * 0.09
+        let portrait = SKSpriteNode(texture: tex, size: CGSize(width: 48, height: 48))
+        portrait.position  = CGPoint(x: size.width / 2 - 28,
+                                     y: -size.height / 2 + bottomH / 2)
+        portrait.zPosition = 650
+        addChild(portrait)
+        playerPortrait = portrait
     }
 
     // MARK: - Pause / Resume
