@@ -224,6 +224,11 @@ final class CornholeMiniGameScene: SKScene {
     private var targetSpeed: CGFloat = 0
     private var powerScale: CGFloat = 0
     private var crowY:      CGFloat = 0
+    /// Long-distance variant — scales board, hole, bag visuals, gopher, and crow.
+    /// 1.0 = standard distance; 0.5 = long-distance (used vs. Billy).
+    private var distanceScale: CGFloat = 1.0
+    private var boardContainerNode: SKNode?
+    private var throwLineNode: SKSpriteNode?
 
     // MARK: - Physics constants
     private let gravityPerFrame: CGFloat = 0.50
@@ -383,9 +388,11 @@ final class CornholeMiniGameScene: SKScene {
     // MARK: - Layout
 
     private func computeLayout() {
-        boardY       = size.height * 0.18
+        // Push the board further up the screen as distanceScale shrinks, selling the
+        // longer-distance illusion. At 1.0 → boardY = 0.18; at 0.5 → boardY = 0.30.
+        boardY       = size.height * (0.18 + (1.0 - distanceScale) * 0.24)
         throwLineY   = -size.height * 0.30
-        boardHalfW   = size.width * 0.2625  // 25% narrower than before
+        boardHalfW   = size.width * 0.2625 * distanceScale  // 25% narrower than before, scaled for distance variant
         boardHalfH   = boardHalfW * 1.20
         holeCenter   = CGPoint(x: 0, y: boardY + boardHalfH * 0.30)
         holeRadius   = boardHalfW * 0.25
@@ -444,6 +451,7 @@ final class CornholeMiniGameScene: SKScene {
         throwLine.position = CGPoint(x: 0, y: throwLineY)
         throwLine.zPosition = -1
         gameWorldNode.addChild(throwLine)
+        throwLineNode = throwLine
     }
 
     // Scatter random darker/lighter 4×4 grass tufts for texture
@@ -477,6 +485,7 @@ final class CornholeMiniGameScene: SKScene {
         boardContainer.zPosition = 5
         boardContainer.setScale(0.90)   // visual-only shrink; hit zone uses unscaled values
         gameWorldNode.addChild(boardContainer)
+        boardContainerNode = boardContainer
 
         let bw = boardHalfW * 2
         let bh = boardHalfH * 2
@@ -1481,8 +1490,12 @@ final class CornholeMiniGameScene: SKScene {
                     bag.vx = 0; bag.vy = 0; bag.vz = 0; bag.rotV = 0
                     bag.isGrounded = true
                 } else {
-                    // Small bounce then slide — rain makes the surface very slippery
-                    let boardFriction: CGFloat = rainActive ? 0.968 : 0.92
+                    // Small bounce then slide — rain makes the surface very slippery.
+                    // Long-distance variant: friction (1-f) is tripled (half-slide × 1.5×).
+                    let baseFriction: CGFloat = rainActive ? 0.968 : 0.92
+                    let boardFriction: CGFloat = distanceScale < 1.0
+                        ? 1.0 - (1.0 - baseFriction) * 3.0
+                        : baseFriction
                     if abs(bag.vz) > 0.5 {
                         bag.vz = abs(bag.vz) * 0.18
                     } else {
@@ -1548,9 +1561,14 @@ final class CornholeMiniGameScene: SKScene {
                 bag.vx = 0; bag.vy = 0; bag.vz = 0; bag.rotV = 0
                 if !bag.hasAppliedGroundScale {
                     bag.hasAppliedGroundScale = true
-                    bag.baseScale = 0.75
-                    bag.node.run(SKAction.scale(to: 0.75, duration: 0.12))
-                    bag.shadow.run(SKAction.scale(to: 0.75, duration: 0.12))
+                    // Long-distance variant: bags resting on the ground render at a final
+                    // on-screen scale of 0.45 (baseScale × distanceScale).
+                    let groundScale: CGFloat = distanceScale < 1.0 ? 0.45 / distanceScale : 0.75
+                    bag.baseScale = groundScale
+                    // node/shadow setScale calls below are baseScale-only; updateBagVisuals will
+                    // re-multiply by distanceScale on the next frame.
+                    bag.node.run(SKAction.scale(to: groundScale * distanceScale, duration: 0.12))
+                    bag.shadow.run(SKAction.scale(to: groundScale * distanceScale, duration: 0.12))
                 }
             }
         }
@@ -1568,9 +1586,9 @@ final class CornholeMiniGameScene: SKScene {
         bag.shadow.position = CGPoint(x: bag.bx + bag.bz * 0.08, y: bag.by)
 
         let heightScale = 1.0 + bag.bz * 0.012
-        bag.node.setScale(bag.baseScale * heightScale)
+        bag.node.setScale(bag.baseScale * heightScale * distanceScale)
         bag.shadow.alpha   = max(0.08, 0.35 - bag.bz * 0.005)
-        bag.shadow.setScale(max(0.5, 1.0 - bag.bz * 0.005))
+        bag.shadow.setScale(max(0.5, 1.0 - bag.bz * 0.005) * distanceScale)
 
         // Depth sort: bags closer to camera (lower on screen) appear in front
         bag.node.zPosition = 20 + bag.bz * 0.1 - bag.by * 0.02
@@ -3047,7 +3065,11 @@ final class CornholeMiniGameScene: SKScene {
 
         // Spawn near the front edge of the board so the gopher has a runway —
         // gives the thrower a visible warning + a brief reaction window.
-        let spawnY = boardY - boardHalfH - 22
+        // Long-distance variant: pop up halfway between the throw line and the
+        // board's front edge so the gopher is visible mid-field, not way upstage.
+        let spawnY: CGFloat = distanceScale < 1.0
+            ? (throwLineY + (boardY - boardHalfH)) * 0.5
+            : boardY - boardHalfH - 22
         guard spawnY > throwLineY + 20 else { return }   // not enough room
 
         let referenceX: CGFloat = owner == .player ? targetX : pendingAIStartX
@@ -3058,6 +3080,9 @@ final class CornholeMiniGameScene: SKScene {
         let gopher = GopherNode()
         gopher.position = CGPoint(x: spawnX, y: spawnY)
         gopher.zPosition = 18
+        // Long-distance variant: still smaller than full size, but bumped up from the
+        // global distanceScale (0.5) so it reads clearly mid-field.
+        gopher.setScale(distanceScale < 1.0 ? 0.75 : 1.0)
         gameWorldNode.addChild(gopher)
         activeGopher = gopher
 
@@ -3172,6 +3197,8 @@ final class CornholeMiniGameScene: SKScene {
         let crow = makeCrowSprite(facingRight: crowFlyingRight)
         crow.position  = CGPoint(x: startX, y: crowY)
         crow.zPosition = 16
+        crow.xScale   *= distanceScale  // preserves facing-direction flip from makeCrowSprite
+        crow.yScale   *= distanceScale
         gameWorldNode.addChild(crow)
         crowNode = crow
 
@@ -3187,14 +3214,20 @@ final class CornholeMiniGameScene: SKScene {
     }
 
     private static let crowFlyFrames: [SKTexture] = {
-        let sheet = SKTexture(imageNamed: "Crow")
+        let sheet = SKTexture(imageNamed: "Duck_01")
         sheet.filteringMode = .nearest
-        // Sheet is 192×32 — 6 frames × 32×32, art faces left.
+        // Sheet is 256×640 — 8 cols × 20 rows of 32×32. Use the SECOND row from the top
+        // (6 mallard flap frames, columns 0..5). Art faces right.
         let cols = 6
-        let fw: CGFloat = 1.0 / CGFloat(cols)
+        let sheetCols: CGFloat = 8
+        let sheetRows: CGFloat = 20
+        let fw: CGFloat = 1.0 / sheetCols
+        let fh: CGFloat = 1.0 / sheetRows
+        // SKTexture rect uses bottom-up coords; row index 1 from the top = row (rows-2) from the bottom.
+        let y: CGFloat = (sheetRows - 2.0) / sheetRows
         var frames: [SKTexture] = []
         for i in 0..<cols {
-            let rect = CGRect(x: CGFloat(i) * fw, y: 0, width: fw, height: 1)
+            let rect = CGRect(x: CGFloat(i) * fw, y: y, width: fw, height: fh)
             let t = SKTexture(rect: rect, in: sheet)
             t.filteringMode = .nearest
             frames.append(t)
@@ -3205,8 +3238,8 @@ final class CornholeMiniGameScene: SKScene {
     private func makeCrowSprite(facingRight: Bool) -> SKSpriteNode {
         let frames = CornholeMiniGameScene.crowFlyFrames
         let sprite = SKSpriteNode(texture: frames[0], size: CGSize(width: 56, height: 56))
-        // Sheet art faces left; flip xScale when flying right.
-        if facingRight { sprite.xScale = -1 }
+        // Duck sheet art faces right; flip xScale when flying left.
+        if !facingRight { sprite.xScale = -1 }
         sprite.run(SKAction.repeatForever(
             SKAction.animate(with: frames, timePerFrame: 0.08, resize: false, restore: false)
         ))
@@ -3347,6 +3380,19 @@ final class CornholeMiniGameScene: SKScene {
         stormEndRound   = Int.max
         billyNoiseFactor = computeBillyInitialNoise()
         billyBombBagsRemaining = computeBillyBombCount()
+        // Long-distance variant: shrink board, hole, and bags to simulate a longer throw
+        distanceScale = 0.5
+        rebuildPlayfieldForDistance()
+    }
+
+    /// Re-runs layout math and rebuilds the board container after `distanceScale` changes.
+    /// Bag/gopher/crow visuals pick up the new scale on their next render.
+    private func rebuildPlayfieldForDistance() {
+        computeLayout()
+        boardContainerNode?.removeFromParent()
+        boardContainerNode = nil
+        setupBoard()
+        throwLineNode?.size = CGSize(width: boardHalfW * 1.2, height: 1)
     }
 
     /// Computes Billy's initial noise factor from the player's career cornhole accuracy.
