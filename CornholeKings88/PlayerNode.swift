@@ -73,6 +73,9 @@ final class PlayerNode: SKSpriteNode {
     private(set) var isInTree: Bool = false
     private var treeOverlay: SKShapeNode?
 
+    private(set) var isOnMountain: Bool = false
+    private var mountainOverlay: SKShapeNode?
+
     private var state: AnimState = .idle
     private var facing: Facing = .down
 
@@ -117,8 +120,12 @@ final class PlayerNode: SKSpriteNode {
         if isInTree && (moveDirection.dx != 0 || moveDirection.dy != 0) {
             descendTree()
         }
+        // Moving while on a mountain peak descends automatically
+        if isOnMountain && (moveDirection.dx != 0 || moveDirection.dy != 0) {
+            descendMountain()
+        }
 
-        let moving = !isInTree && (moveDirection.dx != 0 || moveDirection.dy != 0)
+        let moving = !isInTree && !isOnMountain && (moveDirection.dx != 0 || moveDirection.dy != 0)
         if moving {
             let step = moveSpeed * CGFloat(dt)
             position.x += moveDirection.dx * step
@@ -163,6 +170,39 @@ final class PlayerNode: SKSpriteNode {
         physicsBody?.contactTestBitMask |= PlayerNode.enemyBit
         treeOverlay?.removeFromParent()
         treeOverlay = nil
+    }
+
+    func climbMountain() {
+        guard !isOnMountain else { return }
+        isOnMountain = true
+        moveDirection = .zero
+        physicsBody?.velocity = .zero
+        physicsBody?.contactTestBitMask &= ~PlayerNode.enemyBit
+
+        let peak = SKShapeNode(circleOfRadius: 18)
+        peak.fillColor   = SKColor(red: 0.55, green: 0.55, blue: 0.60, alpha: 0.55)
+        peak.strokeColor = SKColor(red: 0.85, green: 0.82, blue: 0.40, alpha: 0.95)
+        peak.lineWidth   = 1.5
+        peak.position    = CGPoint(x: 0, y: 14)
+        peak.zPosition   = 1
+        peak.name        = "mountainPeak"
+        addChild(peak)
+        mountainOverlay = peak
+
+        let lift = SKAction.sequence([
+            SKAction.moveBy(x: 0, y: 4, duration: 0.10),
+            SKAction.moveBy(x: 0, y: -2, duration: 0.10),
+            SKAction.moveBy(x: 0, y: -2, duration: 0.10),
+        ])
+        run(lift)
+    }
+
+    func descendMountain() {
+        guard isOnMountain else { return }
+        isOnMountain = false
+        physicsBody?.contactTestBitMask |= PlayerNode.enemyBit
+        mountainOverlay?.removeFromParent()
+        mountainOverlay = nil
     }
 
     /// External hooks for one-shot states.

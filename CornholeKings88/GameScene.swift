@@ -85,6 +85,19 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     private var wellPositions: [CGPoint] = []
     private var nearbyWellPosition: CGPoint?
 
+    // Mountain interaction — any non-zero tile on a "mountain" layer; gated by the Golden Lance.
+    private var mountainPositions: [CGPoint] = []
+    private var nearbyMountainPosition: CGPoint?
+
+    // Axe pickup — any non-zero tile on an "ax" / "axe" layer. One-time pickup; persisted via `axeEarnedKey`.
+    private var axPositions: [CGPoint] = []
+    private var nearbyAxPosition: CGPoint?
+    private let axeEarnedKey = "axeEarned_v1"
+    /// Tree positions that have already been chopped this session/across launches. Keyed
+    /// as "intX,intY" (one entry per *cluster*, not per tile).
+    private var choppedTreeKeys: Set<String> = []
+    private let choppedTreesKey = "choppedTrees_v1"
+
     // Tutorial state
     private var hasShownDogTutorial = false
 
@@ -172,6 +185,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     private var btnB: SKShapeNode?
     private var btnBiscuit: SKShapeNode?
     private var btnLance: SKShapeNode?
+    private var btnAxe: SKShapeNode?
     private let actionBtnRadius: CGFloat = 26
 
     // HUD elements (so we can update them later).
@@ -480,6 +494,41 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         lance.addChild(makeLanceButtonContent())
         cameraNode.addChild(lance)
         btnLance = lance
+
+        // Axe button — permanent unlock after collecting the axe in the world.
+        let axeX = lanceX - 2 * actionBtnRadius - 14
+        let axe = SKShapeNode(circleOfRadius: actionBtnRadius)
+        axe.fillColor = SKColor(red: 0.18, green: 0.14, blue: 0.06, alpha: 1.0)
+        axe.strokeColor = SKColor(red: 0.85, green: 0.82, blue: 0.40, alpha: 1.0)
+        axe.lineWidth = 2.0
+        axe.zPosition = 10_000
+        axe.position = CGPoint(x: axeX, y: btnY)
+        axe.name = "btn_axe"
+        axe.isHidden = !UserDefaults.standard.bool(forKey: axeEarnedKey)
+        axe.addChild(makeAxeButtonContent())
+        cameraNode.addChild(axe)
+        btnAxe = axe
+    }
+
+    private func makeAxeButtonContent() -> SKNode {
+        let root = SKNode()
+        root.zPosition = 1
+        // Wooden handle: thin brown bar rotated -45°
+        let handle = SKSpriteNode(color: SKColor(red: 0.55, green: 0.36, blue: 0.18, alpha: 1.0),
+                                  size: CGSize(width: 26, height: 4))
+        handle.zRotation = -.pi / 4
+        root.addChild(handle)
+        // Iron axe head: silver wedge at the top-left end
+        let head = SKSpriteNode(color: SKColor(red: 0.78, green: 0.80, blue: 0.85, alpha: 1.0),
+                                size: CGSize(width: 11, height: 9))
+        head.position = CGPoint(x: -8, y: 8)
+        root.addChild(head)
+        // Darker edge stripe on the head
+        let edge = SKSpriteNode(color: SKColor(red: 0.45, green: 0.48, blue: 0.55, alpha: 1.0),
+                                size: CGSize(width: 2, height: 9))
+        edge.position = CGPoint(x: -12, y: 8)
+        root.addChild(edge)
+        return root
     }
 
     private func makeBiscuitButtonContent() -> SKNode {
@@ -614,6 +663,10 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         extractBridgeWoodPositions(from: m)
         extractFencePositions(from: m)
         extractWellPositions(from: m)
+        extractMountainPositions(from: m)
+        extractAxPositions(from: m)
+        loadChoppedTrees()
+        hideAlreadyChoppedTrees()
         cacheBridgePhysicsNodes(from: m)
         ySortStaticLayers(in: m)
 
@@ -986,6 +1039,127 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         print("🪣 Found \(wellPositions.count) well tile(s) on the map")
     }
 
+    /// Scans any map layer whose name contains "mountain" (case-insensitive) for non-zero
+    /// tiles. Pressing A near one — while carrying the Golden Lance — lets the player
+    /// climb up onto the mountain.
+    private func extractMountainPositions(from m: TMXMap) {
+        mountainPositions.removeAll()
+        var seen = Set<String>()
+        for (layerName, grid) in m.layerGIDs where layerName.lowercased().contains("mountain") {
+            for r in 0..<m.rows {
+                for c in 0..<m.cols {
+                    let gid = grid[r][c] & 0x0FFF_FFFF
+                    guard gid != 0 else { continue }
+                    let key = "\(r),\(c)"
+                    guard !seen.contains(key) else { continue }
+                    seen.insert(key)
+                    mountainPositions.append(m.tileCenter(col: c, row: r))
+                }
+            }
+        }
+        print("⛰️  Found \(mountainPositions.count) mountain tile(s) on the map")
+    }
+
+    /// Scans any map layer whose name contains "ax" (case-insensitive) for non-zero
+    /// tiles. Pressing A near one — while the axe hasn't been earned yet — picks it up.
+    private func extractAxPositions(from m: TMXMap) {
+        axPositions.removeAll()
+        // Skip if the player already owns the axe — the pickup tile should disappear.
+        let earned = UserDefaults.standard.bool(forKey: axeEarnedKey)
+        var seen = Set<String>()
+        for (layerName, grid) in m.layerGIDs {
+            let lname = layerName.lowercased()
+            guard lname == "ax" || lname == "axe" else { continue }
+            for r in 0..<m.rows {
+                for c in 0..<m.cols {
+                    let gid = grid[r][c] & 0x0FFF_FFFF
+                    guard gid != 0 else { continue }
+                    let key = "\(r),\(c)"
+                    guard !seen.contains(key) else { continue }
+                    seen.insert(key)
+                    let pos = m.tileCenter(col: c, row: r)
+                    if earned {
+                        // Already collected — hide the tile permanently.
+                        hideChestTile(at: pos)
+                    } else {
+                        axPositions.append(pos)
+                    }
+                }
+            }
+        }
+        print("🪓 Found \(axPositions.count) axe pickup tile(s) on the map (earned=\(earned))")
+    }
+
+    private func loadChoppedTrees() {
+        let saved = UserDefaults.standard.stringArray(forKey: choppedTreesKey) ?? []
+        choppedTreeKeys = Set(saved)
+    }
+
+    private func saveChoppedTrees() {
+        UserDefaults.standard.set(Array(choppedTreeKeys), forKey: choppedTreesKey)
+    }
+
+    /// On scene load, re-hide every tree tile that the player has already chopped.
+    private func hideAlreadyChoppedTrees() {
+        guard !choppedTreeKeys.isEmpty, let m = map else { return }
+        // Each chopped key is a single tile center — but a tree spans multiple tiles.
+        // We stored the cluster center; here we re-hide every tree/apple tile within
+        // a chop radius of each saved center.
+        for key in choppedTreeKeys {
+            let parts = key.split(separator: ",")
+            guard parts.count == 2,
+                  let x = Double(parts[0]), let y = Double(parts[1]) else { continue }
+            hideTreeTiles(near: CGPoint(x: x, y: y), in: m)
+        }
+        // Drop those positions out of the climb/apple lists so the prompts don't reappear.
+        treePositions.removeAll { isChopped($0) }
+        appleTreePositions.removeAll { isChopped($0) }
+    }
+
+    private func isChopped(_ pos: CGPoint) -> Bool {
+        // Match if any saved key is within ~one tile of this position.
+        for key in choppedTreeKeys {
+            let parts = key.split(separator: ",")
+            guard parts.count == 2,
+                  let kx = Double(parts[0]), let ky = Double(parts[1]) else { continue }
+            if hypot(pos.x - CGFloat(kx), pos.y - CGFloat(ky)) < 24 { return true }
+        }
+        return false
+    }
+
+    /// Hides every map tile (across all layers) belonging to a tree/apple tileset within
+    /// `radius` world-units of `worldPos`. Used both to chop a tree on demand and to
+    /// re-apply persisted chops on scene load.
+    private func hideTreeTiles(near worldPos: CGPoint, in m: TMXMap, radius: CGFloat = 32) {
+        let treeRanges = m.tilesetRanges
+            .filter { $0.name.contains("tree") || $0.name.contains("apple") }
+            .map(\.gidRange)
+        guard !treeRanges.isEmpty else { return }
+        let tw = m.tileSize.width
+        let th = m.tileSize.height
+        for (layerName, grid) in m.layerGIDs {
+            for r in 0..<m.rows {
+                for c in 0..<m.cols {
+                    let gid = grid[r][c] & 0x0FFF_FFFF
+                    guard gid != 0 else { continue }
+                    guard treeRanges.contains(where: { $0.contains(gid) }) else { continue }
+                    let center = m.tileCenter(col: c, row: r)
+                    if hypot(center.x - worldPos.x, center.y - worldPos.y) <= radius {
+                        // Hide every layer-child sprite that sits on this tile.
+                        if let layerNode = m.layerNodes[layerName] {
+                            for child in layerNode.children {
+                                if abs(child.position.x - center.x) < tw / 2 + 1 &&
+                                   abs(child.position.y - center.y) < th / 2 + 1 {
+                                    child.isHidden = true
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     /// Stores references to the water-blocking physics nodes that sit under ImaginationFX
     /// bridge tiles so they can be removed when the bridge is unlocked.
     private func cacheBridgePhysicsNodes(from m: TMXMap) {
@@ -1023,6 +1197,8 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         let bridgeWoodRadius:  CGFloat = 36
         let fenceRadius:       CGFloat = 36
         let wellRadius:        CGFloat = 36
+        let mountainRadius:    CGFloat = 26
+        let axRadius:          CGFloat = 24
 
         // Find the single closest object across all categories.
         var bestDist         = CGFloat.infinity
@@ -1038,6 +1214,8 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         var bestStore:        CGPoint? = nil
         var bestFence:        CGPoint? = nil
         var bestWell:         CGPoint? = nil
+        var bestMountain:     CGPoint? = nil
+        var bestAx:           CGPoint? = nil
 
         for pos in cornholeBoardPositions {
             let d = hypot(player.position.x - pos.x, player.position.y - pos.y)
@@ -1129,6 +1307,32 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
             }
         }
 
+        // Axe pickup — only while the player hasn't earned it yet.
+        if !UserDefaults.standard.bool(forKey: axeEarnedKey) {
+            for pos in axPositions {
+                let d = hypot(player.position.x - pos.x, player.position.y - pos.y)
+                if d < axRadius && d < bestDist {
+                    bestDist = d; bestBoard = nil; bestChest = nil; bestStore = nil; bestBridgeStone = nil
+                    bestBaseball = nil; bestTree = nil; bestAppleTree = nil
+                    bestBeehive = nil; bestPool = nil; bestBridgeWood = nil
+                    bestFence = nil; bestWell = nil; bestMountain = nil; bestAx = pos
+                }
+            }
+        }
+
+        // Mountain climbing — gated by Golden Lance ownership.
+        if UserDefaults.standard.bool(forKey: goldenLanceKey) {
+            for pos in mountainPositions {
+                let d = hypot(player.position.x - pos.x, player.position.y - pos.y)
+                if d < mountainRadius && d < bestDist {
+                    bestDist = d; bestBoard = nil; bestChest = nil; bestStore = nil; bestBridgeStone = nil
+                    bestBaseball = nil; bestTree = nil; bestAppleTree = nil
+                    bestBeehive = nil; bestPool = nil; bestBridgeWood = nil
+                    bestFence = nil; bestWell = nil; bestMountain = pos
+                }
+            }
+        }
+
         // Story bat — only active during the bat-search phase
         var bestStoryBat: CGPoint? = nil
         if let batPos = storyBatPosition {
@@ -1138,6 +1342,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
                 bestBoard = nil; bestChest = nil; bestStore = nil; bestBridgeStone = nil
                 bestBaseball = nil; bestTree = nil; bestAppleTree = nil
                 bestBeehive = nil; bestPool = nil; bestBridgeWood = nil; bestFence = nil
+                bestWell = nil; bestMountain = nil; bestAx = nil
                 bestStoryBat = batPos
             }
         }
@@ -1154,10 +1359,14 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         nearbyBridgeWoodPosition  = bestBridgeWood
         nearbyFencePosition       = bestFence
         nearbyWellPosition        = bestWell
+        nearbyMountainPosition    = bestMountain
+        nearbyAxPosition          = bestAx
         nearbyStoryBatPosition    = bestStoryBat
 
         // Auto-descend when the player walks away from the tree they climbed.
         if bestTree == nil && player.isInTree { player.descendTree() }
+        // Auto-descend the mountain when the player walks out of range.
+        if bestMountain == nil && player.isOnMountain { player.descendMountain() }
 
         // Position the single shared prompt above the nearest object, or hide it.
         let anchor: CGPoint?
@@ -1173,6 +1382,8 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         else if let p = bestBridgeWood    { anchor = CGPoint(x: p.x, y: p.y + 22) }
         else if let p = bestFence         { anchor = CGPoint(x: p.x, y: p.y + 22) }
         else if let p = bestWell          { anchor = CGPoint(x: p.x, y: p.y + 22) }
+        else if let p = bestMountain      { anchor = CGPoint(x: p.x, y: p.y + 22) }
+        else if let p = bestAx            { anchor = CGPoint(x: p.x, y: p.y + 22) }
         else if let p = bestStoryBat      { anchor = CGPoint(x: p.x, y: p.y + 22) }
         else                              { anchor = nil }
 
@@ -1265,6 +1476,51 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
                 self.showPickupText("+ DOG BISCUIT", at: pos)
             }
         }
+    }
+
+    // MARK: - Axe
+
+    private func collectAxe() {
+        guard let pos = nearbyAxPosition else { return }
+        // Persist + reveal the HUD button.
+        UserDefaults.standard.set(true, forKey: axeEarnedKey)
+        btnAxe?.isHidden = false
+        // Hide the pickup tile and clear it from the active list.
+        hideChestTile(at: pos)
+        axPositions.removeAll { abs($0.x - pos.x) < 1 && abs($0.y - pos.y) < 1 }
+        nearbyAxPosition = nil
+        showPickupText("+ AXE", at: pos)
+    }
+
+    /// Chops the climbable or apple tree currently in proximity. Hides every tree tile in the
+    /// cluster, drops it from interaction lists, persists the chop, and grants +1 wood.
+    private func chopNearbyTree() {
+        // If the player is climbing the tree, descend first so they're not stranded mid-air.
+        if player.isInTree { player.descendTree() }
+
+        let target: CGPoint?
+        if let p = nearbyTreePosition { target = p }
+        else if let p = nearbyAppleTreePosition { target = p }
+        else { target = nil }
+
+        guard let pos = target, let m = map else {
+            showHintBanner("Stand next to a tree\nto chop it.")
+            return
+        }
+
+        // Hide every tree tile within the cluster, persist, and drop from lists.
+        hideTreeTiles(near: pos, in: m)
+        let key = "\(Int(pos.x)),\(Int(pos.y))"
+        choppedTreeKeys.insert(key)
+        saveChoppedTrees()
+        treePositions.removeAll { hypot($0.x - pos.x, $0.y - pos.y) < 24 }
+        appleTreePositions.removeAll { hypot($0.x - pos.x, $0.y - pos.y) < 24 }
+        nearbyTreePosition = nil
+        nearbyAppleTreePosition = nil
+
+        // Reward the player.
+        inventory.collect(.wood, count: 1)
+        showPickupText("+ WOOD", at: pos)
     }
 
     private func hideChestTile(at worldPos: CGPoint) {
@@ -1649,16 +1905,26 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         let fences = m.layerGIDs["fences"]
         let ground = m.layerGIDs["Ground"]
         let interactions = m.layerGIDs["Interactions"]
+        // Mountain layers act as walls until the player earns the Golden Lance.
+        let mountainGrids: [[[Int]]] = UserDefaults.standard.bool(forKey: goldenLanceKey)
+            ? []
+            : m.layerGIDs.filter { $0.key.lowercased().contains("mountain") }.map { $0.value }
 
         func isWater(_ gid: Int) -> Bool {
             // water1: 22..45, water2: 257..280, water3: 281..304 (see World1.tmx).
             (22...45).contains(gid) || (257...304).contains(gid)
         }
 
+        func isMountain(_ r: Int, _ c: Int) -> Bool {
+            for g in mountainGrids where (g[r][c] & 0x0FFF_FFFF) != 0 { return true }
+            return false
+        }
+
         for r in 0..<m.rows {
             for c in 0..<m.cols {
                 let blocked = (collisions?[r][c] ?? 0) != 0
                                     || (fences?[r][c] ?? 0) != 0
+                                    || isMountain(r, c)
                 let waterHere = isWater(ground?[r][c] ?? 0)
                 // A bridge (any tile on the Interactions layer at this cell)
                 // overrides the water block so the player can cross it.
@@ -1845,6 +2111,10 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
             // TODO: interact with nearby high object when that system is added
             return
         }
+        if let axe = btnAxe, !axe.isHidden, distanceSquared(pInCam, axe.position) < btnHit {
+            chopNearbyTree()
+            return
+        }
         if let biscuit = btnBiscuit, !biscuit.isHidden, distanceSquared(pInCam, biscuit.position) < btnHit {
             placeDogBiscuit()
             return
@@ -1854,6 +2124,8 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
 
             if nearbyStoryBatPosition != nil {
                 collectStoryBat()
+            } else if nearbyAxPosition != nil {
+                collectAxe()
             } else if let p = nearbyBoardPosition {
                 if trigger == StoryManager.triggerCornhole {
                     StoryManager.shared.pendingWorldTrigger = nil
@@ -1912,6 +2184,8 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
                 } else {
                     showHintBanner("You need bean bags\nto throw down the well.")
                 }
+            } else if nearbyMountainPosition != nil {
+                if player.isOnMountain { player.descendMountain() } else { player.climbMountain() }
             } else if nearbyTreePosition != nil {
                 if player.isInTree { player.descendTree() } else { player.climbTree() }
             }
@@ -2367,6 +2641,12 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         }
         if let fences = m.layerGIDs["fences"], fences[row][col] != 0 {
             return false
+        }
+        // Mountain layers are walls until the lance is earned.
+        if !UserDefaults.standard.bool(forKey: goldenLanceKey) {
+            for (name, grid) in m.layerGIDs where name.lowercased().contains("mountain") {
+                if (grid[row][col] & 0x0FFF_FFFF) != 0 { return false }
+            }
         }
         let groundGid = (m.layerGIDs["Ground"]?[row][col] ?? 0) & 0x0FFF_FFFF
         let isWater = (22...45).contains(groundGid) || (257...304).contains(groundGid)

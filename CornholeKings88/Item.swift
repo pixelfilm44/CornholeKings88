@@ -27,6 +27,8 @@ enum ItemType: String, CaseIterable {
     /// Won by beating Suburban Jousters. Activates an action button that lets the player
     /// interact with high objects in the world (ladders, high ledges, etc.).
     case goldenLance
+    /// Chopped from trees with the axe. Currently a cosmetic count; future crafting may consume it.
+    case wood
 
     var color: SKColor {
         switch self {
@@ -41,6 +43,7 @@ enum ItemType: String, CaseIterable {
         case .dogBiscuit:  return SKColor(red: 0.80, green: 0.62, blue: 0.36, alpha: 1.0)
         case .floatingBag: return SKColor(red: 0.35, green: 0.80, blue: 0.95, alpha: 1.0)
         case .goldenLance: return SKColor(red: 1.00, green: 0.84, blue: 0.00, alpha: 1.0)
+        case .wood:       return SKColor(red: 0.55, green: 0.36, blue: 0.18, alpha: 1.0)
         }
     }
 
@@ -57,6 +60,7 @@ enum ItemType: String, CaseIterable {
         case .dogBiscuit:  return "DOG BISCUIT"
         case .floatingBag: return "FLOAT BAG"
         case .goldenLance: return "GOLDEN LANCE"
+        case .wood:       return "WOOD"
         }
     }
 
@@ -73,6 +77,7 @@ enum ItemType: String, CaseIterable {
         case .dogBiscuit:  return "D"
         case .floatingBag: return "≈"
         case .goldenLance: return "⚡"
+        case .wood:       return "W"
         }
     }
 }
