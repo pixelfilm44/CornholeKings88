@@ -115,7 +115,8 @@ final class CornholeMiniGameScene: SKScene {
             } else if isBomb {
                 playerColor = SKColor(red: 0.08, green: 0.06, blue: 0.06, alpha: 1)
             } else if isMagic {
-                playerColor = SKColor(red: 0.12, green: 0.82, blue: 0.35, alpha: 1)
+                // Fluorescent green — pops against the spirit's night scene
+                playerColor = SKColor(red: 0.30, green: 1.00, blue: 0.10, alpha: 1)
             } else if isFire {
                 playerColor = SKColor(red: 0.95, green: 0.30, blue: 0.05, alpha: 1)
             } else if isHoney {
@@ -129,7 +130,8 @@ final class CornholeMiniGameScene: SKScene {
             } else if isBomb {
                 aiColor = SKColor(red: 0.12, green: 0.04, blue: 0.18, alpha: 1)
             } else if isMagic {
-                aiColor = SKColor(red: 0.18, green: 0.90, blue: 0.42, alpha: 1)
+                // Fluorescent green — matches the player magic bag look
+                aiColor = SKColor(red: 0.30, green: 1.00, blue: 0.10, alpha: 1)
             } else if isFire {
                 aiColor = SKColor(red: 0.90, green: 0.22, blue: 0.02, alpha: 1)
             } else {
@@ -155,6 +157,9 @@ final class CornholeMiniGameScene: SKScene {
             }
             // Sparkle marker on magic bags
             if isMagic {
+                // Render above the storm dark overlay (z=95) and rain particles (z=102)
+                // so the fluorescent green stays bright against the night scene.
+                node.zPosition = 110
                 let sparkle = SKLabelNode(text: "✦")
                 sparkle.fontSize                = 14
                 sparkle.fontColor               = SKColor(red: 0.90, green: 1.0, blue: 0.70, alpha: 1)
@@ -206,6 +211,11 @@ final class CornholeMiniGameScene: SKScene {
                                   size: CGSize(width: 50, height: 35))
             shadow.alpha = 0.35
             shadow.zPosition = 6
+
+            // Seed initial position so the node doesn't flash at the gameWorld origin
+            // (mid-screen) for one frame before updateBagPhysics positions it.
+            node.position   = CGPoint(x: bx, y: by + bz * 0.50)
+            shadow.position = CGPoint(x: bx, y: by)
         }
 
         required init?(coder: NSCoder) { fatalError() }
@@ -1324,6 +1334,13 @@ final class CornholeMiniGameScene: SKScene {
 
         updateScoreLabels()
 
+        // Tree Spirit: once the player takes the lead, the storm calms but the
+        // moonlit night tint stays. Disarm stormStartRound so it can't re-trigger.
+        if selectedOpponent == .spirit && stormActive && playerScore > aiScore {
+            stormStartRound = -1
+            deactivateStorm(keepNightTint: true)
+        }
+
         if playerScore >= winScore || aiScore >= winScore {
             gameState = .gameOver
             removeAction(forKey: "crowSchedule")
@@ -2424,6 +2441,8 @@ final class CornholeMiniGameScene: SKScene {
         case .playerTurn:
             if goldenBagSelected {
                 turnIndicator?.color = SKColor(red: 1.00, green: 0.84, blue: 0.00, alpha: 1)  // gold — golden bag armed
+            } else if magicBagSelected {
+                turnIndicator?.color = SKColor(red: 0.30, green: 1.00, blue: 0.10, alpha: 1)  // fluorescent green — magic bag armed
             } else if fireBagSelected {
                 turnIndicator?.color = SKColor(red: 0.95, green: 0.30, blue: 0.05, alpha: 1)  // orange — fire bag armed
             } else if honeyBagSelected {
@@ -2432,14 +2451,48 @@ final class CornholeMiniGameScene: SKScene {
                 turnIndicator?.color = SKColor(red: 0.90, green: 0.30, blue: 0.30, alpha: 1)
             }
             applyGoldenIndicatorMarker(goldenBagSelected)
+            applyMagicIndicatorMarker(magicBagSelected)
             turnIndicator?.isHidden = false
         case .aiTurn:
             turnIndicator?.color = SKColor(red: 0.30, green: 0.50, blue: 0.90, alpha: 1)
             applyGoldenIndicatorMarker(false)
+            applyMagicIndicatorMarker(false)
             turnIndicator?.isHidden = selectedOpponent == .spirit
         default:
             applyGoldenIndicatorMarker(false)
+            applyMagicIndicatorMarker(false)
             turnIndicator?.isHidden = true
+        }
+    }
+
+    /// Adds or removes a ✦ sparkle marker on the throw-line preview bag so it's
+    /// obvious at a glance the next throw is a magic bag.
+    private func applyMagicIndicatorMarker(_ show: Bool) {
+        guard let indicator = turnIndicator else { return }
+        let existing = indicator.childNode(withName: "magicSparkleMarker")
+        if show {
+            if existing == nil {
+                let sparkle = SKLabelNode(text: "✦")
+                sparkle.name                    = "magicSparkleMarker"
+                sparkle.fontName                = "PressStart2P-Regular"
+                sparkle.fontSize                = 20
+                sparkle.fontColor               = SKColor(red: 0.90, green: 1.0, blue: 0.70, alpha: 1)
+                sparkle.verticalAlignmentMode   = .center
+                sparkle.horizontalAlignmentMode = .center
+                sparkle.position                = .zero
+                sparkle.zPosition               = 1
+                indicator.addChild(sparkle)
+            }
+            // Gentle pulse so the preview bag clearly reads as the magic bag
+            indicator.removeAction(forKey: "magicPulse")
+            indicator.run(SKAction.repeatForever(SKAction.sequence([
+                SKAction.fadeAlpha(to: 0.65, duration: 0.35),
+                SKAction.fadeAlpha(to: 1.00, duration: 0.35),
+            ])), withKey: "magicPulse")
+        } else {
+            existing?.removeFromParent()
+            indicator.removeAction(forKey: "magicPulse")
+            indicator.alpha = 1.0
         }
     }
 
@@ -2498,6 +2551,7 @@ final class CornholeMiniGameScene: SKScene {
     // MARK: - Rain
 
     private func rollWeatherScenarios() {
+        // Spirit forces a permanent thunderstorm in applySpiritSettings — don't re-roll.
         guard selectedOpponent == .billy else { return }
         rollRainScenario()
         rollThunderstormScenario()
@@ -2680,7 +2734,7 @@ final class CornholeMiniGameScene: SKScene {
         stormAudioNode = audio
     }
 
-    private func deactivateStorm() {
+    private func deactivateStorm(keepNightTint: Bool = false) {
         stormActive = false
         removeAction(forKey: "stormFlash")
         removeAction(forKey: "stormStrike")
@@ -2693,11 +2747,15 @@ final class CornholeMiniGameScene: SKScene {
             stormAudioNode = nil
         }
 
-        stormDarkOverlay?.run(SKAction.sequence([
-            SKAction.fadeOut(withDuration: 0.8),
-            SKAction.removeFromParent(),
-        ]))
-        stormDarkOverlay = nil
+        if keepNightTint {
+            // Leave the moonlit blue wash in place — rain/wind/lightning still clear.
+        } else {
+            stormDarkOverlay?.run(SKAction.sequence([
+                SKAction.fadeOut(withDuration: 0.8),
+                SKAction.removeFromParent(),
+            ]))
+            stormDarkOverlay = nil
+        }
 
         stormParticleNode?.run(SKAction.sequence([
             SKAction.fadeOut(withDuration: 0.6),
@@ -2708,7 +2766,7 @@ final class CornholeMiniGameScene: SKScene {
         stormFlashOverlay?.removeFromParent()
         stormFlashOverlay = nil
 
-        let cleared = makeLabel(text: "STORM PASSED",
+        let cleared = makeLabel(text: keepNightTint ? "STORM CALMS" : "STORM PASSED",
                                 size: max(7, size.width * 0.055),
                                 color: SKColor(red: 0.95, green: 0.90, blue: 0.50, alpha: 1))
         cleared.position  = CGPoint(x: 0, y: size.height * 0.12)
@@ -3404,9 +3462,18 @@ final class CornholeMiniGameScene: SKScene {
         addChild(picker)
     }
 
-    /// Configures Tree Spirit game overrides: score to 21, no forced weather.
+    /// Configures Tree Spirit game overrides: score to 21, long-distance throw, and
+    /// a permanent moonlit thunderstorm (blue night tint + rain + lightning + wind).
     private func applySpiritSettings() {
         winScore = 21
+        // Force thunderstorm for the entire match — sells the spooky night setting
+        rainStartRound  = -1
+        rainEndRound    = Int.max
+        stormStartRound = 1
+        stormEndRound   = Int.max
+        // Long-distance variant: shrink board, hole, and bags to simulate a longer throw
+        distanceScale = 0.5
+        rebuildPlayfieldForDistance()
     }
 
     /// Configures Billy's gang member (street-bully ambush): quick 7-point match,
