@@ -366,6 +366,7 @@ final class CornholeMiniGameScene: SKScene {
         let sounds = ["hit.mp3",      "hole_score.wav", "round_end.wav",
                       "rain_start.wav", "gopher_pop.wav", "gopher_steal.wav",
                       "game_win.wav",  "game_lose.wav",  "storm.mp3",
+                      "cornhole.wav", "quack.wav",
                       "fart.wav"]   // Tom's toot — asset optional; skipped if absent
         sounds.forEach { warmUpSound($0) }
     }
@@ -1523,6 +1524,7 @@ final class CornholeMiniGameScene: SKScene {
                     UINotificationFeedbackGenerator().notificationOccurred(.success)
                     // PLACEHOLDER: add hole_score.wav to Copy Bundle Resources
                     run(SKAction.playSoundFileNamed("hole_score.wav", waitForCompletion: false))
+                    run(SKAction.playSoundFileNamed("cornhole.wav", waitForCompletion: false))
                     showHoleEffect(at: CGPoint(x: bag.bx, y: bag.by))
                     let sink = SKAction.sequence([
                         SKAction.group([
@@ -2420,19 +2422,55 @@ final class CornholeMiniGameScene: SKScene {
     private func updateTurnIndicator() {
         switch gameState {
         case .playerTurn:
-            if fireBagSelected {
+            if goldenBagSelected {
+                turnIndicator?.color = SKColor(red: 1.00, green: 0.84, blue: 0.00, alpha: 1)  // gold — golden bag armed
+            } else if fireBagSelected {
                 turnIndicator?.color = SKColor(red: 0.95, green: 0.30, blue: 0.05, alpha: 1)  // orange — fire bag armed
             } else if honeyBagSelected {
                 turnIndicator?.color = SKColor(red: 0.95, green: 0.72, blue: 0.10, alpha: 1)  // golden — honey bag armed
             } else {
                 turnIndicator?.color = SKColor(red: 0.90, green: 0.30, blue: 0.30, alpha: 1)
             }
+            applyGoldenIndicatorMarker(goldenBagSelected)
             turnIndicator?.isHidden = false
         case .aiTurn:
             turnIndicator?.color = SKColor(red: 0.30, green: 0.50, blue: 0.90, alpha: 1)
+            applyGoldenIndicatorMarker(false)
             turnIndicator?.isHidden = selectedOpponent == .spirit
         default:
+            applyGoldenIndicatorMarker(false)
             turnIndicator?.isHidden = true
+        }
+    }
+
+    /// Adds or removes a star marker + shimmer on the throw-line preview bag so it's
+    /// obvious at a glance the next throw is a golden bag.
+    private func applyGoldenIndicatorMarker(_ show: Bool) {
+        guard let indicator = turnIndicator else { return }
+        let existing = indicator.childNode(withName: "goldenStarMarker")
+        if show {
+            if existing == nil {
+                let star = SKLabelNode(text: "★")
+                star.name                    = "goldenStarMarker"
+                star.fontName                = "PressStart2P-Regular"
+                star.fontSize                = 22
+                star.fontColor               = SKColor(white: 1.0, alpha: 0.95)
+                star.verticalAlignmentMode   = .center
+                star.horizontalAlignmentMode = .center
+                star.position                = .zero
+                star.zPosition               = 1
+                indicator.addChild(star)
+            }
+            indicator.removeAction(forKey: "goldenShimmer")
+            indicator.run(SKAction.repeatForever(SKAction.sequence([
+                SKAction.colorize(with: SKColor(red: 1.0, green: 1.0, blue: 0.55, alpha: 1),
+                                  colorBlendFactor: 0.55, duration: 0.25),
+                SKAction.colorize(withColorBlendFactor: 0.90, duration: 0.25),
+            ])), withKey: "goldenShimmer")
+        } else {
+            existing?.removeFromParent()
+            indicator.removeAction(forKey: "goldenShimmer")
+            indicator.colorBlendFactor = 0.65
         }
     }
 
@@ -3087,7 +3125,7 @@ final class CornholeMiniGameScene: SKScene {
         gopher.zPosition = 18
         // Long-distance variant: still smaller than full size, but bumped up from the
         // global distanceScale (0.5) so it reads clearly mid-field.
-        gopher.setScale(distanceScale < 1.0 ? 0.75 : 1.0)
+        gopher.setScale(distanceScale < 1.0 ? 1.5 : 2.0)
         gameWorldNode.addChild(gopher)
         activeGopher = gopher
 
@@ -3277,6 +3315,7 @@ final class CornholeMiniGameScene: SKScene {
         bag.vx = 0; bag.vy = 0; bag.vz = 0
 
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        run(SKAction.playSoundFileNamed("quack.wav", waitForCompletion: false))
 
         // Rapid panic flap
         (crow as? SKSpriteNode)?.removeAllActions()

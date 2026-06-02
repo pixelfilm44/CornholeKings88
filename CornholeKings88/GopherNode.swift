@@ -116,15 +116,29 @@ final class GopherNode: SKNode {
         // Dirt mound puffs out first
         dirtMound.run(SKAction.scale(to: 1.0, duration: 0.10))
 
-        // Gopher pops up after a brief beat
-        run(SKAction.wait(forDuration: 0.10)) { [weak self] in
+        // Gopher rises up from the dirt — start sunk below ground, then slide up.
+        let riseDistance: CGFloat = 14
+        run(SKAction.wait(forDuration: 0.08)) { [weak self] in
             guard let self else { return }
             for child in self.children where child !== self.dirtMound {
+                let finalY = child.position.y
+                child.position.y = finalY - riseDistance
                 child.isHidden = false
-                child.setScale(0.1)
-                child.run(SKAction.scale(to: 1.0, duration: 0.18))
+                child.alpha = 0
+                let rise = SKAction.group([
+                    SKAction.moveTo(y: finalY, duration: 0.18),
+                    SKAction.fadeIn(withDuration: 0.10),
+                ])
+                rise.timingMode = .easeOut
+                child.run(rise)
             }
-            self.run(SKAction.wait(forDuration: 0.20)) { [weak self] in
+            // Squash-and-stretch on the whole gopher for a punchy pop.
+            let baseY = self.yScale
+            self.run(SKAction.sequence([
+                SKAction.scaleY(to: baseY * 1.20, duration: 0.10),
+                SKAction.scaleY(to: baseY,        duration: 0.08),
+            ]))
+            self.run(SKAction.wait(forDuration: 0.22)) { [weak self] in
                 self?.phase = .chasing
                 completion()
             }
