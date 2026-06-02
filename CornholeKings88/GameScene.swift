@@ -488,10 +488,20 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         cameraNode.addChild(a)
         btnA = a
 
-        let b = makeActionButton(color: bronzeColor, label: "B", labelColor: SKColor(red: 0.85, green: 0.70, blue: 0.30, alpha: 1.0))
+        let b = SKShapeNode(circleOfRadius: actionBtnRadius)
+        b.fillColor = bronzeColor
+        b.strokeColor = ironColor
+        b.lineWidth = 2.0
+        b.zPosition = 10_000
         b.position = CGPoint(x: bX, y: btnY)
         b.name = "btn_b"
         b.isHidden = true   // visible only while the player has bean bags
+        let bagIcon = SKSpriteNode(imageNamed: "bag_16bit")
+        bagIcon.texture?.filteringMode = .nearest
+        let bagFit: CGFloat = actionBtnRadius * 1.4
+        bagIcon.size = CGSize(width: bagFit, height: bagFit)
+        bagIcon.zPosition = 1
+        b.addChild(bagIcon)
         cameraNode.addChild(b)
         btnB = b
 
