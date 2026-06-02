@@ -185,6 +185,33 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     private var btnB: SKShapeNode?
     private var btnBiscuit: SKShapeNode?
     private var btnAxe: SKShapeNode?
+    private var btnFort: SKShapeNode?
+
+    // Player-placed wood-log walls. Each log has a static physics body on `worldBit`
+    // so both the player and enemies (dogs) collide with it. Choppable with the axe
+    // for a +1 wood refund.
+    private struct PlacedWoodLog {
+        let node: SKNode
+        let position: CGPoint
+    }
+    private var placedWoodLogs: [PlacedWoodLog] = []
+
+    // Build mode — toggled by tapping the fort button. While active, logs trail
+    // continuously behind the player. Wood is a permanent material: placing a log
+    // does NOT consume the inventory entry, it just transforms a piece of wood
+    // from the pile into a deployed fence. Chopping the log returns it to the
+    // pile (no net change). Placement is gated by `availableWoodForBuilding` so a
+    // player with 14 wood can place at most 14 logs at once. Logs are session-
+    // only — on next launch they vanish and the wood count is unchanged, which
+    // naturally restores the "full pile" the user expects.
+    private var isBuilding: Bool = false
+    private var lastBuildPosition: CGPoint = .zero
+    private let buildSpacing: CGFloat = 10        // < log width (14) → continuous line
+    private let buildBackOffset: CGFloat = 14     // log sits this far behind the player
+
+    private var availableWoodForBuilding: Int {
+        max(0, inventory.counts[.wood, default: 0] - placedWoodLogs.count)
+    }
     /// Passive Golden Lance indicator in the top HUD (not an action button).
     private var lanceIndicator: SKNode?
     private let actionBtnRadius: CGFloat = 26
@@ -508,6 +535,41 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         axe.addChild(makeAxeButtonContent())
         cameraNode.addChild(axe)
         btnAxe = axe
+
+        // Fort button — placed directly left of the axe button. Visible only while
+        // the player is carrying wood. Each tap consumes 1 wood and drops a log
+        // wall in front of the player.
+        let fortX = aX - 2 * actionBtnRadius - 14
+        let fort = SKShapeNode(circleOfRadius: actionBtnRadius)
+        fort.fillColor = woodDarkColor
+        fort.strokeColor = SKColor(red: 0.85, green: 0.82, blue: 0.40, alpha: 1.0)
+        fort.lineWidth = 2.0
+        fort.zPosition = 10_000
+        fort.position = CGPoint(x: fortX, y: axeY)
+        fort.name = "btn_fort"
+        fort.isHidden = true
+        fort.addChild(makeFortButtonContent())
+        cameraNode.addChild(fort)
+        btnFort = fort
+    }
+
+    private func makeFortButtonContent() -> SKNode {
+        let root = SKNode()
+        root.zPosition = 1
+        let log = SKSpriteNode(color: SKColor(red: 0.55, green: 0.36, blue: 0.18, alpha: 1.0),
+                               size: CGSize(width: 26, height: 10))
+        root.addChild(log)
+        let ringColor = SKColor(red: 0.30, green: 0.18, blue: 0.08, alpha: 1.0)
+        for x: CGFloat in [-10, 10] {
+            let ring = SKSpriteNode(color: ringColor, size: CGSize(width: 2, height: 10))
+            ring.position = CGPoint(x: x, y: 0)
+            root.addChild(ring)
+        }
+        let highlight = SKSpriteNode(color: SKColor(red: 0.70, green: 0.46, blue: 0.22, alpha: 1.0),
+                                     size: CGSize(width: 26, height: 2))
+        highlight.position = CGPoint(x: 0, y: 3)
+        root.addChild(highlight)
+        return root
     }
 
     private func makeAxeButtonContent() -> SKNode {
@@ -580,6 +642,10 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         btnB?.isHidden = inventory.counts[.bag, default: 0] == 0
     }
 
+    private func updateFortButton() {
+        btnFort?.isHidden = availableWoodForBuilding == 0
+    }
+
     private func makeActionButton(color: SKColor, label: String, labelColor: SKColor) -> SKShapeNode {
         let btn = SKShapeNode(circleOfRadius: actionBtnRadius)
         btn.fillColor = color
@@ -615,10 +681,18 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
             self.inventoryHUD?.refresh(counts: self.inventory.counts)
             self.updateBiscuitButton()
             self.updateThrowButton()
+            self.updateFortButton()
             self.storeModal?.refreshCardStates()
         }
         updateBiscuitButton()
         updateThrowButton()
+        updateFortButton()
+        // Wood resets every round — trees respawn at scene load (see loadChoppedTrees)
+        // so any wood the player chopped last session is no longer "in their pocket."
+        // They have to re-chop trees this round to refill the pile.
+        if let woodCount = inventory.counts[.wood], woodCount > 0 {
+            inventory.consume(.wood, count: woodCount)
+        }
         // Mirror permanent unlocks (Golden Lance) into the inventory pill row so the
         // player can see what they're carrying. Lance is a single-quantity item.
         if UserDefaults.standard.bool(forKey: goldenLanceKey),
@@ -1097,12 +1171,14 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     }
 
     private func loadChoppedTrees() {
-        let saved = UserDefaults.standard.stringArray(forKey: choppedTreesKey) ?? []
-        choppedTreeKeys = Set(saved)
+        // Trees respawn each round — start every scene load with no chopped trees
+        // and clear any legacy persisted state so old saves don't keep tiles hidden.
+        choppedTreeKeys = []
+        UserDefaults.standard.removeObject(forKey: choppedTreesKey)
     }
 
     private func saveChoppedTrees() {
-        UserDefaults.standard.set(Array(choppedTreeKeys), forKey: choppedTreesKey)
+        // Intentionally no-op: chopped trees do not persist between sessions.
     }
 
     /// On scene load, re-hide every tree tile that the player has already chopped.
@@ -1138,11 +1214,14 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     /// so multi-tile tree sprites are removed in their entirety. Also seeds the fill from
     /// every tree tile within a small radius, in case the chop point lands on a transparent
     /// edge tile and isn't directly connected to the trunk.
-    private func hideTreeTiles(near worldPos: CGPoint, in m: TMXMap) {
+    /// Returns the world-space centers of every tree tile that was hidden, so the caller
+    /// can scrub those exact positions from the proximity-prompt arrays.
+    @discardableResult
+    private func hideTreeTiles(near worldPos: CGPoint, in m: TMXMap) -> [CGPoint] {
         let treeRanges = m.tilesetRanges
             .filter { $0.name.contains("tree") || $0.name.contains("apple") }
             .map(\.gidRange)
-        guard !treeRanges.isEmpty else { return }
+        guard !treeRanges.isEmpty else { return [] }
         let tw = m.tileSize.width
         let th = m.tileSize.height
 
@@ -1171,7 +1250,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         }
         // Fallback: if nothing nearby is a tree tile (shouldn't happen — caller already
         // verified one was), just bail.
-        guard !stack.isEmpty else { return }
+        guard !stack.isEmpty else { return [] }
 
         // Flood-fill: 8-connected so diagonally-touching canopy tiles get pulled in too.
         var visited = Set<Int>()
@@ -1213,6 +1292,17 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
                 }
             }
         }
+
+        // Return every tree-tile world center in the cluster (across all layers,
+        // deduplicated) so the caller can clear the matching proximity entries.
+        var seenCenters = Set<String>()
+        var centers: [CGPoint] = []
+        for cell in clusterCells {
+            let pt = m.tileCenter(col: cell.c, row: cell.r)
+            let key = "\(Int(pt.x)),\(Int(pt.y))"
+            if seenCenters.insert(key).inserted { centers.append(pt) }
+        }
+        return centers
     }
 
     /// Stores references to the water-blocking physics nodes that sit under ImaginationFX
@@ -1554,10 +1644,23 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         // If the player is climbing the tree, descend first so they're not stranded mid-air.
         if player.isInTree { player.descendTree() }
 
+        let chopRadius: CGFloat = 28
+
+        // Placed log walls chop first — no wood refund, because placing a log
+        // never consumed any wood (it just deployed a piece of the existing pile).
+        // Removing it just frees up that piece for placement again elsewhere.
+        if let idx = placedWoodLogs.firstIndex(where: {
+            hypot($0.position.x - player.position.x, $0.position.y - player.position.y) < chopRadius
+        }) {
+            let log = placedWoodLogs.remove(at: idx)
+            log.node.removeFromParent()
+            updateFortButton()
+            return
+        }
+
         // Search every map layer for any tile from a tileset whose name contains "tree" or
         // "apple", and pick the closest one inside the chop radius.
         guard let m = map else { return }
-        let chopRadius: CGFloat = 28
         let treeRanges = m.tilesetRanges
             .filter { $0.name.contains("tree") || $0.name.contains("apple") }
             .map(\.gidRange)
@@ -1585,19 +1688,164 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
             return
         }
 
-        // Hide every tree tile within the cluster, persist, and drop from lists.
-        hideTreeTiles(near: pos, in: m)
+        // Hide every tree tile within the cluster, then drop every tile center that
+        // belonged to the cluster from the proximity arrays so the "▲A" prompt never
+        // appears over the empty spot. Trees can be tall (canopy 4+ tiles above the
+        // trunk), so a radius-based prune isn't enough — we use the exact cluster
+        // centers reported by hideTreeTiles.
+        let removedCenters = hideTreeTiles(near: pos, in: m)
         let key = "\(Int(pos.x)),\(Int(pos.y))"
         choppedTreeKeys.insert(key)
         saveChoppedTrees()
-        treePositions.removeAll { hypot($0.x - pos.x, $0.y - pos.y) < 24 }
-        appleTreePositions.removeAll { hypot($0.x - pos.x, $0.y - pos.y) < 24 }
+        let tw = m.tileSize.width
+        let th = m.tileSize.height
+        let centerEpsilon = max(tw, th) / 2 + 1
+        func nearAnyRemoved(_ p: CGPoint) -> Bool {
+            for c in removedCenters {
+                if abs(p.x - c.x) < centerEpsilon && abs(p.y - c.y) < centerEpsilon { return true }
+            }
+            return false
+        }
+        treePositions.removeAll { nearAnyRemoved($0) }
+        appleTreePositions.removeAll { nearAnyRemoved($0) }
         nearbyTreePosition = nil
         nearbyAppleTreePosition = nil
 
         // Reward the player.
-        inventory.collect(.wood, count: 1)
-        showPickupText("+ WOOD", at: pos)
+        inventory.collect(.wood, count: 3)
+        showPickupText("+ 3 WOOD", at: pos)
+    }
+
+    /// Toggles build mode. While active, the player drops a log every `buildSpacing`
+    /// world units along their path until they tap again or run out of wood.
+    private func toggleBuildMode() {
+        if isBuilding {
+            stopBuilding()
+            return
+        }
+        guard availableWoodForBuilding > 0 else { return }
+        isBuilding = true
+        setFortButtonActive(true)
+        // Seed the trail with one log immediately behind the player so the first
+        // tap has visible feedback even before they walk.
+        let target = backPositionForPlayer()
+        if tryPlaceLog(at: target) {
+            lastBuildPosition = target
+        } else {
+            lastBuildPosition = target
+        }
+    }
+
+    private func stopBuilding() {
+        guard isBuilding else { return }
+        isBuilding = false
+        setFortButtonActive(false)
+    }
+
+    /// Called from `update(_:)`. Lays logs in a continuous line connecting
+    /// `lastBuildPosition` to the current point behind the player, stepping in
+    /// `buildSpacing`-unit increments so adjacent logs overlap their 14-wide
+    /// collision boxes into one solid wall. Stops if wood runs out.
+    private func tickBuildMode() {
+        guard isBuilding else { return }
+        if availableWoodForBuilding <= 0 {
+            stopBuilding()
+            return
+        }
+        var cursor = lastBuildPosition
+        let target = backPositionForPlayer()
+        var dx = target.x - cursor.x
+        var dy = target.y - cursor.y
+        var dist = hypot(dx, dy)
+        // Safety cap so a teleport can't spawn a runaway number of logs in one tick.
+        var safety = 64
+        while dist >= buildSpacing && safety > 0 {
+            safety -= 1
+            if availableWoodForBuilding <= 0 { stopBuilding(); break }
+            let nx = dx / dist
+            let ny = dy / dist
+            cursor = CGPoint(x: cursor.x + nx * buildSpacing,
+                             y: cursor.y + ny * buildSpacing)
+            _ = tryPlaceLog(at: cursor)
+            lastBuildPosition = cursor
+            dx = target.x - cursor.x
+            dy = target.y - cursor.y
+            dist = hypot(dx, dy)
+        }
+    }
+
+    private func backPositionForPlayer() -> CGPoint {
+        let facing = player.currentFacingVector
+        return CGPoint(x: player.position.x - facing.dx * buildBackOffset,
+                       y: player.position.y - facing.dy * buildBackOffset)
+    }
+
+    /// Places one log at `target`. Wood is NOT consumed — placement is gated by
+    /// `availableWoodForBuilding` (wood pile − logs currently deployed). Returns
+    /// false if the spot is blocked by an existing log or tree.
+    @discardableResult
+    private func tryPlaceLog(at target: CGPoint) -> Bool {
+        guard availableWoodForBuilding > 0, let m = map else { return false }
+        // Tight log-vs-log threshold so consecutive placements in the trail fit.
+        let logMinDist: CGFloat = buildSpacing * 0.85
+        for log in placedWoodLogs {
+            if hypot(log.position.x - target.x, log.position.y - target.y) < logMinDist {
+                return false
+            }
+        }
+        // Keep more clearance from trees so logs don't visually overlap canopies.
+        let treeMinDist: CGFloat = 14
+        for pos in treePositions + appleTreePositions {
+            if hypot(pos.x - target.x, pos.y - target.y) < treeMinDist {
+                return false
+            }
+        }
+
+        let node = makeWoodLogNode()
+        node.position = target
+        node.zPosition = -target.y
+        let body = SKPhysicsBody(rectangleOf: CGSize(width: 14, height: 10))
+        body.isDynamic = false
+        body.categoryBitMask = PlayerNode.worldBit
+        body.collisionBitMask = PlayerNode.categoryBit | PlayerNode.enemyBit
+        body.contactTestBitMask = 0
+        node.physicsBody = body
+        m.mapNode.addChild(node)
+        placedWoodLogs.append(PlacedWoodLog(node: node, position: target))
+        updateFortButton()
+        return true
+    }
+
+    /// Highlights the fort button while build mode is engaged.
+    private func setFortButtonActive(_ active: Bool) {
+        guard let fort = btnFort else { return }
+        if active {
+            fort.fillColor = SKColor(red: 0.55, green: 0.36, blue: 0.10, alpha: 1.0)
+            fort.strokeColor = SKColor(red: 1.00, green: 0.92, blue: 0.45, alpha: 1.0)
+            fort.lineWidth = 3.0
+        } else {
+            fort.fillColor = woodDarkColor
+            fort.strokeColor = SKColor(red: 0.85, green: 0.82, blue: 0.40, alpha: 1.0)
+            fort.lineWidth = 2.0
+        }
+    }
+
+    private func makeWoodLogNode() -> SKNode {
+        let root = SKNode()
+        let body = SKSpriteNode(color: SKColor(red: 0.45, green: 0.28, blue: 0.14, alpha: 1.0),
+                                size: CGSize(width: 14, height: 10))
+        root.addChild(body)
+        let ringColor = SKColor(red: 0.28, green: 0.16, blue: 0.07, alpha: 1.0)
+        for x: CGFloat in [-5, 5] {
+            let ring = SKSpriteNode(color: ringColor, size: CGSize(width: 2, height: 10))
+            ring.position = CGPoint(x: x, y: 0)
+            root.addChild(ring)
+        }
+        let highlight = SKSpriteNode(color: SKColor(red: 0.60, green: 0.40, blue: 0.20, alpha: 1.0),
+                                     size: CGSize(width: 14, height: 2))
+        highlight.position = CGPoint(x: 0, y: 3)
+        root.addChild(highlight)
+        return root
     }
 
     private func hideChestTile(at worldPos: CGPoint) {
@@ -2195,6 +2443,10 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
             chopNearbyTree()
             return
         }
+        if let fort = btnFort, !fort.isHidden, distanceSquared(pInCam, fort.position) < btnHit {
+            toggleBuildMode()
+            return
+        }
         if let biscuit = btnBiscuit, !biscuit.isHidden, distanceSquared(pInCam, biscuit.position) < btnHit {
             placeDogBiscuit()
             return
@@ -2397,6 +2649,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
             updateDamage(dt: dt)
             updateCamera()
             checkBoardProximity()
+            tickBuildMode()
         }
     }
 
