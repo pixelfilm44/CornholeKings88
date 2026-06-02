@@ -61,13 +61,22 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
     private var tutorialUp = false        // true while the tutorial overlay is on screen — freezes gameplay
     private var pausedBagVelocity: CGVector?   // bag motion saved while a tutorial pauses a live turn
     private var pausedBagAngular: CGFloat = 0
-    /// Total bags for this game. Defaults to 3 (picker path); world-map path
-    /// sets this to the player's `.bag` inventory count before presenting.
+    /// Total regular bags for this game. Defaults to 3 (picker path); world-map
+    /// path sets this to the player's `.bag` inventory count before presenting.
     var availableBags: Int = 3
-    /// Cumulative bags thrown across all turns (including replays). Caller
-    /// (e.g. GameScene) reads this on completion to deduct from inventory.
+    /// Fire bags carried into this game from the player's inventory.
+    var availableFireBags: Int = 0
+    /// Cumulative regular bags thrown across all turns (including replays).
     private(set) var bagsUsed: Int = 0
-    private var bagsLeft = 3
+    /// Cumulative fire bags thrown across all turns.
+    private(set) var fireBagsUsed: Int = 0
+    private var bagsLeftRegular = 3
+    private var bagsLeftFire    = 0
+    private var bagsLeft: Int { bagsLeftRegular + bagsLeftFire }
+    /// Type of the bag currently in flight (chosen via the pre-turn picker).
+    private var currentBagIsFire = false
+    /// Pre-turn bag-type picker overlay.
+    private var bagPicker: SKNode?
     private var score    = 0
     private var hasScoredThisTurn = false
     private let winThreshold = 3
@@ -111,7 +120,8 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
 
         if hasSetup { removeAllActions(); removeAllChildren() }
         hasSetup = true
-        bagsLeft = max(availableBags, 0)
+        bagsLeftRegular = max(availableBags, 0)
+        bagsLeftFire    = max(availableFireBags, 0)
 
         backgroundColor = SKColor(red: 0.04, green: 0.05, blue: 0.08, alpha: 1)
 
@@ -234,7 +244,7 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
             .wait(forDuration: 0.55),
             .run { [weak self] in
                 self?.countdownActive = false
-                self?.startTurn()
+                self?.beginNextTurn()
             },
         ]))
     }
@@ -591,7 +601,11 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
 
     private func updateHUD() {
         scoreLbl.text = String(format: "%04d", score)
-        bagsLbl.text  = "\(bagsLeft)/\(availableBags)"
+        if availableFireBags > 0 {
+            bagsLbl.text = "\(bagsLeftRegular) + \(bagsLeftFire)🔥"
+        } else {
+            bagsLbl.text = "\(bagsLeftRegular)/\(availableBags)"
+        }
         highLbl.text  = String(format: "%04d", highScore)
     }
 
@@ -635,6 +649,18 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
 
     // MARK: - Turn lifecycle
 
+    /// Show the bag-type picker (if both types are available) then start the
+    /// turn with the chosen bag. If only one type remains, picks automatically.
+    private func beginNextTurn() {
+        guard bagsLeft > 0 else { return }
+        if bagsLeftRegular > 0 && bagsLeftFire > 0 {
+            presentBagPicker()
+        } else {
+            currentBagIsFire = (bagsLeftFire > 0)
+            startTurn()
+        }
+    }
+
     private func startTurn() {
         turnState = .falling
         hasScoredThisTurn = false
@@ -642,8 +668,13 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
         lastUpdate = 0
 
         // The bag is now in flight — decrement the visible "bags in hand" count
-        // immediately so the HUD reflects it. (bagsUsed still increments in endTurn.)
-        bagsLeft = max(bagsLeft - 1, 0)
+        // immediately so the HUD reflects it. (bagsUsed/fireBagsUsed still
+        // increment in endTurn.)
+        if currentBagIsFire {
+            bagsLeftFire = max(bagsLeftFire - 1, 0)
+        } else {
+            bagsLeftRegular = max(bagsLeftRegular - 1, 0)
+        }
         updateHUD()
 
         // Place the bag a bit below the top of the shaft, already moving downward
@@ -659,13 +690,45 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
         bag.physicsBody?.angularVelocity = CGFloat.random(in: -1.0...1.0)
         stuckProgressY = bag.position.y
 
+        applyBagAppearance()
         updateHUD()
+    }
+
+    /// Tint + flame trail based on whether the current bag is a fire bag.
+    private func applyBagAppearance() {
+        bag.childNode(withName: "fireTrail")?.removeFromParent()
+        if currentBagIsFire {
+            bag.color = SKColor(red: 1.0, green: 0.55, blue: 0.15, alpha: 1)
+            bag.colorBlendFactor = 0.85
+            addFireTrail(to: bag)
+        } else {
+            bag.color = SKColor(red: 0.90, green: 0.25, blue: 0.25, alpha: 1)
+            bag.colorBlendFactor = 0.65
+        }
+    }
+
+    private func addFireTrail(to node: SKSpriteNode) {
+        let trail = SKNode()
+        trail.name = "fireTrail"
+        trail.zPosition = -1
+        for i in 0..<3 {
+            let ember = SKSpriteNode(color: SKColor(red: 1.0, green: 0.6, blue: 0.1, alpha: 0.8),
+                                     size: CGSize(width: bagSize * 0.6, height: bagSize * 0.6))
+            ember.position = CGPoint(x: 0, y: bagSize * CGFloat(i) * 0.6)
+            ember.alpha = 0.7 - CGFloat(i) * 0.2
+            ember.run(.repeatForever(.sequence([
+                .group([.scale(to: 0.6, duration: 0.18), .fadeAlpha(to: 0.3, duration: 0.18)]),
+                .group([.scale(to: 1.0, duration: 0.18), .fadeAlpha(to: 0.8, duration: 0.18)]),
+            ])))
+            trail.addChild(ember)
+        }
+        node.addChild(trail)
     }
 
     private func endTurn(pts: Int, msg: String) {
         guard turnState != .ended else { return }
         turnState = .ended
-        bagsUsed += 1
+        if currentBagIsFire { fireBagsUsed += 1 } else { bagsUsed += 1 }
         score += pts
         if score > highScore {
             highScore = score
@@ -682,7 +745,7 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
                 if self.bagsLeft <= 0 {
                     self.showGameOver()
                 } else {
-                    self.startTurn()
+                    self.beginNextTurn()
                 }
             },
         ]))
@@ -718,7 +781,8 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
     private func resetForReplay() {
         endPanel?.removeFromParent()
         endPanel = nil
-        bagsLeft = max(availableBags, 0)
+        bagsLeftRegular = max(availableBags, 0)
+        bagsLeftFire    = max(availableFireBags, 0)
         score    = 0
 
         // Clear any rocks the player placed and re-randomize the obstacle layout.
@@ -728,7 +792,7 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
         buildObstacles()
 
         updateHUD()
-        startTurn()
+        beginNextTurn()
     }
 
     private func clearPlacedRocks() {
@@ -811,6 +875,13 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
             return
         }
         if cats & Self.webCat != 0 {
+            let webNode = (contact.bodyA.categoryBitMask == Self.webCat ? contact.bodyA.node
+                                                                       : contact.bodyB.node)
+            if currentBagIsFire, let web = webNode {
+                burnWeb(web, at: contact.contactPoint)
+                HapticsManager.shared.lightImpact()
+                return
+            }
             hasScoredThisTurn = true
             HapticsManager.shared.warningFeedback()
             stickToWeb(contact: contact)
@@ -895,6 +966,23 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
         }
     }
 
+    /// Fire bag passes through and incinerates the web. Spawns embers + removes
+    /// the web's body so it can't catch later bags either.
+    private func burnWeb(_ web: SKNode, at p: CGPoint) {
+        web.physicsBody = nil
+        if let idx = obstacleNodes.firstIndex(of: web) { obstacleNodes.remove(at: idx) }
+        spawnSparks(at: p, color: SKColor(red: 1.0, green: 0.55, blue: 0.15, alpha: 1), count: 14)
+        web.run(.sequence([
+            .group([
+                .colorize(with: SKColor(red: 1.0, green: 0.4, blue: 0.1, alpha: 1),
+                          colorBlendFactor: 0.9, duration: 0.10),
+                .scale(to: 1.25, duration: 0.18),
+                .fadeOut(withDuration: 0.25),
+            ]),
+            .removeFromParent(),
+        ]))
+    }
+
     private func spawnSparks(at p: CGPoint, color: SKColor, count: Int) {
         for _ in 0..<count {
             let s = SKSpriteNode(color: color, size: CGSize(width: 2, height: 2))
@@ -940,6 +1028,16 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
 
         for n in nodes(at: locScene) where TutorialHelpButton.wasTapped(n) {
             presentTutorial(autoTriggered: false); return
+        }
+
+        // Bag picker consumes input until a choice is made.
+        if bagPicker != nil {
+            let locCam = t.location(in: camNode)
+            for n in camNode.nodes(at: locCam) {
+                if n.name == "pickRegular" { dismissBagPicker(pickFire: false); return }
+                if n.name == "pickFire"    { dismissBagPicker(pickFire: true);  return }
+            }
+            return
         }
 
         // HUD lives on the camera node; query its local coordinate space.
@@ -1045,6 +1143,101 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
         n.setScale(0)
         n.run(.scale(to: 1.0, duration: 0.10))
         HapticsManager.shared.lightImpact()
+    }
+
+    // MARK: - Bag picker
+
+    private func presentBagPicker() {
+        bagPicker?.removeFromParent()
+        let font = "PressStart2P-Regular"
+        let panel = SKNode()
+        panel.zPosition = 700
+
+        let dim = SKSpriteNode(color: SKColor(white: 0, alpha: 0.55), size: CGSize(width: W, height: H))
+        dim.zPosition = 0
+        panel.addChild(dim)
+
+        let panelW: CGFloat = min(W * 0.85, 360)
+        let panelH: CGFloat = 180
+        let bg = SKSpriteNode(color: SKColor(red: 0.102, green: 0.039, blue: 0.016, alpha: 1),
+                              size: CGSize(width: panelW, height: panelH))
+        bg.zPosition = 1
+        panel.addChild(bg)
+
+        let border = SKShapeNode(rectOf: CGSize(width: panelW, height: panelH))
+        border.strokeColor = SKColor(red: 0.941, green: 0.753, blue: 0.376, alpha: 1)
+        border.lineWidth = 2
+        border.fillColor = .clear
+        border.zPosition = 2
+        panel.addChild(border)
+
+        let title = SKLabelNode(fontNamed: font)
+        title.text = "CHOOSE YOUR BAG"
+        title.fontSize = 14
+        title.fontColor = SKColor(red: 0.941, green: 0.753, blue: 0.376, alpha: 1)
+        title.position = CGPoint(x: 0, y: panelH / 2 - 28)
+        title.zPosition = 3
+        panel.addChild(title)
+
+        let cardW: CGFloat = panelW * 0.40
+        let cardH: CGFloat = 96
+        let gap:   CGFloat = 16
+
+        func makeCard(name: String, label: String, count: Int, color: SKColor, x: CGFloat) -> SKNode {
+            let card = SKSpriteNode(color: SKColor(white: 0.10, alpha: 1),
+                                    size: CGSize(width: cardW, height: cardH))
+            card.position = CGPoint(x: x, y: -10)
+            card.zPosition = 3
+            card.name = name
+
+            let swatch = SKSpriteNode(color: color, size: CGSize(width: 28, height: 28))
+            swatch.position = CGPoint(x: 0, y: 18)
+            swatch.zPosition = 1
+            swatch.name = name
+            card.addChild(swatch)
+
+            let lbl = SKLabelNode(fontNamed: font)
+            lbl.text = label
+            lbl.fontSize = 10
+            lbl.fontColor = .white
+            lbl.position = CGPoint(x: 0, y: -8)
+            lbl.zPosition = 1
+            lbl.name = name
+            card.addChild(lbl)
+
+            let cnt = SKLabelNode(fontNamed: font)
+            cnt.text = "x\(count)"
+            cnt.fontSize = 12
+            cnt.fontColor = SKColor(red: 0.941, green: 0.753, blue: 0.376, alpha: 1)
+            cnt.position = CGPoint(x: 0, y: -28)
+            cnt.zPosition = 1
+            cnt.name = name
+            card.addChild(cnt)
+            return card
+        }
+
+        let regular = makeCard(name: "pickRegular",
+                               label: "REGULAR",
+                               count: bagsLeftRegular,
+                               color: SKColor(red: 0.90, green: 0.25, blue: 0.25, alpha: 1),
+                               x: -(cardW + gap) / 2)
+        let fire = makeCard(name: "pickFire",
+                            label: "FIRE",
+                            count: bagsLeftFire,
+                            color: SKColor(red: 1.0, green: 0.55, blue: 0.15, alpha: 1),
+                            x: (cardW + gap) / 2)
+        panel.addChild(regular)
+        panel.addChild(fire)
+
+        camNode.addChild(panel)
+        bagPicker = panel
+    }
+
+    private func dismissBagPicker(pickFire: Bool) {
+        bagPicker?.removeFromParent()
+        bagPicker = nil
+        currentBagIsFire = pickFire
+        startTurn()
     }
 
     private func showConfirmQuit() {

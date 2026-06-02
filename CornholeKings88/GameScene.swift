@@ -2184,11 +2184,16 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         well.previousScene = self
         well.awardsRewards = true
         well.availableBags = inventory.counts[.bag, default: 0]
+        well.availableFireBags = inventory.counts[.fireBag, default: 0]
         well.onComplete = { [weak self, weak well] _ in
             guard let self else { return }
             if let used = well?.bagsUsed, used > 0 {
                 let have = self.inventory.counts[.bag, default: 0]
                 self.inventory.consume(.bag, count: min(used, have))
+            }
+            if let used = well?.fireBagsUsed, used > 0 {
+                let have = self.inventory.counts[.fireBag, default: 0]
+                self.inventory.consume(.fireBag, count: min(used, have))
             }
             if let earned = well?.fireBagsEarned, earned > 0 {
                 self.inventory.collect(.fireBag, count: earned)
