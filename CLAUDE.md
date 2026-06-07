@@ -280,7 +280,7 @@ Items scattered in the world can be walked over to collect them. The system has 
 
 Centralized framework that every mini-game uses for consistent first-play onboarding.
 
-- **`TutorialManager.swift`** — singleton tracking which tutorials have been seen (`UserDefaults`). Static keys per game: `.bike`, `.cornhole`, `.baseball`, `.beehive`, `.beachball`, `.piranha`, `.jousters`, `.wellFlinger`; `allKeys` lists them all. API: `hasSeen(_:)`, `markSeen(_:)`, `reset(_:)`, and `resetAll()` (clears every key — used by `SettingsScene`).
+- **`TutorialManager.swift`** — singleton tracking which tutorials have been seen (`UserDefaults`). Static keys per game: `.bike`, `.cornhole`, `.baseball`, `.beehive`, `.beachball`, `.piranha`, `.jousters`, `.wellFlinger`, `.horseRace`; `allKeys` lists them all. API: `hasSeen(_:)`, `markSeen(_:)`, `reset(_:)`, and `resetAll()` (clears every key — used by `SettingsScene`).
 - **`TutorialOverlay.swift`** — full-screen `SKNode` overlay with shared styling (wood-iron panel, gold trim, `PressStart2P` font, pulsing prompt). Pass a `[TutorialStep]` and an `onComplete`; tap-to-advance, no skip. Step kinds:
   - `.card(title:body:)` — centered modal.
   - `.hint(at:title:body:)` — panel offset from a target point with a pulsing arrow.
@@ -407,6 +407,53 @@ After the tutorial (or immediately, if already seen), `startCountdown()` runs th
 > **TutorialOverlay completion** — `TutorialOverlay.finish()` fires its `onComplete` callback *before* `removeFromParent()` in the action sequence. Removing the node first can drop later actions in the same sequence (the node leaves the scene tree), which previously skipped the post-tutorial start path. This applies to every mini-game that starts on the tutorial callback.
 
 **Asset note** — the board, walls, stones, and guide beam are all generated procedurally (no `cornholeBoard_side.png` or other board asset needed). The bag uses `bag_16bit` from `Assets.xcassets`.
+
+### Horse Race (Cornhole Derby)
+
+`HorseRaceCornholeScene` is a simultaneous-throw cornhole derby. One wooden board with **three holes** along its central axis: large/closest = **+1 space**, medium = **+2**, small/farthest = **+3** (each labeled `+N` in gold on the board). Two pixel horses race left-to-right above the board on a wooden lane with 13 tick marks; first horse to reach **12 spaces** wins.
+
+**Picker-only mini-game.** `awardsRewards` stays `false` and the scene passes an empty `rewards:` array — no item is granted, per the "menu play never grants a prize" rule. Currently only reachable from `MiniGamePickerScene` (no world trigger).
+
+**Flick mechanic** — identical to `CornholeMiniGameScene`. A red bag (`turnIndicator`) oscillates left-to-right along `throwLineY` at `targetSpeed = W * 0.65` within `±boardHalfW * 1.30`. Swipe direction = arc; swipe length = power. Bag launches from `turnIndicator.position.x` (not the touch start), so the player aims via timing and powers via swipe length. 14pt minimum swipe length to filter out accidental dud bags. `powerScale` is calibrated so an `H * 0.34` swipe lands near the **medium** hole.
+
+**Simultaneous play** — no turns. Each side has its own cooldown: a new bag may be thrown as soon as the side's previous bag is `isGrounded || hasScored`. The indicator hides during the player's cooldown and reappears the moment the previous bag touches down.
+
+**AI scheduling** — `aiReadyTime` is a `TimeInterval` (scene time). After each AI throw, `aiReadyTime = currentSceneTime + random(0.55…1.05)`. The AI is allowed to throw when its previous bag has touched down **and** `currentSceneTime >= aiReadyTime` — produces a human-feeling pace without spamming.
+
+**Bag-vs-bag collisions** — elastic, copied from `CornholeMiniGameScene.resolveBagCollisions` (`restitution = 0.68`, bag radius 22). Scored bags and off-board grounded bags are excluded so a bag in the hole stays sunk and a bag that fell off doesn't shove later landings around.
+
+**Opponent picker** (`presentOpponentPicker()`) — runs **before** the tutorial/countdown. Two Bit-Wood cards named `"horseOpp_tommy"` and `"horseOpp_jen"`; `touchesBegan` walks the parent chain to route the tap to `selectOpponent(_:)`. `awaitingOpponentChoice` blocks input, the `update()` loop, and AI throws until a choice is made. Replay-after-loss keeps the same opponent (no re-pick).
+
+**Opponent profiles** — drive hole preference and aim noise (lower noise multiplier = tighter aim):
+
+| Opponent | P(large +1) | P(med +2) | P(small +3) | accLarge | accMed | accSmall |
+|----------|-------------|-----------|-------------|----------|--------|----------|
+| `.tommy` | 0.70 | 0.20 | 0.10 | **0.95×** | 1.55× | 1.85× |
+| `.jen`   | 0.22 | 0.60 | 0.18 | 1.55× | **0.95×** | 1.70× |
+
+Aim noise: `noise = hole.radius * accMul`; aimX uniform in `±noise`, aimY in `±noise * 0.6`. **Catch-up**: when `playerSpaces - aiSpaces >= 5`, a 40% per-throw roll forces a higher-tier shot (65% small / 35% medium) so the AI can claw back.
+
+**Start flow** — `didMove`:
+1. Layout / world / board / lane / UI / CRT (indicator hidden).
+2. `presentOpponentPicker()`.
+3. On selection → tutorial-or-countdown.
+   - First play: `presentTutorial(autoTriggered: true)` (3 cards: goal, hole values, throw mechanic). On overlay completion: `TutorialManager.shared.markSeen(.horseRace)` then `startCountdown()`.
+   - Repeat plays: `startCountdown()` directly.
+4. `startCountdown()` runs the `3 / 2 / 1 / THROW!` beat sequence (same pulse/scale beats as `BeachBallCornholeScene`). The final beat clears `countdownActive`, unhides `turnIndicator`, and pushes `aiReadyTime` 0.3 s forward so the AI doesn't fire instantly.
+
+While `awaitingOpponentChoice`, `tutorialUp`, or `countdownActive` are true, `touchesBegan`/`touchesEnded` reject throws and the `update()` loop early-returns (no oscillation, no AI throw, no bag physics).
+
+**HUD help button** — standard `TutorialHelpButton.make()` at `(-W/2 + 52, contentY)` re-presents the tutorial without restarting the race (the saved-seen flag is not flipped; no game state is touched).
+
+**Replay** — `resetForReplay()` clears bags, resets spaces and horse positions, hides the indicator, sets `aiReadyTime = 0`, and calls `startCountdown()` so each rematch starts on the same 3-2-1 beat. Opponent is preserved.
+
+**HUD copy** — score label reads `RED \(playerSpaces)  |  \(opponentName) \(aiSpaces)` (e.g., `RED 4  |  TOMMY 7`). Game-over modal subtitle: `RED \(playerSpaces)  -  \(aiSpaces) \(opponentName)`.
+
+**Tutorial key** — `TutorialManager.horseRace` (`"tutorial.horseRace.v1"`); included in `allKeys` so `SettingsScene` "reset tutorials" covers it.
+
+**Entry points:**
+- `MiniGamePickerScene` → `"horseRace"` card (`onComplete = { _ in }`).
+- No world trigger.
 
 ### Story System
 
