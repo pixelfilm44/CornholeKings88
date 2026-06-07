@@ -4,8 +4,8 @@ import SpriteKit
 /// player when nearby; on contact GameScene launches a 7-point cornhole match.
 final class BullyNode: SKNode {
 
-    private let wanderSpeed: CGFloat = 38.0
-    private let chaseSpeed:  CGFloat = 66.0
+    private let wanderSpeed: CGFloat = 28.0
+    private let chaseSpeed:  CGFloat = 50.0
     private let chaseRadius: CGFloat = 120.0
 
     /// Set true while a bully-vs-player match is being launched / running so the

@@ -68,7 +68,7 @@ final class PlayerNode: SKSpriteNode {
     private static let anims: [AnimState: [Facing: [SKTexture]]] = buildAnims()
 
     var moveDirection: CGVector = .zero
-    let moveSpeed: CGFloat = 120.0
+    let moveSpeed: CGFloat = 85.0
 
     private(set) var isInTree: Bool = false
     private var treeOverlay: SKShapeNode?

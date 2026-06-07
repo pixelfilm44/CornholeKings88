@@ -310,7 +310,7 @@ for n in nodes(at: loc) where TutorialHelpButton.wasTapped(n) {
 | Symbol | File | Value | Meaning |
 |--------|------|-------|---------|
 | `worldZoom` | GameScene | 2.0 | Camera zoom multiplier |
-| `moveSpeed` | PlayerNode | 120.0 | Player world-units per second |
+| `moveSpeed` | PlayerNode | 85.0 | Player world-units per second |
 | `totalCycles` / `outsPerHalf` / `strikesPerOut` | CornholeBaseballScene | 3 / 3 / 3 | Baseball: 3 innings; each batting half ends at 3 outs; 3 strikes = 1 out |
 | `eatDuration` | DogNode | 3.0 | Seconds a dog spends eating a placed biscuit |
 | `collectibleBit` | CollectibleNode | `0x1 << 2` | Physics category for collectible items |

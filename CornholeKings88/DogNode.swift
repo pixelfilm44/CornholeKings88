@@ -2,7 +2,7 @@ import SpriteKit
 
 final class DogNode: SKNode {
 
-    let chaseSpeed: CGFloat = 88.0
+    let chaseSpeed: CGFloat = 62.0
 
     // When the player climbs a tree, lock in the dog's current heading so it
     // runs straight through rather than re-targeting the player.
