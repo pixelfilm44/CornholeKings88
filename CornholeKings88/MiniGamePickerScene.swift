@@ -30,6 +30,7 @@ final class MiniGamePickerScene: SKScene {
         MenuItem(label: "PIRANHA BRIDGE", subLabel: "bridge build",  name: "piranha",    isLocked: false),
         MenuItem(label: "SUBURBAN JOUSTERS", subLabel: "bike joust", name: "jousters",   isLocked: false),
         MenuItem(label: "WELL DROPPER",   subLabel: "tilt to dodge", name: "wellflinger", isLocked: false),
+        MenuItem(label: "HORSE RACE",     subLabel: "cornhole derby", name: "horseRace",  isLocked: false),
         MenuItem(label: "EXPLORE",        subLabel: "open world",    name: "explore",    isLocked: true),
     ]
 
@@ -586,6 +587,29 @@ final class MiniGamePickerScene: SKScene {
                 c.setFillColor(accentColor.cgColor)
                 c.fill(CGRect(x: s.width*0.44, y: s.height*0.44, width: s.width*0.14, height: s.height*0.14))
 
+            case "horseRace":
+                // Race lane with a tiny red horse running over it
+                c.setFillColor(UIColor(red: 0.44, green: 0.30, blue: 0.16, alpha: 1).cgColor)
+                c.fill(CGRect(x: 1, y: s.height * 0.38, width: s.width - 2, height: s.height * 0.30))
+                // Tick marks
+                c.setFillColor(UIColor(white: 1.0, alpha: 0.32).cgColor)
+                for tx in stride(from: s.width * 0.10, through: s.width * 0.86, by: s.width * 0.12) {
+                    c.fill(CGRect(x: tx, y: s.height * 0.40, width: 1, height: s.height * 0.26))
+                }
+                // Finish line
+                c.setFillColor(UIColor(red: 1.0, green: 0.92, blue: 0.40, alpha: 1).cgColor)
+                c.fill(CGRect(x: s.width * 0.86, y: s.height * 0.38, width: 2, height: s.height * 0.30))
+                // Red horse silhouette
+                c.setFillColor(accentColor.cgColor)
+                c.fill(CGRect(x: s.width * 0.30, y: s.height * 0.46, width: s.width * 0.22, height: s.height * 0.10))
+                c.fill(CGRect(x: s.width * 0.48, y: s.height * 0.42, width: s.width * 0.06, height: s.height * 0.10))
+                c.fill(CGRect(x: s.width * 0.30, y: s.height * 0.56, width: 2, height: s.height * 0.08))
+                c.fill(CGRect(x: s.width * 0.40, y: s.height * 0.56, width: 2, height: s.height * 0.08))
+                c.fill(CGRect(x: s.width * 0.48, y: s.height * 0.56, width: 2, height: s.height * 0.08))
+                // Bag below
+                c.setFillColor(fillColor.cgColor)
+                c.fill(CGRect(x: s.width * 0.10, y: s.height * 0.74, width: s.width * 0.18, height: s.height * 0.12))
+
             case "explore":
                 // Compass circle
                 c.setStrokeColor(strokeColor.cgColor); c.setLineWidth(1.5)
@@ -754,6 +778,12 @@ final class MiniGamePickerScene: SKScene {
 
         case "wellflinger":
             let s = WellFlingerScene(size: ppSize)
+            s.previousScene = self; s.scaleMode = .resizeFill
+            s.onComplete = { _ in }
+            push(to: s)
+
+        case "horseRace":
+            let s = HorseRaceCornholeScene(size: ppSize)
             s.previousScene = self; s.scaleMode = .resizeFill
             s.onComplete = { _ in }
             push(to: s)
