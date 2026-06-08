@@ -1632,9 +1632,7 @@ final class SuburbanJoustersScene: SKScene {
         UserDefaults.standard.set(count + 1, forKey: Self.fightCountKey)
         onComplete?(playerWon)
         guard let view = self.view, let prev = previousScene else { return }
-        let transition = SKTransition.push(with: .down, duration: 0.35)
-        transition.pausesOutgoingScene = false
-        view.presentScene(prev, transition: transition)
+        SceneTransition.iris(in: view, to: prev)
     }
 
     // MARK: - Floating label

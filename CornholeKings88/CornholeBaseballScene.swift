@@ -2380,8 +2380,6 @@ final class CornholeBaseballScene: SKScene {
     private func dismissScene(playerWon: Bool) {
         onComplete?(playerWon)
         guard let view = self.view, let prev = previousScene else { return }
-        let t = SKTransition.push(with: .down, duration: 0.38)
-        t.pausesOutgoingScene = false
-        view.presentScene(prev, transition: t)
+        SceneTransition.iris(in: view, to: prev)
     }
 }

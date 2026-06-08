@@ -1432,8 +1432,6 @@ final class HorseRaceCornholeScene: SKScene {
     private func dismissScene(playerWon: Bool) {
         onComplete?(playerWon)
         guard let view = self.view, let prev = previousScene else { return }
-        let transition = SKTransition.push(with: .down, duration: 0.38)
-        transition.pausesOutgoingScene = false
-        view.presentScene(prev, transition: transition)
+        SceneTransition.iris(in: view, to: prev)
     }
 }

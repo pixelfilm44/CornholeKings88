@@ -1036,9 +1036,9 @@ final class BridgePiranhaScene: SKScene {
         // Base 12 bags are free; anything thrown beyond that consumed floating bags.
         let totalUsed = (baseBags + availableFloatingBags) - bagsRemaining
         floatingBagsUsed = min(availableFloatingBags, max(0, totalUsed - baseBags))
-        let t = SKTransition.push(with: .down, duration: 0.35)
-        t.pausesOutgoingScene = false
-        if let prev = previousScene { view?.presentScene(prev, transition: t) }
+        if let view = self.view, let prev = previousScene {
+            SceneTransition.iris(in: view, to: prev)
+        }
         onComplete?(won)
     }
 

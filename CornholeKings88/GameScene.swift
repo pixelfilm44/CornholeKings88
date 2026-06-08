@@ -2026,9 +2026,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
             self?.isTransitioning = false
         }
 
-        let transition = SKTransition.push(with: .up, duration: 0.38)
-        transition.pausesOutgoingScene = false
-        view.presentScene(mini, transition: transition)
+        SceneTransition.iris(in: view, to: mini)
     }
 
     private func openCornholeBaseball() {
@@ -2065,9 +2063,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
             baseball.onComplete = { [weak self] _ in self?.isTransitioning = false }
         }
 
-        let transition = SKTransition.push(with: .up, duration: 0.38)
-        transition.pausesOutgoingScene = false
-        view.presentScene(baseball, transition: transition)
+        SceneTransition.iris(in: view, to: baseball)
     }
 
     private func openBeeHiveMiniGame() {
@@ -2092,9 +2088,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
             self.isTransitioning = false
         }
 
-        let transition = SKTransition.push(with: .up, duration: 0.38)
-        transition.pausesOutgoingScene = false
-        view.presentScene(bee, transition: transition)
+        SceneTransition.iris(in: view, to: bee)
     }
 
     private func openBeachBallCornhole() {
@@ -2121,9 +2115,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
             }
         }
 
-        let transition = SKTransition.push(with: .up, duration: 0.38)
-        transition.pausesOutgoingScene = false
-        view.presentScene(beach, transition: transition)
+        SceneTransition.iris(in: view, to: beach)
     }
 
     private func openBridgePiranha() {
@@ -2147,9 +2139,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
             if won { self.unlockBridge() }
         }
 
-        let transition = SKTransition.push(with: .up, duration: 0.38)
-        transition.pausesOutgoingScene = false
-        view.presentScene(piranha, transition: transition)
+        SceneTransition.iris(in: view, to: piranha)
     }
 
     private func openSuburbanJousters() {
@@ -2177,9 +2167,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
             self.isTransitioning = false
         }
 
-        let transition = SKTransition.push(with: .up, duration: 0.38)
-        transition.pausesOutgoingScene = false
-        view.presentScene(joust, transition: transition)
+        SceneTransition.iris(in: view, to: joust)
     }
 
     private func openWellFlinger() {
@@ -2214,9 +2202,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
             self.isTransitioning = false
         }
 
-        let transition = SKTransition.push(with: .up, duration: 0.38)
-        transition.pausesOutgoingScene = false
-        view.presentScene(well, transition: transition)
+        SceneTransition.iris(in: view, to: well)
     }
 
     private func unlockBridge() {
@@ -3185,9 +3171,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
             self.isTransitioning = false
         }
 
-        let transition = SKTransition.push(with: .up, duration: 0.38)
-        transition.pausesOutgoingScene = false
-        view.presentScene(mini, transition: transition)
+        SceneTransition.iris(in: view, to: mini)
     }
 
     /// Called from update() each frame: ticks the damage cooldown and, if a dog

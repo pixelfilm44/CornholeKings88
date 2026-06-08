@@ -3646,8 +3646,6 @@ final class CornholeMiniGameScene: SKScene {
         if awardsRewards && playerWon && selectedOpponent == .spirit { magicBagsEarned = 6 }
         onComplete?(playerWon)
         guard let view = self.view, let prev = previousScene else { return }
-        let transition = SKTransition.push(with: .down, duration: 0.38)
-        transition.pausesOutgoingScene = false
-        view.presentScene(prev, transition: transition)
+        SceneTransition.iris(in: view, to: prev)
     }
 }

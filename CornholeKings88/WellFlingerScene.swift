@@ -1256,8 +1256,8 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
 
     private func dismissScene() {
         onComplete?(score >= winThreshold)
-        if let prev = previousScene {
-            view?.presentScene(prev, transition: .fade(withDuration: 0.25))
+        if let view = self.view, let prev = previousScene {
+            SceneTransition.iris(in: view, to: prev)
         }
     }
 

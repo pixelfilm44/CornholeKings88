@@ -805,8 +805,7 @@ final class MiniGamePickerScene: SKScene {
     }
 
     private func push(to scene: SKScene) {
-        let t = SKTransition.push(with: .up, duration: 0.35)
-        t.pausesOutgoingScene = false
-        view?.presentScene(scene, transition: t)
+        guard let view = self.view else { return }
+        SceneTransition.iris(in: view, to: scene)
     }
 }
