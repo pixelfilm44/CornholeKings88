@@ -103,6 +103,10 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
     // End-game panel
     private var endPanel: SKNode?
 
+    // Between-throws panel — shown after every throw (except the last) so the
+    // player can choose to continue or exit without waiting out an auto-advance.
+    private var betweenPanel: SKNode?
+
     // Setup guard
     private var hasSetup = false
 
@@ -737,15 +741,16 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
         updateHUD()
         showToast(msg)
 
-        // Settle the bag visually for a moment, then either next turn or game-over.
+        // Settle the bag visually for a moment, then either show the
+        // between-throws prompt (continue / exit) or the final game-over panel.
         run(.sequence([
-            .wait(forDuration: 1.4),
+            .wait(forDuration: 1.0),
             .run { [weak self] in
                 guard let self else { return }
                 if self.bagsLeft <= 0 {
                     self.showGameOver()
                 } else {
-                    self.beginNextTurn()
+                    self.presentBetweenThrowsPanel(lastMsg: msg, lastPts: pts)
                 }
             },
         ]))
@@ -781,6 +786,7 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
     private func resetForReplay() {
         endPanel?.removeFromParent()
         endPanel = nil
+        dismissBetweenThrowsPanel()
         bagsLeftRegular = max(availableBags, 0)
         bagsLeftFire    = max(availableFireBags, 0)
         score    = 0
@@ -1040,6 +1046,24 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
             return
         }
 
+        // Between-throws prompt consumes input until the player chooses.
+        if betweenPanel != nil {
+            let locCam = t.location(in: camNode)
+            for n in camNode.nodes(at: locCam) {
+                if n.name == "throwAgain" {
+                    dismissBetweenThrowsPanel()
+                    beginNextTurn()
+                    return
+                }
+                if n.name == "exitWell" {
+                    dismissBetweenThrowsPanel()
+                    dismissScene()
+                    return
+                }
+            }
+            return
+        }
+
         // HUD lives on the camera node; query its local coordinate space.
         let locCam = t.location(in: camNode)
         for n in camNode.nodes(at: locCam) {
@@ -1238,6 +1262,102 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
         bagPicker = nil
         currentBagIsFire = pickFire
         startTurn()
+    }
+
+    // MARK: - Between-throws prompt
+
+    /// Shown after every throw that isn't the last bag. Lets the player choose
+    /// to keep going or bail out of the well without waiting for the next bag
+    /// to auto-load.
+    private func presentBetweenThrowsPanel(lastMsg: String, lastPts: Int) {
+        betweenPanel?.removeFromParent()
+        let font = "PressStart2P-Regular"
+        let panel = SKNode()
+        panel.zPosition = 700
+
+        let dim = SKSpriteNode(color: SKColor(white: 0, alpha: 0.55),
+                               size: CGSize(width: W, height: H))
+        dim.zPosition = 0
+        panel.addChild(dim)
+
+        let panelW: CGFloat = min(W * 0.85, 340)
+        let panelH: CGFloat = 200
+        let bg = SKSpriteNode(color: SKColor(red: 0.102, green: 0.039, blue: 0.016, alpha: 1),
+                              size: CGSize(width: panelW, height: panelH))
+        bg.zPosition = 1
+        panel.addChild(bg)
+
+        let border = SKShapeNode(rectOf: CGSize(width: panelW, height: panelH))
+        border.strokeColor = SKColor(red: 0.941, green: 0.753, blue: 0.376, alpha: 1)
+        border.lineWidth = 2
+        border.fillColor = .clear
+        border.zPosition = 2
+        panel.addChild(border)
+
+        let gold = SKColor(red: 0.941, green: 0.753, blue: 0.376, alpha: 1)
+
+        let title = SKLabelNode(fontNamed: font)
+        title.text = lastMsg
+        title.fontSize = 12
+        title.fontColor = (lastPts > 0) ? gold : SKColor(white: 0.85, alpha: 1)
+        title.position = CGPoint(x: 0, y: panelH / 2 - 30)
+        title.zPosition = 3
+        panel.addChild(title)
+
+        let score = SKLabelNode(fontNamed: font)
+        score.text = "SCORE  \(self.score)   BAGS LEFT  \(bagsLeft)"
+        score.fontSize = 9
+        score.fontColor = .white
+        score.position = CGPoint(x: 0, y: panelH / 2 - 56)
+        score.zPosition = 3
+        panel.addChild(score)
+
+        func makeBtn(name: String, label: String, fill: SKColor, x: CGFloat) -> SKNode {
+            let btnW: CGFloat = (panelW - 48) / 2
+            let btnH: CGFloat = 44
+            let btn = SKSpriteNode(color: fill, size: CGSize(width: btnW, height: btnH))
+            btn.position = CGPoint(x: x, y: -panelH / 2 + 38)
+            btn.zPosition = 3
+            btn.name = name
+
+            let bd = SKShapeNode(rectOf: CGSize(width: btnW, height: btnH))
+            bd.strokeColor = gold
+            bd.lineWidth = 2
+            bd.fillColor = .clear
+            bd.zPosition = 1
+            bd.name = name
+            btn.addChild(bd)
+
+            let lbl = SKLabelNode(fontNamed: font)
+            lbl.text = label
+            lbl.fontSize = 10
+            lbl.fontColor = .white
+            lbl.verticalAlignmentMode = .center
+            lbl.position = .zero
+            lbl.zPosition = 2
+            lbl.name = name
+            btn.addChild(lbl)
+            return btn
+        }
+
+        let again = makeBtn(name: "throwAgain",
+                            label: "THROW AGAIN",
+                            fill: SKColor(red: 0.20, green: 0.55, blue: 0.20, alpha: 1),
+                            x: -(panelW - 48) / 4 - 8)
+        let exitBtn = makeBtn(name: "exitWell",
+                              label: "EXIT",
+                              fill: SKColor(red: 0.55, green: 0.20, blue: 0.20, alpha: 1),
+                              x:  (panelW - 48) / 4 + 8)
+        panel.addChild(again)
+        panel.addChild(exitBtn)
+
+        camNode.addChild(panel)
+        betweenPanel = panel
+    }
+
+    private func dismissBetweenThrowsPanel() {
+        betweenPanel?.removeFromParent()
+        betweenPanel = nil
     }
 
     private func showConfirmQuit() {
