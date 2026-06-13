@@ -85,9 +85,17 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     private var wellPositions: [CGPoint] = []
     private var nearbyWellPosition: CGPoint?
 
-    // Mountain interaction — any non-zero tile on a "mountain" layer; gated by the Golden Lance.
-    private var mountainPositions: [CGPoint] = []
-    private var nearbyMountainPosition: CGPoint?
+    // High-area chests — chest tiles sitting on a "mountain" layer region.
+    // Gated by the Golden Lance: A-press knocks the chest down to walkable
+    // ground, where it becomes a normal openable chest.
+    private var highChestPositions: [CGPoint] = []
+    private var nearbyHighChestPosition: CGPoint?
+    /// High knockables that are really the axe pickup (keyed "<intX>,<intY>"
+    /// of the high position) — they land as the axe, not as a 50/50 chest.
+    private var highAxKeys: Set<String> = []
+    /// Fallen-chest sprites keyed by landing position ("<intX>,<intY>"),
+    /// so openChest can remove them when the chest is opened.
+    private var fallenChestNodes: [String: SKSpriteNode] = [:]
 
     // Axe pickup — any non-zero tile on an "ax" / "axe" layer. One-time pickup; persisted via `axeEarnedKey`.
     private var axPositions: [CGPoint] = []
@@ -765,7 +773,6 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         extractBridgeWoodPositions(from: m)
         extractFencePositions(from: m)
         extractWellPositions(from: m)
-        extractMountainPositions(from: m)
         extractAxPositions(from: m)
         loadChoppedTrees()
         hideAlreadyChoppedTrees()
@@ -1017,12 +1024,18 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     /// Scans every map layer for chest tiles and stores one world-space center per tile.
     private func extractChestPositions(from m: TMXMap) {
         chestPositions.removeAll()
+        highChestPositions.removeAll()
         let chestRanges = m.tilesetRanges
             .filter { $0.name.contains("chest") }
             .map(\.gidRange)
         guard !chestRanges.isEmpty else { return }
+
         var seen = Set<String>()
-        for (_, grid) in m.layerGIDs {
+        for (layerName, grid) in m.layerGIDs {
+            // The axe pickup is drawn with a chest tile on its own "ax" layer —
+            // it's handled by extractAxPositions, never as a treasure chest.
+            let lname = layerName.lowercased()
+            guard lname != "ax" && lname != "axe" else { continue }
             for r in 0..<m.rows {
                 for c in 0..<m.cols {
                     let gid = grid[r][c] & 0x0FFF_FFFF
@@ -1030,11 +1043,39 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
                     let key = "\(r),\(c)"
                     guard !seen.contains(key) else { continue }
                     seen.insert(key)
-                    chestPositions.append(m.tileCenter(col: c, row: r))
+                    let pos = m.tileCenter(col: c, row: r)
+                    if isOnHighArea(row: r, col: c, in: m) {
+                        highChestPositions.append(pos)
+                    } else {
+                        chestPositions.append(pos)
+                    }
                 }
             }
         }
-        print("📦 Found \(chestPositions.count) chest(s) on the map")
+        print("📦 Found \(chestPositions.count) ground chest(s), \(highChestPositions.count) high chest(s) on the map")
+    }
+
+    /// True when a tile cell sits inside a mountain ("high area") region.
+    /// Covers both authoring styles: the object painted on the mountains layer
+    /// itself (its own GID makes the cell non-zero), or on another layer over
+    /// the plateau (most surrounding cells are mountain).
+    private func isOnHighArea(row: Int, col: Int, in m: TMXMap) -> Bool {
+        let mountainGrids: [[[Int]]] = m.layerGIDs
+            .filter { $0.key.lowercased().contains("mountain") }
+            .map(\.value)
+        func mountainCell(_ r: Int, _ c: Int) -> Bool {
+            guard r >= 0, r < m.rows, c >= 0, c < m.cols else { return false }
+            for g in mountainGrids where (g[r][c] & 0x0FFF_FFFF) != 0 { return true }
+            return false
+        }
+        if mountainCell(row, col) { return true }
+        var neighbors = 0
+        for dr in -1...1 {
+            for dc in -1...1 where !(dr == 0 && dc == 0) {
+                if mountainCell(row + dr, col + dc) { neighbors += 1 }
+            }
+        }
+        return neighbors >= 4
     }
 
     /// Scans the "Store" map layer for any non-zero tile and stores one world-space
@@ -1141,31 +1182,11 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         print("🪣 Found \(wellPositions.count) well tile(s) on the map")
     }
 
-    /// Scans any map layer whose name contains "mountain" (case-insensitive) for non-zero
-    /// tiles. Pressing A near one — while carrying the Golden Lance — lets the player
-    /// climb up onto the mountain.
-    private func extractMountainPositions(from m: TMXMap) {
-        mountainPositions.removeAll()
-        var seen = Set<String>()
-        for (layerName, grid) in m.layerGIDs where layerName.lowercased().contains("mountain") {
-            for r in 0..<m.rows {
-                for c in 0..<m.cols {
-                    let gid = grid[r][c] & 0x0FFF_FFFF
-                    guard gid != 0 else { continue }
-                    let key = "\(r),\(c)"
-                    guard !seen.contains(key) else { continue }
-                    seen.insert(key)
-                    mountainPositions.append(m.tileCenter(col: c, row: r))
-                }
-            }
-        }
-        print("⛰️  Found \(mountainPositions.count) mountain tile(s) on the map")
-    }
-
     /// Scans any map layer whose name contains "ax" (case-insensitive) for non-zero
     /// tiles. Pressing A near one — while the axe hasn't been earned yet — picks it up.
     private func extractAxPositions(from m: TMXMap) {
         axPositions.removeAll()
+        highAxKeys.removeAll()
         // Skip if the player already owns the axe — the pickup tile should disappear.
         let earned = UserDefaults.standard.bool(forKey: axeEarnedKey)
         var seen = Set<String>()
@@ -1183,13 +1204,18 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
                     if earned {
                         // Already collected — hide the tile permanently.
                         hideChestTile(at: pos)
+                    } else if isOnHighArea(row: r, col: c, in: m) {
+                        // On a high area — must be knocked down with the lance
+                        // first; it lands as the axe pickup, not a chest.
+                        highChestPositions.append(pos)
+                        highAxKeys.insert("\(Int(pos.x)),\(Int(pos.y))")
                     } else {
                         axPositions.append(pos)
                     }
                 }
             }
         }
-        print("🪓 Found \(axPositions.count) axe pickup tile(s) on the map (earned=\(earned))")
+        print("🪓 Found \(axPositions.count) axe pickup tile(s) + \(highAxKeys.count) on high areas (earned=\(earned))")
     }
 
     private func loadChoppedTrees() {
@@ -1364,7 +1390,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         let bridgeWoodRadius:  CGFloat = 36
         let fenceRadius:       CGFloat = 36
         let wellRadius:        CGFloat = 36
-        let mountainRadius:    CGFloat = 26
+        let highChestRadius:   CGFloat = 34
         let axRadius:          CGFloat = 24
 
         // Find the single closest object across all categories.
@@ -1381,7 +1407,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         var bestStore:        CGPoint? = nil
         var bestFence:        CGPoint? = nil
         var bestWell:         CGPoint? = nil
-        var bestMountain:     CGPoint? = nil
+        var bestHighChest:    CGPoint? = nil
         var bestAx:           CGPoint? = nil
 
         for pos in cornholeBoardPositions {
@@ -1482,20 +1508,21 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
                     bestDist = d; bestBoard = nil; bestChest = nil; bestStore = nil; bestBridgeStone = nil
                     bestBaseball = nil; bestTree = nil; bestAppleTree = nil
                     bestBeehive = nil; bestPool = nil; bestBridgeWood = nil
-                    bestFence = nil; bestWell = nil; bestMountain = nil; bestAx = pos
+                    bestFence = nil; bestWell = nil; bestHighChest = nil; bestAx = pos
                 }
             }
         }
 
-        // Mountain climbing — gated by Golden Lance ownership.
+        // High-area chests — knockable with the lance. No lance (or no chest
+        // left up there) → no prompt at all.
         if UserDefaults.standard.bool(forKey: goldenLanceKey) {
-            for pos in mountainPositions {
+            for pos in highChestPositions {
                 let d = hypot(player.position.x - pos.x, player.position.y - pos.y)
-                if d < mountainRadius && d < bestDist {
+                if d < highChestRadius && d < bestDist {
                     bestDist = d; bestBoard = nil; bestChest = nil; bestStore = nil; bestBridgeStone = nil
                     bestBaseball = nil; bestTree = nil; bestAppleTree = nil
                     bestBeehive = nil; bestPool = nil; bestBridgeWood = nil
-                    bestFence = nil; bestWell = nil; bestMountain = pos
+                    bestFence = nil; bestWell = nil; bestHighChest = pos
                 }
             }
         }
@@ -1509,7 +1536,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
                 bestBoard = nil; bestChest = nil; bestStore = nil; bestBridgeStone = nil
                 bestBaseball = nil; bestTree = nil; bestAppleTree = nil
                 bestBeehive = nil; bestPool = nil; bestBridgeWood = nil; bestFence = nil
-                bestWell = nil; bestMountain = nil; bestAx = nil
+                bestWell = nil; bestHighChest = nil; bestAx = nil
                 bestStoryBat = batPos
             }
         }
@@ -1526,14 +1553,12 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         nearbyBridgeWoodPosition  = bestBridgeWood
         nearbyFencePosition       = bestFence
         nearbyWellPosition        = bestWell
-        nearbyMountainPosition    = bestMountain
+        nearbyHighChestPosition   = bestHighChest
         nearbyAxPosition          = bestAx
         nearbyStoryBatPosition    = bestStoryBat
 
         // Auto-descend when the player walks away from the tree they climbed.
         if bestTree == nil && player.isInTree { player.descendTree() }
-        // Auto-descend the mountain when the player walks out of range.
-        if bestMountain == nil && player.isOnMountain { player.descendMountain() }
 
         // Position the single shared prompt above the nearest object, or hide it.
         let anchor: CGPoint?
@@ -1549,7 +1574,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         else if let p = bestBridgeWood    { anchor = CGPoint(x: p.x, y: p.y + 22) }
         else if let p = bestFence         { anchor = CGPoint(x: p.x, y: p.y + 22) }
         else if let p = bestWell          { anchor = CGPoint(x: p.x, y: p.y + 22) }
-        else if let p = bestMountain      { anchor = CGPoint(x: p.x, y: p.y + 22) }
+        else if let p = bestHighChest     { anchor = CGPoint(x: p.x, y: p.y + 22) }
         else if let p = bestAx            { anchor = CGPoint(x: p.x, y: p.y + 22) }
         else if let p = bestStoryBat      { anchor = CGPoint(x: p.x, y: p.y + 22) }
         else                              { anchor = nil }
@@ -1643,6 +1668,126 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
                 self.showPickupText("+ DOG BISCUIT", at: pos)
             }
         }
+
+        // If this was a chest knocked down from a high area, the static tile is
+        // long gone — remove the fallen sprite so the open animation replaces it.
+        if let fallen = fallenChestNodes.removeValue(forKey: key) {
+            fallen.removeFromParent()
+        }
+    }
+
+    // MARK: - High-Area Chest (Golden Lance)
+
+    /// Find walkable ground for a knocked-down chest, working from the ledge
+    /// toward the player — who is, by definition, standing on walkable ground.
+    private func chestLandingSpot(from chestPos: CGPoint) -> CGPoint {
+        for t: CGFloat in [0.45, 0.60, 0.75, 0.90] {
+            let p = CGPoint(x: chestPos.x + (player.position.x - chestPos.x) * t,
+                            y: chestPos.y + (player.position.y - chestPos.y) * t)
+            if isWalkable(p) { return p }
+        }
+        return player.position
+    }
+
+    /// Lance jab + chest arcs off the ledge and lands as a normal openable chest.
+    private func knockChestOffHighArea() {
+        guard let chestPos = nearbyHighChestPosition else { return }
+        nearbyHighChestPosition = nil
+        highChestPositions.removeAll { abs($0.x - chestPos.x) < 1 && abs($0.y - chestPos.y) < 1 }
+
+        // Face the ledge and swing.
+        let dir = CGVector(dx: chestPos.x - player.position.x,
+                           dy: chestPos.y - player.position.y)
+        player.face(toward: dir)
+        player.playAttack()
+        playLanceJab(toward: dir)
+        HapticsManager.shared.lightImpact()
+
+        // Chest pops off at the jab's apex and arcs down to the ground.
+        let landing = chestLandingSpot(from: chestPos)
+        run(.sequence([
+            .wait(forDuration: 0.20),
+            .run { [weak self] in self?.launchChestArc(from: chestPos, to: landing) },
+        ]))
+    }
+
+    /// Quick gold lance thrust from the player toward the target — a visual
+    /// flourish layered over the sprite-sheet attack animation.
+    private func playLanceJab(toward dir: CGVector) {
+        guard let m = map else { return }
+        let len = max(1, hypot(dir.dx, dir.dy))
+        let ux = dir.dx / len, uy = dir.dy / len
+
+        let lance = SKNode()
+        let shaft = SKSpriteNode(color: dsGold, size: CGSize(width: 16, height: 2.5))
+        shaft.position = CGPoint(x: 8, y: 0)
+        let tip = SKSpriteNode(color: SKColor(red: 1.0, green: 0.95, blue: 0.75, alpha: 1),
+                               size: CGSize(width: 4, height: 4))
+        tip.position = CGPoint(x: 17, y: 0)
+        lance.addChild(shaft)
+        lance.addChild(tip)
+        lance.zRotation = atan2(uy, ux)
+        lance.position = CGPoint(x: player.position.x + ux * 8,
+                                 y: player.position.y + uy * 8)
+        lance.zPosition = player.zPosition + 1
+        m.mapNode.addChild(lance)
+
+        let out = SKAction.moveBy(x: ux * 12, y: uy * 12, duration: 0.12)
+        out.timingMode = .easeOut
+        lance.run(.sequence([
+            out,
+            .moveBy(x: -ux * 6, y: -uy * 6, duration: 0.10),
+            .fadeOut(withDuration: 0.10),
+            .removeFromParent(),
+        ]))
+    }
+
+    private func launchChestArc(from chestPos: CGPoint, to landing: CGPoint) {
+        guard let m = map else { return }
+        hideChestTile(at: chestPos)
+
+        // Closed-chest art = frame 0 of the same sheet openChest animates.
+        let sheet = SKTexture(imageNamed: "Chest_Anim")
+        sheet.filteringMode = .nearest
+        let closed = SKTexture(rect: CGRect(x: 0, y: 0, width: 1.0 / 6.0, height: 1), in: sheet)
+        closed.filteringMode = .nearest
+        let flyer = SKSpriteNode(texture: closed, size: m.tileSize)
+        flyer.position = chestPos
+        flyer.zPosition = 5_000   // above everything while airborne
+        m.mapNode.addChild(flyer)
+
+        let path = CGMutablePath()
+        path.move(to: chestPos)
+        let control = CGPoint(x: (chestPos.x + landing.x) / 2,
+                              y: max(chestPos.y, landing.y) + 26)
+        path.addQuadCurve(to: landing, control: control)
+        let fly = SKAction.follow(path, asOffset: false, orientToPath: false, duration: 0.55)
+        fly.timingMode = .easeIn
+        let spin = SKAction.rotate(byAngle: chestPos.x <= landing.x ? -2 * .pi : 2 * .pi,
+                                   duration: 0.55)
+
+        flyer.run(.sequence([
+            .group([fly, spin]),
+            .run { [weak self] in
+                guard let self else { return }
+                HapticsManager.shared.mediumImpact()
+                self.run(SKAction.playSoundFileNamed("hit.mp3", waitForCompletion: false))
+                flyer.zRotation = 0
+                // Painter's-algorithm depth like map tiles: sort by tile bottom.
+                flyer.zPosition = -(landing.y - m.tileSize.height / 2)
+                self.fallenChestNodes["\(Int(landing.x)),\(Int(landing.y))"] = flyer
+                // Grounded — A-press now collects it. Axe pickups keep their
+                // identity; everything else lands as a normal 50/50 chest.
+                if self.highAxKeys.remove("\(Int(chestPos.x)),\(Int(chestPos.y))") != nil {
+                    self.axPositions.append(landing)
+                } else {
+                    self.chestPositions.append(landing)
+                }
+            },
+            // Landing squash-and-settle.
+            .scaleY(to: 0.65, duration: 0.07),
+            .scaleY(to: 1.0, duration: 0.10),
+        ]))
     }
 
     // MARK: - Axe
@@ -1652,8 +1797,12 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         // Persist + reveal the HUD button.
         UserDefaults.standard.set(true, forKey: axeEarnedKey)
         btnAxe?.isHidden = false
-        // Hide the pickup tile and clear it from the active list.
+        // Hide the pickup tile and clear it from the active list. If it was
+        // knocked down from a high area, the visual is a fallen sprite instead.
         hideChestTile(at: pos)
+        if let fallen = fallenChestNodes.removeValue(forKey: "\(Int(pos.x)),\(Int(pos.y))") {
+            fallen.removeFromParent()
+        }
         axPositions.removeAll { abs($0.x - pos.x) < 1 && abs($0.y - pos.y) < 1 }
         nearbyAxPosition = nil
         showPickupText("+ AXE", at: pos)
@@ -2244,9 +2393,8 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         let fences = m.layerGIDs["fences"]
         let ground = m.layerGIDs["Ground"]
         let interactions = m.layerGIDs["Interactions"]
-        let hasLance = UserDefaults.standard.bool(forKey: goldenLanceKey)
-        // Every mountain-layer grid is always scanned so we can both *add* walls (no lance)
-        // and *subtract* Collisions-layer walls that overlap mountain tiles (with lance).
+        // Mountain (high-area) cells are always walled off — the Golden Lance
+        // lets the player knock chests down from them, never stand on them.
         let mountainGrids: [[[Int]]] = m.layerGIDs
             .filter { $0.key.lowercased().contains("mountain") }
             .map { $0.value }
@@ -2263,13 +2411,9 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
 
         for r in 0..<m.rows {
             for c in 0..<m.cols {
-                let onMountain = isMountain(r, c)
-                // With the lance, mountain cells are walkable — even if they're also
-                // painted on the Collisions layer.
-                let collisionHere = (collisions?[r][c] ?? 0) != 0 && !(hasLance && onMountain)
-                let blocked = collisionHere
+                let blocked = (collisions?[r][c] ?? 0) != 0
                                     || (fences?[r][c] ?? 0) != 0
-                                    || (!hasLance && onMountain)
+                                    || isMountain(r, c)
                 let waterHere = isWater(ground?[r][c] ?? 0)
                 // A bridge (any tile on the Interactions layer at this cell)
                 // overrides the water block so the player can cross it.
@@ -2532,8 +2676,8 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
                 } else {
                     showHintBanner("You need bean bags\nto throw down\nthe well.")
                 }
-            } else if nearbyMountainPosition != nil {
-                if player.isOnMountain { player.descendMountain() } else { player.climbMountain() }
+            } else if nearbyHighChestPosition != nil {
+                knockChestOffHighArea()
             } else if nearbyTreePosition != nil {
                 if player.isInTree { player.descendTree() } else { player.climbTree() }
             }
@@ -3021,16 +3165,12 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         let row = m.rows - 1 - Int(floor(worldPos.y / th))
         guard col >= 0, col < m.cols, row >= 0, row < m.rows else { return false }
 
-        let hasLance = UserDefaults.standard.bool(forKey: goldenLanceKey)
-        // Check mountain layers first so we can exempt overlapping Collisions tiles.
-        var onMountain = false
+        // Mountain (high-area) cells are never walkable, lance or no lance.
         for (name, grid) in m.layerGIDs where name.lowercased().contains("mountain") {
-            if (grid[row][col] & 0x0FFF_FFFF) != 0 { onMountain = true; break }
+            if (grid[row][col] & 0x0FFF_FFFF) != 0 { return false }
         }
-        if onMountain && !hasLance { return false }
-        // With the lance, mountain cells override a same-tile Collisions block.
         if let collisions = m.layerGIDs["Collisions"], collisions[row][col] != 0 {
-            if !(hasLance && onMountain) { return false }
+            return false
         }
         if let fences = m.layerGIDs["fences"], fences[row][col] != 0 {
             return false

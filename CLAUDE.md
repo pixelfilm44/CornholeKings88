@@ -113,6 +113,17 @@ Tilesets whose name contains `"chest"` (e.g. `Golden_Chest_Anim.tsx`) become one
 3. A floating `+ HEART` / `+ DOG BISCUIT` pickup label animates from the chest.
 4. The opened position is tracked in `openedChestKeys: Set<String>` (key = `"<intX>,<intY>"`) so proximity detection skips it for the rest of the session. Memory is **not** persisted to `UserDefaults`.
 
+### High Areas & the Golden Lance
+
+Map layers whose name contains `"mountain"` are **always impassable** — `buildPhysics(from:)` walls every mountain cell and `isWalkable` rejects them, lance or no lance. The player can never stand on a high area.
+
+What the Golden Lance grants instead is **knocking things off high areas**:
+
+- `extractChestPositions(from:)` classifies each chest tile via `isOnHighArea(row:col:in:)` (cell inside a mountain region, or ≥ 4 of its 8 neighbors are mountain cells — covers chests painted on the mountains layer itself or on another layer over the plateau). High chests go to `highChestPositions`, ground chests to `chestPositions`.
+- The axe pickup (chest art on the `"ax"` layer) is excluded from chest detection; when it sits on a high area, `extractAxPositions` adds it to the knockable list and records it in `highAxKeys` so it keeps its identity.
+- With the lance, walking within 34 units of a high knockable shows the `▲A` prompt (no lance or nothing up there → no prompt). A-press runs `knockChestOffHighArea()`: the player faces the ledge (`PlayerNode.face(toward:)`), plays the sprite-sheet `attack` animation plus a gold lance-jab flourish (`playLanceJab(toward:)`), then the chest arcs off the ledge (`launchChestArc(from:to:)` — quad-curve flight, spin, squash-and-settle, `hit.mp3` + medium haptic).
+- Landing spot (`chestLandingSpot(from:)`) walks from the ledge toward the player until `isWalkable`. The grounded sprite is tracked in `fallenChestNodes` (keyed `"<intX>,<intY>"` of the landing) and registered as a normal `chestPositions` entry (50/50 heart / dog biscuit via `openChest()`) — or as an `axPositions` entry if it was the axe. Both `openChest()` and `collectAxe()` remove the fallen sprite. Knock-downs are session-only, like opened chests.
+
 ### Bridge Wood
 
 Tilesets whose name contains `"bridge_wood"` (e.g. `Bridge_Wood.tsx`) trigger `BridgePiranhaScene` when the player presses A nearby (36-unit radius). The prompt is suppressed once the bridge is unlocked.
