@@ -93,6 +93,25 @@ final class CornholeMiniGameScene: SKScene {
         /// Bags marked destroyed are removed from scoring but kept in activeBags until the round ends.
         var isDestroyed = false
 
+        // MARK: Soft-bag deformation (Tier 1/2 — pure visual, volume-preserving)
+        /// Signed deform driven by a damped spring. >0 = flattened (wide + short, like a
+        /// beanbag slapping the board); <0 = stretched (tall + narrow, e.g. leaning into a
+        /// throw). Folded into the bag's non-uniform scale each frame in `updateBagDeform`.
+        /// Never affects bx/by/bz or scoring.
+        var deform: CGFloat = 0
+        /// Spring velocity for `deform` — carries the overshoot that produces the jiggle/settle.
+        var deformV: CGFloat = 0
+
+        // MARK: Tier 3 — directional mesh-warp drape
+        /// Displacement vector in the bag's **local texture frame** (normalized units),
+        /// driven by a damped spring back to zero. Kicked toward the impact direction so
+        /// the bag's leading edge visibly flops/drapes that way over the board or another
+        /// bag. Folded into an `SKWarpGeometryGrid` each frame in `updateBagDeform`.
+        var warpX: CGFloat = 0
+        var warpY: CGFloat = 0
+        var warpVX: CGFloat = 0
+        var warpVY: CGFloat = 0
+
         let node: SKSpriteNode
         let shadow: SKSpriteNode
 
@@ -144,6 +163,9 @@ final class CornholeMiniGameScene: SKScene {
             node.color            = owner == .player ? playerColor : aiColor
             node.colorBlendFactor = (isBomb || isMagic || isFire || isGolden) ? 0.88 : 0.65
             node.zPosition        = 20
+            // Tier 3: smooth out the 3×3 drape warp into a curved bend rather than
+            // flat facets. Costs nothing until a warpGeometry is actually attached.
+            node.subdivisionLevels = 2
 
             // Skull marker on bomb bags
             if isBomb {
@@ -1373,8 +1395,13 @@ final class CornholeMiniGameScene: SKScene {
 
         var anyMoving = false
         for bag in activeBags {
-            guard !bag.isGrounded || bag.isMoving else { continue }
-            updateBagPhysics(bag, dt: dt)
+            if !bag.isGrounded || bag.isMoving {
+                updateBagPhysics(bag, dt: dt)
+            }
+            // Soft-bag deformation spring runs every frame — even for a grounded,
+            // stationary bag — so its landing jiggle keeps settling after the bag
+            // stops moving. Pure visual; does not touch position or scoring.
+            updateBagDeform(bag, dt: dt)
             if bag.isMoving { anyMoving = true }
         }
 
@@ -1447,6 +1474,17 @@ final class CornholeMiniGameScene: SKScene {
                 a.vx -= impulse * nx;  a.vy -= impulse * ny
                 b.vx += impulse * nx;  b.vy += impulse * ny
 
+                // Soft-bag squish on contact, scaled by impact strength (pure visual).
+                // `max` so a harder existing deform isn't softened; zeroing deformV lets
+                // the spring recoil into a jiggle.
+                let dKick = min(0.60, abs(impulse) * 0.09)
+                a.deform = max(a.deform, dKick); a.deformV = 0
+                b.deform = max(b.deform, dKick); b.deformV = 0
+
+                // Tier 3: each bag drapes away along the collision normal.
+                kickWarp(a, worldDX: -nx, worldDY: -ny, strength: abs(impulse) * 0.05)
+                kickWarp(b, worldDX:  nx, worldDY:  ny, strength: abs(impulse) * 0.05)
+
                 // Un-ground board bags so they slide freely after impact
                 a.isGrounded = false
                 b.isGrounded = false
@@ -1501,6 +1539,17 @@ final class CornholeMiniGameScene: SKScene {
                     bag.hasLanded = true
                     UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                     run(SKAction.playSoundFileNamed("hit.mp3", waitForCompletion: false))
+                }
+
+                // Soft-bag slap: flatten proportional to the downward impact speed, then
+                // let the spring pull it back (overshoot = jiggle). `bag.vz` here is still
+                // the incoming velocity, before the bounce/stick logic below zeroes it.
+                // `> 0.5` gates out the per-frame re-entry while a bag merely slides (vz≈0).
+                if abs(bag.vz) > 0.5 {
+                    bag.deform  = min(0.65, abs(bag.vz) * 0.03)
+                    bag.deformV = 0
+                    // Tier 3: drape in the direction it's sliding as it slaps down.
+                    kickWarp(bag, worldDX: bag.vx, worldDY: bag.vy, strength: abs(bag.vz) * 0.02)
                 }
 
                 // Non-fire bags landing on a burning board are immediately destroyed
@@ -1585,6 +1634,10 @@ final class CornholeMiniGameScene: SKScene {
                 bag.vx = 0; bag.vy = 0; bag.vz = 0; bag.rotV = 0
                 if !bag.hasAppliedGroundScale {
                     bag.hasAppliedGroundScale = true
+                    // Tier 3: this bag is now action-owned (updateBagDeform skips it), so
+                    // drop any active drape warp before it would freeze mid-flop.
+                    bag.warpX = 0; bag.warpY = 0; bag.warpVX = 0; bag.warpVY = 0
+                    bag.node.warpGeometry = nil
                     // Long-distance variant: bags resting on the ground render at a final
                     // on-screen scale of 0.45 (baseScale × distanceScale).
                     let groundScale: CGFloat = distanceScale < 1.0 ? 0.45 / distanceScale : 0.75
@@ -1609,13 +1662,101 @@ final class CornholeMiniGameScene: SKScene {
         bag.node.position   = CGPoint(x: bag.bx, y: visualY)
         bag.shadow.position = CGPoint(x: bag.bx + bag.bz * 0.08, y: bag.by)
 
-        let heightScale = 1.0 + bag.bz * 0.012
-        bag.node.setScale(bag.baseScale * heightScale * distanceScale)
+        // Node scale (including height perspective + soft-bag deform) is applied in
+        // updateBagDeform, which runs every frame for live bags.
         bag.shadow.alpha   = max(0.08, 0.35 - bag.bz * 0.005)
         bag.shadow.setScale(max(0.5, 1.0 - bag.bz * 0.005) * distanceScale)
 
         // Depth sort: bags closer to camera (lower on screen) appear in front
         bag.node.zPosition = 20 + bag.bz * 0.1 - bag.by * 0.02
+    }
+
+    /// Ticks the soft-bag deformation spring and writes the bag's non-uniform scale.
+    /// Pure visual: never touches bx/by/bz or scoring. Runs every frame for live bags;
+    /// scored / destroyed / off-board bags keep the scale set by their own SKActions
+    /// (sink, poof, off-board shrink), so we return early and leave them alone.
+    private func updateBagDeform(_ bag: MiniGameBag, dt: CGFloat) {
+        guard !bag.hasScored, !bag.isDestroyed, !bag.hasAppliedGroundScale else { return }
+
+        // Tier 2: while airborne and moving, hold a gentle tall-and-narrow stretch
+        // (deform < 0) that reads as the bag leaning into its arc; it relaxes to 0 as
+        // the bag slows and lands, where the landing slap (deform > 0) takes over.
+        let speed = hypot(bag.vx, bag.vy)
+        let flightTarget: CGFloat = bag.bz > 1 ? -min(0.26, speed * 0.028) : 0
+
+        // Damped spring pulls `deform` toward its rest target. Underdamped (lower damping =
+        // more overshoot/wobble before it settles). Stable at dt = 1/60.
+        let stiffness: CGFloat = 240
+        let damping:   CGFloat = 13
+        bag.deformV += (-stiffness * (bag.deform - flightTarget) - damping * bag.deformV) * dt
+        bag.deform  += bag.deformV * dt
+        bag.deform   = max(-0.75, min(0.75, bag.deform))
+
+        // Volume-preserving non-uniform scale layered on top of the height/base scale.
+        // Applied in the bag's local frame (a square beanbag has no strong axis, so the
+        // approximation reads naturally); true world-axis drape would need a mesh warp.
+        let heightScale = 1.0 + bag.bz * 0.012
+        let base = bag.baseScale * heightScale * distanceScale
+        bag.node.xScale = base * (1 + bag.deform)
+        bag.node.yScale = base * (1 - bag.deform * 0.88)
+
+        // Tier 3: spring the directional warp vector back to rest. While it's meaningfully
+        // displaced, rebuild the bag's mesh-warp grid so the leading edge drapes; once it
+        // settles, drop the warp entirely so the sprite renders crisp (and no warp pass).
+        let wStiff: CGFloat = 180
+        let wDamp:  CGFloat = 10
+        bag.warpVX += (-wStiff * bag.warpX - wDamp * bag.warpVX) * dt
+        bag.warpVY += (-wStiff * bag.warpY - wDamp * bag.warpVY) * dt
+        bag.warpX  += bag.warpVX * dt
+        bag.warpY  += bag.warpVY * dt
+        if abs(bag.warpX) > 0.004 || abs(bag.warpY) > 0.004 {
+            bag.node.warpGeometry = makeDrapeGrid(warpX: bag.warpX, warpY: bag.warpY)
+        } else if bag.node.warpGeometry != nil {
+            bag.warpX = 0; bag.warpY = 0; bag.warpVX = 0; bag.warpVY = 0
+            bag.node.warpGeometry = nil
+        }
+    }
+
+    /// Kicks a bag's mesh-warp drape toward a world-space impact direction. Converts the
+    /// world direction into the bag's local texture frame (undoing the sprite's spin) so
+    /// the flop points the correct way regardless of how the bag is rotated. Sets the warp
+    /// directly (not its velocity) for an instant drape that the spring then relaxes.
+    private func kickWarp(_ bag: MiniGameBag, worldDX: CGFloat, worldDY: CGFloat, strength: CGFloat) {
+        let mag = hypot(worldDX, worldDY)
+        guard mag > 1e-4, strength > 0.001 else { return }
+        let ux = worldDX / mag, uy = worldDY / mag
+        let cosR = cos(bag.rot), sinR = sin(bag.rot)
+        let lx =  ux * cosR + uy * sinR     // world → bag-local
+        let ly = -ux * sinR + uy * cosR
+        let s = min(0.34, strength)
+        bag.warpX = lx * s;  bag.warpY = ly * s
+        bag.warpVX = 0;      bag.warpVY = 0
+    }
+
+    /// Builds a 3×3 (`2×2` cell) warp grid in which the edge facing the warp direction
+    /// drapes furthest while the trailing edge stays put — an asymmetric, organic flop.
+    private func makeDrapeGrid(warpX: CGFloat, warpY: CGFloat) -> SKWarpGeometryGrid {
+        let cols = 2, rows = 2
+        let mag = hypot(warpX, warpY)
+        let inv: CGFloat = mag > 1e-4 ? 1 / mag : 0
+        let dx = warpX * inv, dy = warpY * inv      // unit warp direction
+        var src: [SIMD2<Float>] = []; src.reserveCapacity(9)
+        var dst: [SIMD2<Float>] = []; dst.reserveCapacity(9)
+        for r in 0...rows {
+            for c in 0...cols {
+                let u = CGFloat(c) / CGFloat(cols)
+                let v = CGFloat(r) / CGFloat(rows)
+                src.append(SIMD2<Float>(Float(u), Float(v)))
+                // How far this vertex sits toward the leading edge (0 at back/center).
+                let lead = max(0, (u - 0.5) * dx + (v - 0.5) * dy)
+                let k = 0.5 + lead * 2.2        // slight whole-bag lean + asymmetric drape
+                let ex = min(1.6, max(-0.6, u + warpX * k))
+                let ey = min(1.6, max(-0.6, v + warpY * k))
+                dst.append(SIMD2<Float>(Float(ex), Float(ey)))
+            }
+        }
+        return SKWarpGeometryGrid(columns: cols, rows: rows,
+                                  sourcePositions: src, destinationPositions: dst)
     }
 
     private func checkIsOnBoard(_ bag: MiniGameBag) -> Bool {
