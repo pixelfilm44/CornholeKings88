@@ -5,6 +5,9 @@ final class InventoryManager {
 
     private(set) var counts: [ItemType: Int] = [:]
     var onChanged: (() -> Void)?
+    /// Fired after each collect() with the type granted — lets the host show
+    /// a one-time "what this does" hint at the canonical pickup moment.
+    var onCollect: ((ItemType) -> Void)?
 
     init() { load() }
 
@@ -12,6 +15,7 @@ final class InventoryManager {
         counts[type, default: 0] += 1
         save()
         onChanged?()
+        onCollect?(type)
     }
 
     func collect(_ type: ItemType, count: Int) {
@@ -19,6 +23,7 @@ final class InventoryManager {
         counts[type, default: 0] += count
         save()
         onChanged?()
+        onCollect?(type)
     }
 
     func consume(_ type: ItemType, count: Int = 1) {

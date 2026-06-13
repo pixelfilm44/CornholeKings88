@@ -723,6 +723,12 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         if inventory.counts[.fireBag, default: 0] == 0 {
             inventory.collect(.fireBag, count: 3)
         }
+
+        // Registered after the boot-time mirror/test grants above so those
+        // don't fire first-pickup hints — only items earned in play do.
+        inventory.onCollect = { [weak self] type in
+            self?.maybeShowItemUseHint(for: type)
+        }
     }
 
     // MARK: - Map / player setup
@@ -2524,7 +2530,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
                     setMiniGameReturnPosition(near: p)
                     openWellFlinger()
                 } else {
-                    showHintBanner("You need bean bags\nto throw down the well.")
+                    showHintBanner("You need bean bags\nto throw down\nthe well.")
                 }
             } else if nearbyMountainPosition != nil {
                 if player.isOnMountain { player.descendMountain() } else { player.climbMountain() }
@@ -2597,16 +2603,50 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
 
     // MARK: - Hint Banner
 
+    // One-time "what this does" hints, shown the first time a special item
+    // type is ever collected (HIG: the pickup is the canonical hint moment).
+    // Seen types persist across launches.
+    private static let itemHintsSeenKey = "itemUseHintsSeen_v1"
+
+    /// Keep every line ≤ 20 chars — PressStart2P glyphs are square, so the
+    /// hint panel fits ~21 chars per line before the font has to shrink.
+    private func itemUseHint(for type: ItemType) -> String? {
+        switch type {
+        case .bombBag:    return "BOMB BAG: blows up\nrival bags on board!"
+        case .magicBag:   return "MAGIC BAG: zaps\nrival bags it hits!"
+        case .fireBag:    return "FIRE BAG: burns all\nother bags in play!"
+        case .honeyBag:   return "HONEY BAG: sticks!\nNo wind, no knocks."
+        case .goldenBag:  return "GOLDEN BAG: 2 pts\non board, 6 in hole!"
+        case .dogBiscuit: return "DOG BISCUIT: tap its\nslot to lure dogs!"
+        // floatingBag and goldenLance already get bespoke award banners.
+        default:          return nil
+        }
+    }
+
+    private func maybeShowItemUseHint(for type: ItemType) {
+        guard let copy = itemUseHint(for: type) else { return }
+        var seen = Set(UserDefaults.standard.stringArray(forKey: GameScene.itemHintsSeenKey) ?? [])
+        guard seen.insert(type.rawValue).inserted else { return }
+        UserDefaults.standard.set(Array(seen), forKey: GameScene.itemHintsSeenKey)
+        showHintBanner(copy)
+    }
+
     /// Shows a transient tutorial hint in the stage area, auto-dismissed after 4 s.
-    /// Lines are separated by "\n".
+    /// Lines are separated by "\n". If a hint is already up, the new one waits
+    /// its turn instead of stacking on top.
     private func showHintBanner(_ message: String) {
         let lines = message.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
-        let fs: CGFloat = max(5, size.width * 0.036)
-        let lineH: CGFloat = fs + 7
         let panelW = size.width * 0.76
+        // PressStart2P glyph advance ≈ fontSize, so shrink the font to fit the
+        // longest line inside the panel rather than letting the label overflow.
+        let maxLen = max(1, lines.map(\.count).max() ?? 1)
+        let fs: CGFloat = max(5, min(size.width * 0.036, (panelW - 16) / CGFloat(maxLen)))
+        let lineH: CGFloat = fs + 7
         let panelH = CGFloat(lines.count) * lineH + 18
 
+        let queuedAhead = cameraNode.children.filter { $0.name == "hintBanner" }.count
         let banner = SKNode()
+        banner.name = "hintBanner"
         banner.zPosition = 18_000
 
         let bg = SKSpriteNode(color: SKColor(red: 0.05, green: 0.04, blue: 0.02, alpha: 0.93),
@@ -2638,8 +2678,9 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         banner.alpha    = 0
         cameraNode.addChild(banner)
 
-        HapticsManager.shared.lightImpact()
         banner.run(.sequence([
+            .wait(forDuration: Double(queuedAhead) * 4.9),
+            .run { HapticsManager.shared.lightImpact() },
             .fadeIn(withDuration: 0.25),
             .wait(forDuration: 4.0),
             .fadeOut(withDuration: 0.50),
@@ -2965,7 +3006,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
 
         if !hasShownDogTutorial {
             hasShownDogTutorial = true
-            showHintBanner("Dodge the dogs!\nClimb a tree for safety \u{25B2}A")
+            showHintBanner("Dodge the dogs!\nClimb a tree\nfor safety \u{25B2}A")
         }
     }
 

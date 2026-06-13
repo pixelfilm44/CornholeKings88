@@ -234,7 +234,11 @@ Navigation: `◄ BACK` strip at top (push-down transition back to `MainMenuScene
 Items scattered in the world can be walked over to collect them. The system has four files:
 
 - **`Item.swift`** — `ItemType` enum (`coin`, `bag`, `star`, `honeyBag`, `bombBag`, `magicBag`, `fireBag`, `goldenBag`, `dogBiscuit`, `floatingBag`, `goldenLance`) with `color`, `displayName`, and `hudSymbol`.
-- **`InventoryManager.swift`** — holds `[ItemType: Int]` counts; fires an `onChanged` closure when any item is collected. `GameScene` owns the instance.
+- **`InventoryManager.swift`** — holds `[ItemType: Int]` counts; fires an `onChanged` closure when any item is collected, plus an `onCollect(ItemType)` closure identifying what was collected. `GameScene` owns the instance.
+
+**First-pickup use hints** — the first time a special item type is ever collected, `GameScene.maybeShowItemUseHint(for:)` shows a one-line use hint via `showHintBanner` (e.g. `"BOMB BAG: blows up / rival bags on board!"`). Copy lives in `itemUseHint(for:)`; seen types persist in `UserDefaults` under `"itemUseHintsSeen_v1"`. `inventory.onCollect` is registered **after** the boot-time lance-mirror and test grants in setup so those never fire hints. `floatingBag` and `goldenLance` are excluded — they already get bespoke award banners.
+
+**Hint banner copy rule** — `showHintBanner` lines are separated by `\n`; keep each line ≤ 20 characters. PressStart2P glyphs are square (advance ≈ fontSize), so the 76%-width panel fits ~21 chars per line at full size; longer lines auto-shrink the font to fit rather than overflow. Concurrent hints queue (4.9 s spacing) instead of stacking.
 - **`CollectibleNode.swift`** — `SKNode` subclass placed in the map's `mapNode`. Draws an 8×8 colored tile + glow ring, bobs gently, and pops/fades out on contact. Physics body is a sensor (`collisionBitMask = 0`, `contactTestBitMask = PlayerNode.categoryBit`). Uses `collectibleBit = 0x1 << 2`.
 - **`InventoryHUDNode.swift`** — `SKNode` attached to `cameraNode`. Renders a horizontal row of dark pill slots (colored icon + `×N` count label) in the bottom chrome, vertically centered between the top of the D-pad cross and the stage bottom border. Call `refresh(counts:)` to redraw. Each slot container is named `"slot_<rawValue>"` (e.g. `"slot_dogBiscuit"`); `GameScene.handleTouchBegan` walks `nodes(at:)` for that prefix and routes the tap to `handleInventoryTap(_:)` for per-item world-use actions.
 
