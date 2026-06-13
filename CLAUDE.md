@@ -276,6 +276,15 @@ Items scattered in the world can be walked over to collect them. The system has 
 - **Mini-game entry:** heart-draining scenes start with `HeartsManager.shared.currentHearts` (may be less than max if the player took damage earlier in the session). They do not reset to max on entry — only on replay-after-loss.
 - `GameScene` registers `HeartsManager.shared.onChanged` in `didMove(to:)` so its HUD redraws when the bike-race modal updates the count off-screen, then calls `resyncHeartsDisplay()` on any return path.
 
+### Pause Map
+
+The world pause overlay (pause button → `showPauseOverlay()`) has two buttons: RESUME and MAP. MAP opens `showMapOverlay()` — a fog-of-war world map drawn over the pause panel; any tap closes it and returns to the pause panel.
+
+- The map is a virtual grid of screen-sized cells (`stageWorldSize` per side) covering the TMX map. Cells the player has walked through are recorded by `trackVisitedCell()` (called from `update()`) into `visitedCells: Set<String>` (key = `"<col>,<row>"` from `cellKey(for:)`), persisted to `UserDefaults` under `"visitedMapCells_v1"`.
+- Visited cells render wood-filled; unvisited cells stay dark.
+- **Pins appear only in visited cells** (discovery log): gold squares for mini-game triggers (cornhole boards, baseball, apple trees, beehives, pools, both bridges, wells, fences) and a blue square for the store. Adjacent trigger tiles (2×2 boards, fence runs) are collapsed to one pin per 64-unit bucket by `clusteredPins(_:bucket:)`.
+- A pulsing red dot marks the player's current position; a 3-item legend (YOU / GAMES / SHOP) sits in the panel footer.
+
 ### Tutorial System
 
 Centralized framework that every mini-game uses for consistent first-play onboarding.

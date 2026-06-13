@@ -128,6 +128,12 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     private var isPausedGame = false
     private var pauseOverlayNode: SKNode?
     private var pauseBtnPosition: CGPoint = .zero
+
+    // Pause map — visited screen-sized cells, persisted across launches.
+    private static let visitedCellsKey = "visitedMapCells_v1"
+    private var mapOverlayNode: SKNode?
+    private var visitedCells: Set<String> =
+        Set(UserDefaults.standard.stringArray(forKey: GameScene.visitedCellsKey) ?? [])
     /// Half the player sprite's size in world units. Used to clamp the player at world boundaries.
     private let playerHalfExtent: CGFloat = 24
     /// Magnification of the world. Larger = sprites/tiles appear bigger and
@@ -2406,9 +2412,12 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
 
         // Pause overlay routing
         if isPausedGame {
+            // Map overlay sits on top of the pause panel — any tap closes it.
+            if mapOverlayNode != nil { hideMapOverlay(); return }
             for n in nodes(at: touch.location(in: self)) {
                 let name = n.name ?? n.parent?.name ?? ""
                 if name == "resumeBtn" { resumeGame(); return }
+                if name == "mapBtn" { showMapOverlay(); return }
             }
             return
         }
@@ -2649,6 +2658,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
             updateProjectiles(dt: dt)
             updateDamage(dt: dt)
             updateCamera()
+            trackVisitedCell()
             checkBoardProximity()
             tickBuildMode()
         }
@@ -3328,6 +3338,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         guard isPausedGame else { return }
         isPausedGame = false
         lastUpdateTime = 0
+        hideMapOverlay()
         pauseOverlayNode?.removeFromParent()
         pauseOverlayNode = nil
     }
@@ -3341,7 +3352,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         let dim = SKShapeNode(rect: CGRect(x: -W / 2, y: -H / 2, width: W, height: H))
         dim.fillColor = SKColor(white: 0, alpha: 0.65); dim.strokeColor = .clear; ov.addChild(dim)
 
-        let panelW: CGFloat = min(W - 48, 280), panelH: CGFloat = 160
+        let panelW: CGFloat = min(W - 48, 280), panelH: CGFloat = 214
         let panel = SKShapeNode(rect: CGRect(x: -panelW / 2, y: -panelH / 2, width: panelW, height: panelH), cornerRadius: 10)
         panel.fillColor   = SKColor(red: 0.10, green: 0.04, blue: 0.02, alpha: 0.97)
         panel.strokeColor = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 0.80)
@@ -3351,20 +3362,183 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         title.text = "PAUSED"; title.fontSize = 16
         title.fontColor = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 1)
         title.horizontalAlignmentMode = .center; title.verticalAlignmentMode = .center
-        title.position = CGPoint(x: 0, y: 40); ov.addChild(title)
+        title.position = CGPoint(x: 0, y: 70); ov.addChild(title)
 
         let btnW = panelW - 40, btnH: CGFloat = 44
-        let resumeBg = SKShapeNode(rect: CGRect(x: -btnW / 2, y: -btnH / 2, width: btnW, height: btnH), cornerRadius: 8)
-        resumeBg.fillColor   = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 0.20)
-        resumeBg.strokeColor = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 0.80)
-        resumeBg.lineWidth   = 1.5; resumeBg.position = CGPoint(x: 0, y: -12)
-        resumeBg.name = "resumeBtn"; ov.addChild(resumeBg)
+        for (text, name, y) in [("RESUME", "resumeBtn", CGFloat(18)), ("MAP", "mapBtn", CGFloat(-36))] {
+            let bg = SKShapeNode(rect: CGRect(x: -btnW / 2, y: -btnH / 2, width: btnW, height: btnH), cornerRadius: 8)
+            bg.fillColor   = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 0.20)
+            bg.strokeColor = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 0.80)
+            bg.lineWidth   = 1.5; bg.position = CGPoint(x: 0, y: y)
+            bg.name = name; ov.addChild(bg)
 
-        let resumeLbl = SKLabelNode(fontNamed: "PressStart2P-Regular")
-        resumeLbl.text = "RESUME"; resumeLbl.fontSize = 11
-        resumeLbl.fontColor = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 1)
-        resumeLbl.horizontalAlignmentMode = .center; resumeLbl.verticalAlignmentMode = .center
-        resumeLbl.position = CGPoint(x: 0, y: -1); resumeLbl.name = "resumeBtn"; resumeBg.addChild(resumeLbl)
+            let lbl = SKLabelNode(fontNamed: "PressStart2P-Regular")
+            lbl.text = text; lbl.fontSize = 11
+            lbl.fontColor = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 1)
+            lbl.horizontalAlignmentMode = .center; lbl.verticalAlignmentMode = .center
+            lbl.position = CGPoint(x: 0, y: -1); lbl.name = name; bg.addChild(lbl)
+        }
+    }
+
+    // MARK: - Pause Map
+    //
+    // The world is divided into a virtual grid of screen-sized cells
+    // (stageWorldSize per side). Cells the player has walked through are
+    // remembered in UserDefaults and drawn filled on the map; unvisited cells
+    // stay dark. Mini-game triggers and the store only show pins once their
+    // cell has been explored, so the map doubles as a discovery log.
+
+    private func cellKey(for p: CGPoint) -> String {
+        let s = stageWorldSize
+        return "\(Int(floor(p.x / s))),\(Int(floor(p.y / s)))"
+    }
+
+    private func trackVisitedCell() {
+        guard map != nil, let p = player else { return }
+        if visitedCells.insert(cellKey(for: p.position)).inserted {
+            UserDefaults.standard.set(Array(visitedCells), forKey: GameScene.visitedCellsKey)
+        }
+    }
+
+    /// Collapse runs of adjacent trigger tiles (2×2 boards, fence lines) into
+    /// one pin per coarse-grid bucket so the map doesn't smear.
+    private func clusteredPins(_ positions: [CGPoint], bucket: CGFloat = 64) -> [CGPoint] {
+        var seen = Set<String>(), out: [CGPoint] = []
+        for p in positions {
+            let k = "\(Int(floor(p.x / bucket))),\(Int(floor(p.y / bucket)))"
+            if seen.insert(k).inserted { out.append(p) }
+        }
+        return out
+    }
+
+    private func showMapOverlay() {
+        guard mapOverlayNode == nil, let m = map else { return }
+        let W = size.width, H = size.height
+
+        let ov = SKNode(); ov.zPosition = 16_000
+        mapOverlayNode = ov
+        cameraNode.addChild(ov)
+
+        let dim = SKShapeNode(rect: CGRect(x: -W / 2, y: -H / 2, width: W, height: H))
+        dim.fillColor = SKColor(white: 0, alpha: 0.88); dim.strokeColor = .clear
+        ov.addChild(dim)
+
+        // Grid geometry — one cell per navigable screen.
+        let cellWorld = stageWorldSize
+        let cols = max(1, Int(ceil(m.sizeInPoints.width  / cellWorld)))
+        let rows = max(1, Int(ceil(m.sizeInPoints.height / cellWorld)))
+        let cell = min((W - 72) / CGFloat(cols), (H - 220) / CGFloat(rows))
+        let gridW = cell * CGFloat(cols), gridH = cell * CGFloat(rows)
+        let scale = cell / cellWorld   // world units → map points
+
+        let pad: CGFloat = 14, titleBand: CGFloat = 34, legendBand: CGFloat = 30
+        let panelW = gridW + pad * 2
+        let panelH = gridH + pad * 2 + titleBand + legendBand
+        let panel = SKShapeNode(rect: CGRect(x: -panelW / 2, y: -panelH / 2, width: panelW, height: panelH), cornerRadius: 10)
+        panel.fillColor   = dsPrimary
+        panel.strokeColor = dsGold.withAlphaComponent(0.80)
+        panel.lineWidth   = 2
+        ov.addChild(panel)
+
+        let title = SKLabelNode(fontNamed: "PressStart2P-Regular")
+        title.text = "WORLD MAP"; title.fontSize = 13
+        title.fontColor = dsGold
+        title.horizontalAlignmentMode = .center; title.verticalAlignmentMode = .center
+        title.position = CGPoint(x: 0, y: panelH / 2 - titleBand / 2 - 6)
+        ov.addChild(title)
+
+        let gridOrigin = CGPoint(x: -gridW / 2, y: -panelH / 2 + pad + legendBand)
+        let gridNode = SKNode(); ov.addChild(gridNode)
+        func mapPoint(_ p: CGPoint) -> CGPoint {
+            CGPoint(x: gridOrigin.x + p.x * scale, y: gridOrigin.y + p.y * scale)
+        }
+
+        for r in 0..<rows {
+            for c in 0..<cols {
+                let rect = CGRect(x: gridOrigin.x + CGFloat(c) * cell,
+                                  y: gridOrigin.y + CGFloat(r) * cell,
+                                  width: cell, height: cell).insetBy(dx: 1, dy: 1)
+                let tile = SKShapeNode(rect: rect)
+                tile.fillColor = visitedCells.contains("\(c),\(r)")
+                    ? woodColor.withAlphaComponent(0.85)
+                    : SKColor(white: 0.06, alpha: 1)
+                tile.strokeColor = SKColor(white: 0.22, alpha: 0.60)
+                tile.lineWidth = 1
+                gridNode.addChild(tile)
+            }
+        }
+
+        // Pins — only in explored cells.
+        let pinSide = max(3, cell * 0.16)
+        let shopBlue = SKColor(red: 0.353, green: 0.612, blue: 0.831, alpha: 1.0) // #5a9cd4
+        let gameTriggers = clusteredPins(
+            cornholeBoardPositions + baseballPositions + appleTreePositions +
+            beehivePositions + poolPositions + bridgeStonePositions +
+            bridgeWoodPositions + wellPositions + fencePositions)
+        for p in gameTriggers where visitedCells.contains(cellKey(for: p)) {
+            let pin = SKShapeNode(rectOf: CGSize(width: pinSide, height: pinSide))
+            pin.fillColor = dsGold; pin.strokeColor = .clear
+            pin.position = mapPoint(p); pin.zPosition = 1
+            gridNode.addChild(pin)
+        }
+        for p in clusteredPins(storePositions) where visitedCells.contains(cellKey(for: p)) {
+            let pin = SKShapeNode(rectOf: CGSize(width: pinSide, height: pinSide))
+            pin.fillColor = shopBlue; pin.strokeColor = .clear
+            pin.position = mapPoint(p); pin.zPosition = 1
+            gridNode.addChild(pin)
+        }
+
+        // Player marker — pulsing red dot.
+        if let p = player {
+            let dot = SKShapeNode(circleOfRadius: max(3.5, cell * 0.18))
+            dot.fillColor = dsHeartRed
+            dot.strokeColor = SKColor.white.withAlphaComponent(0.85); dot.lineWidth = 1
+            dot.position = mapPoint(p.position); dot.zPosition = 2
+            dot.run(.repeatForever(.sequence([
+                .scale(to: 1.35, duration: 0.45),
+                .scale(to: 1.00, duration: 0.45),
+            ])))
+            gridNode.addChild(dot)
+        }
+
+        // Legend.
+        let legendY = -panelH / 2 + pad + legendBand / 2 - 6
+        let legend: [(SKColor, String, Bool)] = [
+            (dsHeartRed, "YOU", true), (dsGold, "GAMES", false), (shopBlue, "SHOP", false),
+        ]
+        let groupX: [CGFloat] = [-panelW * 0.34, -panelW * 0.06, panelW * 0.22]
+        for (i, (color, text, round)) in legend.enumerated() {
+            let swatch: SKShapeNode = round
+                ? SKShapeNode(circleOfRadius: 3.5)
+                : SKShapeNode(rectOf: CGSize(width: 7, height: 7))
+            swatch.fillColor = color; swatch.strokeColor = .clear
+            swatch.position = CGPoint(x: groupX[i], y: legendY)
+            ov.addChild(swatch)
+
+            let lbl = SKLabelNode(fontNamed: "PressStart2P-Regular")
+            lbl.text = text; lbl.fontSize = 7
+            lbl.fontColor = SKColor(white: 0.78, alpha: 1)
+            lbl.horizontalAlignmentMode = .left; lbl.verticalAlignmentMode = .center
+            lbl.position = CGPoint(x: groupX[i] + 8, y: legendY)
+            ov.addChild(lbl)
+        }
+
+        // Close hint below the panel.
+        let hint = SKLabelNode(fontNamed: "PressStart2P-Regular")
+        hint.text = "TAP TO CLOSE"; hint.fontSize = 8
+        hint.fontColor = SKColor(white: 0.55, alpha: 1)
+        hint.horizontalAlignmentMode = .center; hint.verticalAlignmentMode = .center
+        hint.position = CGPoint(x: 0, y: -panelH / 2 - 20)
+        hint.run(.repeatForever(.sequence([
+            .fadeAlpha(to: 0.35, duration: 0.7),
+            .fadeAlpha(to: 1.00, duration: 0.7),
+        ])))
+        ov.addChild(hint)
+    }
+
+    private func hideMapOverlay() {
+        mapOverlayNode?.removeFromParent()
+        mapOverlayNode = nil
     }
 
     private func returnToMainMenu() {
