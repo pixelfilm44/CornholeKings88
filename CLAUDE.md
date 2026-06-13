@@ -73,6 +73,7 @@ Maps are authored in **Tiled** (.tmx format, CSV encoding) and loaded by `TMXLoa
 | `bee`                 | Beehive battle mini-game |
 | `pool`                | Beach-ball cornhole |
 | `bridge_stone`        | Beach-ball cornhole (same mini-game, different trigger) |
+| `cave`                | Cornhole vs. Barnum (long-distance board, dark cavern, dragon) |
 | `chest`               | Open chest → 50/50 heart refill or dog biscuit |
 | `bridge_wood`         | Piranha mini-game; on win, unlocks walkable bridge (ImaginationFX layer) |
 
@@ -183,6 +184,7 @@ When `false`, scenes pass an empty `rewards:` array (no prize lines) and skip se
 | Baseball — beat both Jen **and** Tom | Earns a bat → Suburban Jousters unlocked (`joustersUnlocked`) |
 | Suburban Jousters — first win | Golden Lance (`"goldenLanceEarned_v1"`) |
 | Well Flinger win | 3 fire bags (`fireBagsEarned`) |
+| Cornhole vs `.barnum` (Barnum) | 3 fire bags (`fireBagsEarned`) |
 
 Scenes expose their winnings as `private(set) var …Earned` properties; the host's `onComplete` reads them after the closure fires and calls `inventory.collect(...)`. Consumable bags carried *into* a game (`available…Bags`) are deducted via `…BagsUsed` the same way.
 
@@ -190,29 +192,33 @@ Scenes expose their winnings as `private(set) var …Earned` properties; the hos
 
 ### Cornhole Opponents
 
-`CornholeMiniGameScene` supports four opponents selected via `OpponentPickerNode` before the game starts. The host scene can bypass the picker by setting `mini.preSelectedOpponent = .spirit` (etc.) before presenting — used by the apple tree world trigger to drop the player straight into a Tree Spirit match.
+`CornholeMiniGameScene` supports five opponents selected via `OpponentPickerNode` before the game starts. The host scene can bypass the picker by setting `mini.preSelectedOpponent = .spirit` (etc.) before presenting — used by the apple tree world trigger (Spirit) and the `cave` world trigger (Barnum) to drop the player straight into a match.
 
 | Opponent | Enum | Win score | Special rules |
 |----------|------|-----------|---------------|
 | Tom | `.tom` | 11 | Baseline AI, moderate accuracy |
 | Jenny | `.jenny` | 11 | Slightly tighter aim than Tom |
+| Barnum | `.barnum` | 21 | Long-distance board (`distanceScale 0.5`); dark cave scenery (no weather, no gophers); a dragon rises from the chasm and ignites airborne bags. Fixed "good-not-great" aim (`barnumNoiseFactor = 1.9`) |
 | Billy the Bully | `.billy` | 21 | Forced thunderstorm every round; adaptive difficulty; can throw bomb bags (~25% chance) |
 | Tree Spirit | `.spirit` | 21 | Drops magic bags vertically from above (50% cornhole / 50% random board position) |
 
 **Billy adaptive difficulty** — `billyNoiseFactor` starts from career cornhole accuracy (`cornholes / (totalGames × 12)`, clamped to `[1.4, 3.8]`). Each round the player wins tightens Billy by `−0.12`; each round Billy wins eases him by `+0.15`. Range stays within `[1.4, 3.8]`.
 
+**Barnum cave match** (`applyBarnumSettings()`) — win score 21, `distanceScale = 0.5` (same long board Billy uses), no rain/storm. `isCaveMatch = true` swaps the grass field for `applyCaveScenery()`: near-black cave floor, a bottomless chasm between the throw line and board's front edge, jagged rock lips, and stalactites. The chasm's world-Y band is stored in `caveChasmTopY`/`caveChasmBottomY`. **Chasm fall** — in a cave match, an off-board bag whose landing `by` falls inside that band is routed to `fallIntoChasm(_:)` instead of resting: it recedes into the depths — shrinking toward nothing in place (spin + fade, no downward screen translation, since the view is top-down), counts as a miss (0 pts), and is pulled out of collisions/scoring via `hasAppliedGroundScale` + the new `isFallingInChasm` flag. `maybeStartGopher` early-returns in cave matches, and `startRound()` calls `scheduleDragon()` instead of `scheduleCrow()`. **Dragon** — `scheduleDragon()` reschedules itself every 4–8 s (multiple strikes per round). `spawnDragon()` rises a programmatically-drawn dragon head (`makeDragonNode`) from the chasm at the bag-flight corridor height (`crowY`), then `breatheFlame(fromX:y:towardRight:)` lays a wide, organic, **sustained** flame across the lane (~2.2 s hold; built from layered, out-of-phase flickering lobes via `makeFlameLobe`, with rolling embers from `spawnFlameEmbers`). The dragon holds its pose for the whole burn. Ignition is **continuous** for the flame's duration (a repeating `"dragonFlameScan"` action), so any airborne bag (`!isGrounded`, `bz > 2`, not already on fire) that crosses an 80-pt vertical band at any point — **either player's** — is passed to `igniteBag(_:)`, which sets `isFire = true`, recolors it, adds a `🔥` flicker marker, and shows a fire poof. The ignited bag then triggers the normal `fireBag` board/hole burn behavior on landing. The dragon is torn down on round reset and game over (`dragonSchedule` action + `dragonNode`). No art asset — Barnum's portrait is also drawn from scratch by the static `makeBarnumPortraitTexture()` (top-hat circus showman), used by both the picker card (via `OpponentConfig.textureOverride`) and the in-game portrait.
+
 **Tree Spirit drop mechanic** — `dropMagicBagFromAbove(targetX:targetY:)` places a `MiniGameBag(isMagic: true)` at `bz = 220` with zero `vx/vy`; existing bz-guard in `resolveBagCollisions()` prevents mid-air collisions. The magic bag falls straight down to its target.
 
 **Bag destruction** — `destroyBag(_:)` sets `isDestroyed = true` and plays a scale/fade animation. Destroyed bags are skipped in `calculateRoundScore()` but stay in `activeBags` until round cleanup. `resolveBagCollisions()` skips destroyed bags.
 
-**Rewards** — beating Billy awards 3 bomb bags **+ 10 coins**; beating the Tree Spirit awards 6 magic bags; beating the generic `.bully` awards 10 coins. These are set on `bombBagsEarned` / `magicBagsEarned` / `coinsEarned` in `dismissScene` (only when `awardsRewards`) and collected by the host's `onComplete`. See **Result Modal & Reward Context**.
+**Rewards** — beating Billy awards 3 bomb bags **+ 10 coins**; beating the Tree Spirit awards 6 magic bags; beating Barnum awards 3 fire bags; beating the generic `.bully` awards 10 coins. These are set on `bombBagsEarned` / `magicBagsEarned` / `fireBagsEarned` / `coinsEarned` in `dismissScene` (only when `awardsRewards`) and collected by the host's `onComplete`. See **Result Modal & Reward Context**.
 
 ### Opponent Picker Layout
 
-`OpponentPickerNode` renders opponents in one of three layouts based on count:
+`OpponentPickerNode` renders opponents in one of four layouts based on count:
 - **2 opponents** — side-by-side cards
 - **3 opponents** — 2 regular cards on top row, 1 boss card centered below
 - **4 opponents** — 2×2 grid: top row regular (Tom, Jenny), bottom row boss (Billy, Spirit) with red borders and `★ BOSS ★` badge
+- **5 opponents** — 3 regular cards on the top row (Tom, Jenny, Barnum), 2 boss cards on the bottom row (Billy, Spirit). The first three configs are treated as regular, the last two as bosses. `OpponentConfig.textureOverride` lets a card use a pre-built texture (Barnum's drawn portrait) instead of a named asset.
 
 ### Audio
 

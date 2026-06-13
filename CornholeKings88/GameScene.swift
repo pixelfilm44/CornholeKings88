@@ -77,6 +77,10 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     private var poolPositions: [CGPoint] = []
     private var nearbyPoolPosition: CGPoint?
 
+    // Cave interaction — tileset name contains "cave"; launches cornhole vs. Barnum
+    private var cavePositions: [CGPoint] = []
+    private var nearbyCavePosition: CGPoint?
+
     // Fence interaction — "fences" layer; launches Suburban Jousters
     private var fencePositions: [CGPoint] = []
     private var nearbyFencePosition: CGPoint?
@@ -767,6 +771,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         extractAppleTreePositions(from: m)
         extractBeehivePositions(from: m)
         extractPoolPositions(from: m)
+        extractCavePositions(from: m)
         extractChestPositions(from: m)
         extractStorePositions(from: m)
         extractBridgeStonePositions(from: m)
@@ -1018,6 +1023,27 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         }
         if !poolPositions.isEmpty {
             print("🏊 Found \(poolPositions.count) pool tile(s)")
+        }
+    }
+
+    /// Scans for cave tiles (any tileset with "cave" in its name) → cornhole vs. Barnum.
+    private func extractCavePositions(from m: TMXMap) {
+        cavePositions.removeAll()
+        let caveRanges = m.tilesetRanges
+            .filter { $0.name.contains("cave") }
+            .map(\.gidRange)
+        guard !caveRanges.isEmpty else { return }
+        for (_, grid) in m.layerGIDs {
+            for r in 0..<m.rows {
+                for c in 0..<m.cols {
+                    let gid = grid[r][c] & 0x0FFF_FFFF
+                    guard caveRanges.contains(where: { $0.contains(gid) }) else { continue }
+                    cavePositions.append(m.tileCenter(col: c, row: r))
+                }
+            }
+        }
+        if !cavePositions.isEmpty {
+            print("🐉 Found \(cavePositions.count) cave tile(s)")
         }
     }
 
@@ -1387,6 +1413,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         let appleTreeRadius:   CGFloat = 26
         let beehiveRadius:     CGFloat = 36
         let poolRadius:        CGFloat = 36
+        let caveRadius:        CGFloat = 36
         let bridgeWoodRadius:  CGFloat = 36
         let fenceRadius:       CGFloat = 36
         let wellRadius:        CGFloat = 36
@@ -1403,6 +1430,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         var bestAppleTree:    CGPoint? = nil
         var bestBeehive:      CGPoint? = nil
         var bestPool:         CGPoint? = nil
+        var bestCave:         CGPoint? = nil
         var bestBridgeWood:   CGPoint? = nil
         var bestStore:        CGPoint? = nil
         var bestFence:        CGPoint? = nil
@@ -1496,7 +1524,17 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
             if d < wellRadius && d < bestDist {
                 bestDist = d; bestBoard = nil; bestChest = nil; bestStore = nil; bestBridgeStone = nil
                 bestBaseball = nil; bestTree = nil; bestAppleTree = nil
-                bestBeehive = nil; bestPool = nil; bestBridgeWood = nil; bestFence = nil; bestWell = pos
+                bestBeehive = nil; bestPool = nil; bestCave = nil; bestBridgeWood = nil; bestFence = nil; bestWell = pos
+            }
+        }
+
+        for pos in cavePositions {
+            let d = hypot(player.position.x - pos.x, player.position.y - pos.y)
+            if d < caveRadius && d < bestDist {
+                bestDist = d; bestBoard = nil; bestChest = nil; bestStore = nil; bestBridgeStone = nil
+                bestBaseball = nil; bestTree = nil; bestAppleTree = nil
+                bestBeehive = nil; bestPool = nil; bestBridgeWood = nil; bestFence = nil; bestWell = nil
+                bestCave = pos
             }
         }
 
@@ -1507,7 +1545,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
                 if d < axRadius && d < bestDist {
                     bestDist = d; bestBoard = nil; bestChest = nil; bestStore = nil; bestBridgeStone = nil
                     bestBaseball = nil; bestTree = nil; bestAppleTree = nil
-                    bestBeehive = nil; bestPool = nil; bestBridgeWood = nil
+                    bestBeehive = nil; bestPool = nil; bestCave = nil; bestBridgeWood = nil
                     bestFence = nil; bestWell = nil; bestHighChest = nil; bestAx = pos
                 }
             }
@@ -1521,7 +1559,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
                 if d < highChestRadius && d < bestDist {
                     bestDist = d; bestBoard = nil; bestChest = nil; bestStore = nil; bestBridgeStone = nil
                     bestBaseball = nil; bestTree = nil; bestAppleTree = nil
-                    bestBeehive = nil; bestPool = nil; bestBridgeWood = nil
+                    bestBeehive = nil; bestPool = nil; bestCave = nil; bestBridgeWood = nil
                     bestFence = nil; bestWell = nil; bestHighChest = pos
                 }
             }
@@ -1535,7 +1573,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
                 bestDist = d
                 bestBoard = nil; bestChest = nil; bestStore = nil; bestBridgeStone = nil
                 bestBaseball = nil; bestTree = nil; bestAppleTree = nil
-                bestBeehive = nil; bestPool = nil; bestBridgeWood = nil; bestFence = nil
+                bestBeehive = nil; bestPool = nil; bestCave = nil; bestBridgeWood = nil; bestFence = nil
                 bestWell = nil; bestHighChest = nil; bestAx = nil
                 bestStoryBat = batPos
             }
@@ -1550,6 +1588,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         nearbyAppleTreePosition   = bestAppleTree
         nearbyBeehivePosition     = bestBeehive
         nearbyPoolPosition        = bestPool
+        nearbyCavePosition        = bestCave
         nearbyBridgeWoodPosition  = bestBridgeWood
         nearbyFencePosition       = bestFence
         nearbyWellPosition        = bestWell
@@ -1571,6 +1610,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         else if let p = bestAppleTree     { anchor = CGPoint(x: p.x, y: p.y + 22) }
         else if let p = bestBeehive       { anchor = CGPoint(x: p.x, y: p.y + 22) }
         else if let p = bestPool          { anchor = CGPoint(x: p.x, y: p.y + 22) }
+        else if let p = bestCave          { anchor = CGPoint(x: p.x, y: p.y + 22) }
         else if let p = bestBridgeWood    { anchor = CGPoint(x: p.x, y: p.y + 22) }
         else if let p = bestFence         { anchor = CGPoint(x: p.x, y: p.y + 22) }
         else if let p = bestWell          { anchor = CGPoint(x: p.x, y: p.y + 22) }
@@ -2650,6 +2690,9 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
             } else if let p = nearbyPoolPosition {
                 setMiniGameReturnPosition(near: p)
                 openBeachBallCornhole()
+            } else if let p = nearbyCavePosition {
+                setMiniGameReturnPosition(near: p)
+                openCornholeMiniGame(preSelectedOpponent: .barnum)
             } else if let p = nearbyBridgeWoodPosition {
                 if trigger == StoryManager.triggerBridge {
                     StoryManager.shared.pendingWorldTrigger = nil
@@ -3655,7 +3698,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         let gameTriggers = clusteredPins(
             cornholeBoardPositions + baseballPositions + appleTreePositions +
             beehivePositions + poolPositions + bridgeStonePositions +
-            bridgeWoodPositions + wellPositions + fencePositions)
+            bridgeWoodPositions + wellPositions + fencePositions + cavePositions)
         for p in gameTriggers where visitedCells.contains(cellKey(for: p)) {
             let pin = SKShapeNode(rectOf: CGSize(width: pinSide, height: pinSide))
             pin.fillColor = dsGold; pin.strokeColor = .clear

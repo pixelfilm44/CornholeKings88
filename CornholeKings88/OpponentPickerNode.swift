@@ -8,6 +8,17 @@ struct OpponentConfig {
     let name: String
     let imageName: String   // PNG asset name (no extension)
     let traitText: String   // short one-liner shown under the portrait
+    /// Optional pre-built texture used instead of `imageName` (for programmatic
+    /// portraits like Barnum that have no asset). Falls back to `imageName` when nil.
+    let textureOverride: SKTexture?
+
+    init(name: String, imageName: String, traitText: String,
+         textureOverride: SKTexture? = nil) {
+        self.name = name
+        self.imageName = imageName
+        self.traitText = traitText
+        self.textureOverride = textureOverride
+    }
 }
 
 // MARK: - OpponentPickerNode
@@ -69,7 +80,27 @@ final class OpponentPickerNode: SKNode {
         title.position = CGPoint(x: 0, y: panelH * 0.44)
         addChild(title)
 
-        if opponents.count >= 4 {
+        if opponents.count >= 5 {
+            // 3 regular on top, 2 boss centered below. The first three configs are the
+            // regular opponents (Tom, Jenny, Barnum); the last two are bosses.
+            let cardW   = panelW * 0.30
+            let cardH   = panelH * 0.32
+            let topY    = panelH * 0.15
+            let bottomY = -panelH * 0.25
+            let topXs:  [CGFloat] = [-panelW * 0.32, 0, panelW * 0.32]
+            for i in 0..<3 {
+                let card = buildCard(config: opponents[i], index: i, w: cardW, h: cardH, fs: fs * 0.9, isBoss: false)
+                card.position = CGPoint(x: topXs[i], y: topY)
+                addChild(card)
+            }
+            let bossW = panelW * 0.36
+            let bossXs: [CGFloat] = [-panelW * 0.21, panelW * 0.21]
+            for i in 3..<5 {
+                let card = buildCard(config: opponents[i], index: i, w: bossW, h: cardH * 1.06, fs: fs, isBoss: true)
+                card.position = CGPoint(x: bossXs[i - 3], y: bottomY)
+                addChild(card)
+            }
+        } else if opponents.count >= 4 {
             // 2×2 grid: top row = regular opponents, bottom row = boss opponents
             let cardW   = panelW * 0.42
             let cardH   = panelH * 0.34
@@ -157,7 +188,7 @@ final class OpponentPickerNode: SKNode {
         }
 
         // Portrait image
-        let tex = SKTexture(imageNamed: config.imageName)
+        let tex = config.textureOverride ?? SKTexture(imageNamed: config.imageName)
         tex.filteringMode = .nearest
         let pSize    = min(w * 0.72, h * (isBoss ? 0.44 : 0.52))
         let portrait = SKSpriteNode(texture: tex, size: CGSize(width: pSize, height: pSize))

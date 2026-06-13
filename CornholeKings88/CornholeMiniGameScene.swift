@@ -92,6 +92,9 @@ final class CornholeMiniGameScene: SKScene {
         var isGolden = false
         /// Bags marked destroyed are removed from scoring but kept in activeBags until the round ends.
         var isDestroyed = false
+        /// Set when an off-board bag drops into Barnum's chasm — it falls into the dark and
+        /// is removed from collisions/scoring. Prevents the plummet animation re-triggering.
+        var isFallingInChasm = false
 
         // MARK: Soft-bag deformation (Tier 1/2 — pure visual, volume-preserving)
         /// Signed deform driven by a damped spring. >0 = flattened (wide + short, like a
@@ -261,6 +264,9 @@ final class CornholeMiniGameScene: SKScene {
     private var distanceScale: CGFloat = 1.0
     private var boardContainerNode: SKNode?
     private var throwLineNode: SKSpriteNode?
+    private var worldBackground: SKSpriteNode?
+    private var sunGlowNode: SKSpriteNode?
+    private var grassContainerNode: SKNode?
 
     // MARK: - Physics constants
     private let gravityPerFrame: CGFloat = 0.50
@@ -328,8 +334,12 @@ final class CornholeMiniGameScene: SKScene {
     private var crowNode: SKNode?
     private var crowFlyingRight = true
 
+    // Dragon — Barnum's cavern only. Rises from the chasm and breathes flame across
+    // the bag-flight corridor, igniting any airborne bag into a fire bag.
+    private var dragonNode: SKNode?
+
     // Opponent selection
-    enum AIOpponent { case tom, jenny, billy, spirit, bully }
+    enum AIOpponent { case tom, jenny, billy, spirit, bully, barnum }
     /// Set before presenting to skip the picker and start with a specific opponent.
     var preSelectedOpponent: AIOpponent? = nil
     private var selectedOpponent: AIOpponent = .tom
@@ -342,8 +352,19 @@ final class CornholeMiniGameScene: SKScene {
         case .billy:  return "BILLY"
         case .spirit: return "SPIRIT"
         case .bully:  return "BULLY"
+        case .barnum: return "BARNUM"
         }
     }
+
+    // Barnum — "good but not great". Fixed aim noise (lower = tighter). Tom/Jenny
+    // sit around 2.5; Billy adapts down toward 1.4. Barnum lands in between.
+    private var barnumNoiseFactor: CGFloat = 1.9
+    // Cave-match flag: dark cavern scenery, no gophers, a dragon that ignites bags.
+    private var isCaveMatch = false
+    private var caveDragonScheduled = false
+    // Chasm Y-band (world coords). An off-board bag landing between these falls into the dark.
+    private var caveChasmTopY: CGFloat = 0
+    private var caveChasmBottomY: CGFloat = 0
 
     // Billy the Bully — adaptive difficulty state
     private var billyNoiseFactor: CGFloat  = 2.5  // lower = harder; adapts each round
@@ -468,6 +489,7 @@ final class CornholeMiniGameScene: SKScene {
                               size: CGSize(width: size.width * 2, height: size.height * 2))
         bg.zPosition = -200
         gameWorldNode.addChild(bg)
+        worldBackground = bg
 
         // Warm sunlight wash — subtle yellow-gold tint. Added to scene (not gameWorldNode)
         // to avoid SKEffectNode render-bounds expansion.
@@ -475,8 +497,13 @@ final class CornholeMiniGameScene: SKScene {
                                    size: CGSize(width: size.width * 2, height: size.height * 2))
         sunGlow.zPosition = 60   // above gameplay, below chrome (500)
         addChild(sunGlow)
+        sunGlowNode = sunGlow
 
-        addGrassPattern()
+        let grass = SKNode()
+        grass.zPosition = -199
+        gameWorldNode.addChild(grass)
+        grassContainerNode = grass
+        addGrassPattern(into: grass)
 
         // Throw line
         let throwLine = SKSpriteNode(
@@ -489,7 +516,7 @@ final class CornholeMiniGameScene: SKScene {
     }
 
     // Scatter random darker/lighter 4×4 grass tufts for texture
-    private func addGrassPattern() {
+    private func addGrassPattern(into container: SKNode) {
         let tileSize: CGFloat = 4
         let palette: [SKColor] = [
             SKColor(red: 0.10, green: 0.25, blue: 0.08, alpha: 1),
@@ -504,13 +531,121 @@ final class CornholeMiniGameScene: SKScene {
                     let tuft = SKSpriteNode(color: palette.randomElement()!,
                                            size: CGSize(width: tileSize, height: tileSize))
                     tuft.position = CGPoint(x: x + tileSize / 2, y: y + tileSize / 2)
-                    tuft.zPosition = -199
-                    gameWorldNode.addChild(tuft)
+                    container.addChild(tuft)
                 }
                 y += tileSize
             }
             x += tileSize
         }
+    }
+
+    /// Swaps the outdoor grass field for a dark cavern: black ground, a deep chasm
+    /// the bag flies over, jagged rock edges, and stalactites hanging from above.
+    /// Called from `applyBarnumSettings()` after layout settles.
+    private func applyCaveScenery() {
+        // Dim the daylight glow and darken the ground to near-black cave rock.
+        sunGlowNode?.removeFromParent()
+        worldBackground?.color = SKColor(red: 0.05, green: 0.04, blue: 0.06, alpha: 1)
+        grassContainerNode?.removeFromParent()
+        grassContainerNode = nil
+
+        // Speckle the cave floor with a few faint rock highlights for texture.
+        let speckle = SKNode()
+        speckle.zPosition = -199
+        let palette: [SKColor] = [
+            SKColor(red: 0.10, green: 0.09, blue: 0.12, alpha: 1),
+            SKColor(red: 0.07, green: 0.06, blue: 0.09, alpha: 1),
+            SKColor(red: 0.13, green: 0.11, blue: 0.15, alpha: 1),
+        ]
+        var x = -size.width
+        while x < size.width {
+            var y = -size.height
+            while y < size.height {
+                if Int.random(in: 0..<6) == 0 {
+                    let rock = SKSpriteNode(color: palette.randomElement()!,
+                                            size: CGSize(width: 4, height: 4))
+                    rock.position = CGPoint(x: x + 2, y: y + 2)
+                    speckle.addChild(rock)
+                }
+                y += 4
+            }
+            x += 4
+        }
+        gameWorldNode.addChild(speckle)
+
+        // The chasm: a wide black void between the throw line and the board's front
+        // edge — the gap the player flings the bag across. Pitch black with a faint
+        // blue rim so it reads as bottomless depth.
+        let chasmTop    = boardY - boardHalfH - 6
+        let chasmBottom = throwLineY + 18
+        caveChasmTopY    = chasmTop
+        caveChasmBottomY = chasmBottom
+        let chasmH = max(20, chasmTop - chasmBottom)
+        let chasmW = size.width * 1.05
+        let chasm = SKSpriteNode(color: .black,
+                                 size: CGSize(width: chasmW, height: chasmH))
+        chasm.position  = CGPoint(x: 0, y: (chasmTop + chasmBottom) / 2)
+        chasm.zPosition = -150
+        gameWorldNode.addChild(chasm)
+
+        // Jagged rock lip along the near and far edges of the chasm.
+        addRockLip(atY: chasmTop,    pointingDown: false, width: chasmW)
+        addRockLip(atY: chasmBottom, pointingDown: true,  width: chasmW)
+
+        // Stalactites hanging from the cave ceiling (just below the top HUD).
+        let ceilingY = size.height * 0.42
+        var sx = -size.width * 0.5
+        while sx < size.width * 0.5 {
+            let h = CGFloat.random(in: 16...40)
+            let w = CGFloat.random(in: 8...16)
+            let stal = makeTriangle(width: w, height: h,
+                                    color: SKColor(red: 0.12, green: 0.10, blue: 0.14, alpha: 1),
+                                    pointingDown: true)
+            stal.position  = CGPoint(x: sx + CGFloat.random(in: 0...30), y: ceilingY)
+            stal.zPosition = -140
+            gameWorldNode.addChild(stal)
+            sx += CGFloat.random(in: 40...80)
+        }
+    }
+
+    /// A row of small jagged triangles forming a rocky chasm edge.
+    private func addRockLip(atY y: CGFloat, pointingDown: Bool, width: CGFloat) {
+        let lip = SKNode()
+        lip.position  = CGPoint(x: 0, y: y)
+        lip.zPosition = -145
+        var x = -width / 2
+        while x < width / 2 {
+            let w = CGFloat.random(in: 10...22)
+            let h = CGFloat.random(in: 6...14)
+            let tri = makeTriangle(width: w, height: h,
+                                   color: SKColor(red: 0.09, green: 0.08, blue: 0.10, alpha: 1),
+                                   pointingDown: pointingDown)
+            tri.position = CGPoint(x: x + w / 2, y: 0)
+            lip.addChild(tri)
+            x += w
+        }
+        gameWorldNode.addChild(lip)
+    }
+
+    /// Builds a flat-shaded triangle sprite (stalactite / rock tooth).
+    private func makeTriangle(width: CGFloat, height: CGFloat,
+                              color: SKColor, pointingDown: Bool) -> SKShapeNode {
+        let path = CGMutablePath()
+        if pointingDown {
+            path.move(to: CGPoint(x: -width / 2, y: 0))
+            path.addLine(to: CGPoint(x: width / 2, y: 0))
+            path.addLine(to: CGPoint(x: 0, y: -height))
+        } else {
+            path.move(to: CGPoint(x: -width / 2, y: 0))
+            path.addLine(to: CGPoint(x: width / 2, y: 0))
+            path.addLine(to: CGPoint(x: 0, y: height))
+        }
+        path.closeSubpath()
+        let node = SKShapeNode(path: path)
+        node.fillColor   = color
+        node.strokeColor = SKColor(white: 0.0, alpha: 0.0)
+        node.lineWidth   = 0
+        return node
     }
 
     private func setupBoard() {
@@ -592,6 +727,54 @@ final class CornholeMiniGameScene: SKScene {
 
         let image = UIGraphicsGetImageFromCurrentImageContext() ?? UIImage()
         let tex   = SKTexture(image: image)
+        tex.filteringMode = .nearest
+        return tex
+    }
+
+    /// Draws Barnum's portrait from scratch — a pixel-art circus showman with a black
+    /// top hat (red band), big curled mustache, and a red bowtie. No asset required.
+    static func makeBarnumPortraitTexture() -> SKTexture {
+        // 16×16 legend grid.
+        let rows = [
+            "......HHHH......",
+            "......HHHH......",
+            "......HHHH......",
+            "......RRRR......",
+            "....HHHHHHHH....",
+            ".....SSSSSS.....",
+            ".....SSSSSS.....",
+            "....SSSSSSSS....",
+            "....SEESSEES....",
+            "....SSSSSSSS....",
+            "...MMSSSSSSMM...",
+            "...MMMMMMMMMM...",
+            "......SSSS......",
+            "......SSSS......",
+            "....RRRRRRRR....",
+            "...RRRRRRRRRR...",
+        ]
+        let colors: [Character: UIColor] = [
+            "H": UIColor(red: 0.08, green: 0.07, blue: 0.09, alpha: 1),
+            "R": UIColor(red: 0.80, green: 0.16, blue: 0.12, alpha: 1),
+            "S": UIColor(red: 0.93, green: 0.76, blue: 0.55, alpha: 1),
+            "E": UIColor(red: 0.10, green: 0.08, blue: 0.12, alpha: 1),
+            "M": UIColor(red: 0.30, green: 0.18, blue: 0.08, alpha: 1),
+        ]
+        let cells = 16
+        let ps: CGFloat = 3
+        let dim = CGFloat(cells) * ps
+        UIGraphicsBeginImageContextWithOptions(CGSize(width: dim, height: dim), false, 1.0)
+        defer { UIGraphicsEndImageContext() }
+        guard let ctx = UIGraphicsGetCurrentContext() else { return SKTexture() }
+        for (row, line) in rows.enumerated() {
+            for (col, ch) in line.enumerated() {
+                guard let c = colors[ch] else { continue }
+                ctx.setFillColor(c.cgColor)
+                ctx.fill(CGRect(x: CGFloat(col) * ps, y: CGFloat(row) * ps, width: ps, height: ps))
+            }
+        }
+        let image = UIGraphicsGetImageFromCurrentImageContext() ?? UIImage()
+        let tex = SKTexture(image: image)
         tex.filteringMode = .nearest
         return tex
     }
@@ -1261,6 +1444,11 @@ final class CornholeMiniGameScene: SKScene {
         crowNode = nil
         removeAction(forKey: "crowSchedule")
 
+        removeAction(forKey: "dragonSchedule")
+        removeAction(forKey: "dragonFlameScan")
+        dragonNode?.removeFromParent()
+        dragonNode = nil
+
         messageNode?.removeFromParent()
         messageNode = nil
 
@@ -1275,7 +1463,11 @@ final class CornholeMiniGameScene: SKScene {
 
         // First throw of the round is the player's — give the gopher a chance.
         maybeStartGopher(for: .player)
-        scheduleCrow()
+        if isCaveMatch {
+            scheduleDragon()        // no crows underground — a dragon stalks the chasm instead
+        } else {
+            scheduleCrow()
+        }
     }
 
     private var allBagsThrown: Bool {
@@ -1368,6 +1560,11 @@ final class CornholeMiniGameScene: SKScene {
             removeAction(forKey: "crowSchedule")
             crowNode?.removeFromParent()
             crowNode = nil
+            removeAction(forKey: "dragonSchedule")
+            removeAction(forKey: "dragonFlameScan")
+            dragonNode?.removeAction(forKey: "dragonAct")
+            dragonNode?.removeFromParent()
+            dragonNode = nil
             // PLACEHOLDER: add game_win.wav / game_lose.wav to Copy Bundle Resources
             let resultSound = playerScore > aiScore ? "game_win.wav" : "game_lose.wav"
             run(SKAction.playSoundFileNamed(resultSound, waitForCompletion: false))
@@ -1628,6 +1825,10 @@ final class CornholeMiniGameScene: SKScene {
                     bag.hasTriggeredFire = true
                     triggerFireBoard(at: CGPoint(x: bag.bx, y: bag.by), by: bag.owner)
                 }
+            } else if isCaveMatch && bag.by <= caveChasmTopY && bag.by >= caveChasmBottomY {
+                // Missed into Barnum's chasm — the bag plummets into the darkness (0 pts).
+                fallIntoChasm(bag)
+                return
             } else {
                 // Lands off-board — stop dead and shrink to show depth vs. board level
                 bag.isGrounded = true
@@ -2172,8 +2373,9 @@ final class CornholeMiniGameScene: SKScene {
         let startX       = pendingAIStartX
         let flightFrames = 2.0 * vzInitial / gravityPerFrame  // ≈ 60 frames
 
-        // Base aim: hole with noise scaled by weather
-        let noiseFactor: CGFloat = rainActive ? 3.4 : 2.5
+        // Base aim: hole with noise scaled by weather. Barnum is "good but not great" —
+        // a fixed, tighter-than-Tom/Jenny aim that doesn't adapt like Billy.
+        let noiseFactor: CGFloat = rainActive ? 3.4 : (selectedOpponent == .barnum ? barnumNoiseFactor : 2.5)
         let noise = holeRadius * noiseFactor
         var aimX = holeCenter.x + CGFloat.random(in: -noise...noise)
         var aimY = holeCenter.y + CGFloat.random(in: -noise * 0.5...noise * 0.5)
@@ -2452,6 +2654,8 @@ final class CornholeMiniGameScene: SKScene {
                 rewards = [GameResultModal.Reward(item: .coin, count: 10)]
             case .spirit:
                 rewards = [GameResultModal.Reward(item: .magicBag, count: 6)]
+            case .barnum:
+                rewards = [GameResultModal.Reward(item: .fireBag, count: 3)]
             case .tom, .jenny:
                 // This win completes the baseball unlock (both Tom & Jenny beaten).
                 let beatBoth = (selectedOpponent == .tom && CornholeStatsManager.shared.defeatedJenny)
@@ -3303,6 +3507,8 @@ final class CornholeMiniGameScene: SKScene {
 
     private func maybeStartGopher(for owner: BagOwner) {
         clearGopher()
+        // No gophers in the cave — the bag flies over a bottomless chasm.
+        guard !isCaveMatch else { return }
         guard Double.random(in: 0..<1) < gopherSpawnChance else { return }
 
         // Spawn near the front edge of the board so the gopher has a runway —
@@ -3548,6 +3754,323 @@ final class CornholeMiniGameScene: SKScene {
         ]))
     }
 
+    // MARK: - Dragon (Barnum's cavern)
+
+    /// Queues the next dragon emergence at a random interval. Reschedules itself so the
+    /// dragon can strike multiple times per round.
+    private func scheduleDragon() {
+        removeAction(forKey: "dragonSchedule")
+        guard isCaveMatch, gameState != .gameOver else { return }
+        let delay = TimeInterval.random(in: 4.0...8.0)
+        run(SKAction.sequence([
+            SKAction.wait(forDuration: delay),
+            SKAction.run { [weak self] in self?.spawnDragon() },
+        ]), withKey: "dragonSchedule")
+    }
+
+    private func spawnDragon() {
+        guard dragonNode == nil, isCaveMatch, gameState != .gameOver, !isPausedGame else {
+            scheduleDragon(); return
+        }
+
+        // The corridor airborne bags pass through; align the dragon + flame with it.
+        let flameY = crowY
+        // Emerge from one side of the chasm and breathe toward the opposite side.
+        let fromRight = Bool.random()
+        let edgeX = (size.width * 0.46) * (fromRight ? 1 : -1)
+
+        let dragon = makeDragonNode(facingRight: !fromRight)
+        dragon.position  = CGPoint(x: edgeX, y: flameY - 70)   // start sunk in the chasm
+        dragon.zPosition = 19
+        dragon.alpha     = 0
+        gameWorldNode.addChild(dragon)
+        dragonNode = dragon
+
+        run(SKAction.playSoundFileNamed("storm.mp3", waitForCompletion: false))
+        UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
+
+        // Rise → roar/wind-up → breathe flame → sink back → reschedule.
+        dragon.run(SKAction.sequence([
+            SKAction.group([
+                SKAction.moveTo(y: flameY, duration: 0.42),
+                SKAction.fadeIn(withDuration: 0.30),
+            ]),
+            SKAction.wait(forDuration: 0.35),
+            SKAction.run { [weak self] in
+                self?.breatheFlame(fromX: edgeX, y: flameY, towardRight: !fromRight)
+            },
+            SKAction.wait(forDuration: 2.7),   // stay up through the sustained burn
+            SKAction.group([
+                SKAction.moveTo(y: flameY - 70, duration: 0.40),
+                SKAction.fadeOut(withDuration: 0.34),
+            ]),
+            SKAction.removeFromParent(),
+            SKAction.run { [weak self, weak dragon] in
+                if self?.dragonNode === dragon { self?.dragonNode = nil }
+                self?.scheduleDragon()
+            },
+        ]), withKey: "dragonAct")
+    }
+
+    /// Sweeps a wide, organic flame across the corridor for a sustained burn and ignites
+    /// every airborne bag that passes through its lane for the full duration.
+    private func breatheFlame(fromX startX: CGFloat, y: CGFloat, towardRight: Bool) {
+        run(SKAction.playSoundFileNamed("hit.mp3", waitForCompletion: false))
+        UINotificationFeedbackGenerator().notificationOccurred(.warning)
+
+        let dir: CGFloat = towardRight ? 1 : -1
+        let reach = size.width * 1.05
+
+        // Sustained burn timing — held ~2s longer than the old single-flash cone.
+        let rampIn:  TimeInterval = 0.25
+        let hold:    TimeInterval = 2.2
+        let fadeOut: TimeInterval = 0.5
+
+        // Flame container at the mouth. Built from several layered, flickering lobes
+        // (deep red body → orange → yellow core) so the edges waver organically.
+        let flame = SKNode()
+        flame.position  = CGPoint(x: startX + 14 * dir, y: y)
+        flame.zPosition = 30
+        flame.alpha     = 0
+        flame.xScale    = 0.2
+        gameWorldNode.addChild(flame)
+
+        let layers: [(reach: CGFloat, halfH: CGFloat, color: SKColor, count: Int)] = [
+            (reach,        78, SKColor(red: 0.95, green: 0.18, blue: 0.04, alpha: 0.50), 2),
+            (reach * 0.86, 58, SKColor(red: 1.00, green: 0.45, blue: 0.06, alpha: 0.70), 2),
+            (reach * 0.62, 36, SKColor(red: 1.00, green: 0.82, blue: 0.18, alpha: 0.90), 2),
+        ]
+        for layer in layers {
+            for _ in 0..<layer.count {
+                let lobe = makeFlameLobe(reach: layer.reach, halfH: layer.halfH,
+                                         dir: dir, color: layer.color)
+                lobe.position.y = CGFloat.random(in: -8...8)
+                flame.addChild(lobe)
+                // Out-of-phase flicker — pulses thickness and brightness for a living look.
+                let d1 = TimeInterval.random(in: 0.09...0.16)
+                let d2 = TimeInterval.random(in: 0.09...0.16)
+                lobe.run(SKAction.repeatForever(SKAction.sequence([
+                    SKAction.group([
+                        SKAction.scaleY(to: CGFloat.random(in: 0.82...1.18), duration: d1),
+                        SKAction.fadeAlpha(to: CGFloat.random(in: 0.6...1.0), duration: d1),
+                        SKAction.moveBy(x: 0, y: CGFloat.random(in: -6...6), duration: d1),
+                    ]),
+                    SKAction.group([
+                        SKAction.scaleY(to: 1.0, duration: d2),
+                        SKAction.fadeAlpha(to: 1.0, duration: d2),
+                    ]),
+                ])))
+            }
+        }
+
+        flame.run(SKAction.sequence([
+            SKAction.group([
+                SKAction.scaleX(to: 1.0, duration: rampIn),
+                SKAction.fadeIn(withDuration: rampIn * 0.6),
+            ]),
+            SKAction.wait(forDuration: hold),
+            SKAction.fadeOut(withDuration: fadeOut),
+            SKAction.removeFromParent(),
+        ]))
+
+        // Rolling embers along the lane for the whole burn.
+        let emberBurst = SKAction.run { [weak self] in
+            self?.spawnFlameEmbers(fromX: startX, y: y, reach: reach, dir: dir)
+        }
+        run(SKAction.sequence([
+            SKAction.repeat(SKAction.sequence([emberBurst,
+                                               SKAction.wait(forDuration: 0.18)]),
+                            count: Int(hold / 0.18)),
+        ]))
+
+        // Continuously ignite airborne bags crossing the lane for the full burn, so bags
+        // that enter the flame later still catch — not just those there at the first frame.
+        let bandH: CGFloat = 80
+        let scan = SKAction.run { [weak self] in
+            guard let self else { return }
+            for bag in self.activeBags {
+                guard !bag.isGrounded, bag.bz > 2, !bag.isFire else { continue }
+                let visualY = bag.by + bag.bz * 0.5
+                guard abs(visualY - y) < bandH else { continue }
+                self.igniteBag(bag)
+            }
+        }
+        run(SKAction.sequence([
+            SKAction.wait(forDuration: rampIn * 0.5),
+            SKAction.repeat(SKAction.sequence([scan, SKAction.wait(forDuration: 0.08)]),
+                            count: Int((hold + fadeOut) / 0.08)),
+        ]), withKey: "dragonFlameScan")
+    }
+
+    /// One organic flame lobe — a wavering lens shape from the mouth to a tapered tip.
+    private func makeFlameLobe(reach: CGFloat, halfH: CGFloat,
+                               dir: CGFloat, color: SKColor) -> SKShapeNode {
+        let path = CGMutablePath()
+        path.move(to: .zero)
+        let steps = 7
+        for i in 1...steps {
+            let t = CGFloat(i) / CGFloat(steps)
+            let x = reach * t * dir
+            let bulge = sin(t * .pi)                       // 0 at mouth/tip, fat in the middle
+            let yTop = halfH * bulge * CGFloat.random(in: 0.7...1.2)
+            path.addLine(to: CGPoint(x: x, y: yTop))
+        }
+        for i in stride(from: steps, through: 1, by: -1) {
+            let t = CGFloat(i) / CGFloat(steps)
+            let x = reach * t * dir
+            let bulge = sin(t * .pi)
+            let yBot = -halfH * bulge * CGFloat.random(in: 0.7...1.2)
+            path.addLine(to: CGPoint(x: x, y: yBot))
+        }
+        path.closeSubpath()
+        let node = SKShapeNode(path: path)
+        node.fillColor   = color
+        node.strokeColor = .clear
+        node.glowWidth   = 5
+        node.blendMode   = .add
+        return node
+    }
+
+    /// Scatters a few rising embers across the flame lane.
+    private func spawnFlameEmbers(fromX startX: CGFloat, y: CGFloat, reach: CGFloat, dir: CGFloat) {
+        let emberColors: [SKColor] = [
+            SKColor(red: 1.0,  green: 0.90, blue: 0.10, alpha: 1),
+            SKColor(red: 1.0,  green: 0.45, blue: 0.05, alpha: 1),
+            SKColor(red: 0.95, green: 0.15, blue: 0.05, alpha: 1),
+        ]
+        for _ in 0..<8 {
+            let p = SKSpriteNode(color: emberColors.randomElement()!,
+                                 size: CGSize(width: CGFloat.random(in: 4...8),
+                                              height: CGFloat.random(in: 4...8)))
+            p.position  = CGPoint(x: startX + CGFloat.random(in: 0...reach) * dir,
+                                  y: y + CGFloat.random(in: -32...32))
+            p.zPosition = 31
+            p.blendMode = .add
+            gameWorldNode.addChild(p)
+            p.run(SKAction.sequence([
+                SKAction.group([
+                    SKAction.moveBy(x: CGFloat.random(in: -12...12),
+                                    y: CGFloat.random(in: 30...75), duration: 0.6),
+                    SKAction.fadeOut(withDuration: 0.6),
+                ]),
+                SKAction.removeFromParent(),
+            ]))
+        }
+    }
+
+    /// Converts an airborne bag into a fire bag mid-flight (recolor + flame marker + poof).
+    private func igniteBag(_ bag: MiniGameBag) {
+        guard !bag.isFire, !bag.isDestroyed else { return }
+        bag.isFire = true
+
+        let fireColor = bag.owner == .player
+            ? SKColor(red: 0.95, green: 0.30, blue: 0.05, alpha: 1)
+            : SKColor(red: 0.90, green: 0.22, blue: 0.02, alpha: 1)
+        bag.node.color            = fireColor
+        bag.node.colorBlendFactor = 0.88
+
+        // Flame marker + flicker, mirroring a natively-built fire bag.
+        if bag.node.childNode(withName: "igniteFlame") == nil {
+            let flame = SKLabelNode(text: "🔥")
+            flame.name = "igniteFlame"
+            flame.fontSize                = 13
+            flame.verticalAlignmentMode   = .center
+            flame.horizontalAlignmentMode = .center
+            flame.position  = .zero
+            flame.zPosition = 1
+            bag.node.addChild(flame)
+            bag.node.run(SKAction.repeatForever(SKAction.sequence([
+                SKAction.fadeAlpha(to: 0.70, duration: 0.18),
+                SKAction.fadeAlpha(to: 1.00, duration: 0.18),
+            ])), withKey: "fireFlicker")
+        }
+
+        showFireEffect(at: CGPoint(x: bag.bx, y: bag.by + bag.bz * 0.5))
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+    }
+
+    /// An off-board bag that lands in the chasm tumbles straight down and vanishes into
+    /// the dark. It counts as a miss (0 pts) and is pulled out of collisions/scoring.
+    private func fallIntoChasm(_ bag: MiniGameBag) {
+        guard !bag.isFallingInChasm else { return }
+        bag.isFallingInChasm = true
+        bag.isGrounded = true
+        bag.vx = 0; bag.vy = 0; bag.vz = 0; bag.rotV = 0
+        // Action-owned from here: excluded from collision resolution and the deform spring.
+        bag.hasAppliedGroundScale = true
+        bag.node.warpGeometry = nil
+        bag.node.removeAllActions()
+
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+
+        // Top-down view: "falling" reads as receding away from the camera, so the bag
+        // shrinks toward nothing in place (no downward screen translation) while spinning
+        // and fading into the dark.
+        let spin = CGFloat.random(in: 3...6) * (Bool.random() ? 1 : -1)
+        let fall = SKAction.group([
+            SKAction.scale(to: 0.02, duration: 1.0),
+            SKAction.rotate(byAngle: spin, duration: 1.0),
+            SKAction.sequence([SKAction.wait(forDuration: 0.45),
+                               SKAction.fadeOut(withDuration: 0.55)]),
+        ])
+        fall.timingMode = .easeIn
+        bag.node.run(SKAction.sequence([fall, SKAction.hide()]))
+        bag.shadow.run(SKAction.sequence([SKAction.fadeOut(withDuration: 0.2),
+                                          SKAction.removeFromParent()]))
+    }
+
+    /// Builds the dragon head from chunky shapes — green scales, horns, eye, open maw.
+    private func makeDragonNode(facingRight: Bool) -> SKNode {
+        let dragon = SKNode()
+        let scaleColor = SKColor(red: 0.20, green: 0.52, blue: 0.22, alpha: 1)
+        let darkScale  = SKColor(red: 0.12, green: 0.34, blue: 0.14, alpha: 1)
+
+        // Head block
+        let head = SKSpriteNode(color: scaleColor, size: CGSize(width: 46, height: 38))
+        dragon.addChild(head)
+
+        // Snout extending forward
+        let snout = SKSpriteNode(color: scaleColor, size: CGSize(width: 26, height: 20))
+        snout.position = CGPoint(x: 30, y: -4)
+        dragon.addChild(snout)
+
+        // Open maw (dark) with a glowing throat
+        let maw = SKSpriteNode(color: SKColor(red: 0.10, green: 0.05, blue: 0.03, alpha: 1),
+                               size: CGSize(width: 16, height: 9))
+        maw.position = CGPoint(x: 38, y: -7)
+        dragon.addChild(maw)
+        let glow = SKSpriteNode(color: SKColor(red: 1.0, green: 0.55, blue: 0.12, alpha: 0.9),
+                                size: CGSize(width: 8, height: 5))
+        glow.position = CGPoint(x: 42, y: -7)
+        glow.blendMode = .add
+        dragon.addChild(glow)
+
+        // Horns
+        for hx in [-10, 6] {
+            let horn = makeTriangle(width: 9, height: 16, color: darkScale, pointingDown: false)
+            horn.position = CGPoint(x: CGFloat(hx), y: 18)
+            dragon.addChild(horn)
+        }
+
+        // Brow ridge + eye
+        let eyeWhite = SKSpriteNode(color: SKColor(red: 1.0, green: 0.85, blue: 0.20, alpha: 1),
+                                    size: CGSize(width: 11, height: 11))
+        eyeWhite.position = CGPoint(x: 8, y: 6)
+        dragon.addChild(eyeWhite)
+        let pupil = SKSpriteNode(color: .black, size: CGSize(width: 4, height: 9))
+        pupil.position = CGPoint(x: 11, y: 6)
+        dragon.addChild(pupil)
+
+        // Nostril
+        let nostril = SKSpriteNode(color: darkScale, size: CGSize(width: 4, height: 4))
+        nostril.position = CGPoint(x: 40, y: -1)
+        dragon.addChild(nostril)
+
+        dragon.setScale(distanceScale < 1.0 ? 1.3 : 1.0)
+        if !facingRight { dragon.xScale *= -1 }
+        return dragon
+    }
+
     // MARK: - Opponent Selection
 
     private func showOpponentPicker() {
@@ -3557,6 +4080,7 @@ final class CornholeMiniGameScene: SKScene {
             case .billy:  applyBillySettings()
             case .spirit: applySpiritSettings()
             case .bully:  applyBullySettings()
+            case .barnum: applyBarnumSettings()
             default: break
             }
             rollWeatherScenarios()
@@ -3573,6 +4097,9 @@ final class CornholeMiniGameScene: SKScene {
                            traitText: "TOPS YOUR HOLE SHOTS"),
             OpponentConfig(name: "JENNY",  imageName: "jenny",
                            traitText: "KNOCKS BAGS OFF BOARD"),
+            OpponentConfig(name: "BARNUM", imageName: "barnum",
+                           traitText: "DRAGON CAVE • TO 21",
+                           textureOverride: CornholeMiniGameScene.makeBarnumPortraitTexture()),
             OpponentConfig(name: "BILLY",  imageName: "billy",
                            traitText: "MATCHES YOUR SKILL • TO 21"),
             OpponentConfig(name: "SPIRIT", imageName: "spirit",
@@ -3586,6 +4113,9 @@ final class CornholeMiniGameScene: SKScene {
             case 0: self.selectedOpponent = .tom
             case 1: self.selectedOpponent = .jenny
             case 2:
+                self.selectedOpponent = .barnum
+                self.applyBarnumSettings()
+            case 3:
                 self.selectedOpponent = .billy
                 self.applyBillySettings()
             default:
@@ -3601,6 +4131,22 @@ final class CornholeMiniGameScene: SKScene {
             }
         }
         addChild(picker)
+    }
+
+    /// Configures Barnum: a 21-point long-distance match thrown across a dark cavern.
+    /// No weather, no gophers — instead a dragon periodically rises from the chasm and
+    /// breathes flame, turning any bag it catches mid-flight into a fire bag.
+    private func applyBarnumSettings() {
+        winScore = 21
+        rainStartRound  = -1
+        rainEndRound    = Int.max
+        stormStartRound = -1
+        stormEndRound   = Int.max
+        isCaveMatch = true
+        // Long-distance variant: shrink board, hole, and bags to simulate a longer throw
+        distanceScale = 0.5
+        rebuildPlayfieldForDistance()
+        applyCaveScenery()
     }
 
     /// Configures Tree Spirit game overrides: score to 21, long-distance throw, and
@@ -3676,10 +4222,14 @@ final class CornholeMiniGameScene: SKScene {
         case .billy:  name = "billy"
         case .spirit: name = "spirit"
         case .bully:  name = "bully"
+        case .barnum: name = "barnum"
         }
         let tex: SKTexture
         let portraitSize: CGSize
-        if selectedOpponent == .bully {
+        if selectedOpponent == .barnum {
+            tex = CornholeMiniGameScene.makeBarnumPortraitTexture()
+            portraitSize = CGSize(width: 48, height: 48)
+        } else if selectedOpponent == .bully {
             // bully.png is a sprite sheet (8 cols x 14 rows of 64x64). Crop the
             // top-left frame for the portrait. SKTexture rect origin is bottom-left,
             // so the top row sits at y = 1 - 1/14.
@@ -3785,6 +4335,7 @@ final class CornholeMiniGameScene: SKScene {
         if awardsRewards && playerWon && selectedOpponent == .billy  { bombBagsEarned  = 3; coinsEarned = 10 }
         if awardsRewards && playerWon && selectedOpponent == .bully  { coinsEarned = 10 }
         if awardsRewards && playerWon && selectedOpponent == .spirit { magicBagsEarned = 6 }
+        if awardsRewards && playerWon && selectedOpponent == .barnum { fireBagsEarned  = 3 }
         onComplete?(playerWon)
         guard let view = self.view, let prev = previousScene else { return }
         SceneTransition.iris(in: view, to: prev)
