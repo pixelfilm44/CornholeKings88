@@ -420,6 +420,7 @@ final class CornholeMiniGameScene: SKScene {
                       "rain_start.wav", "gopher_pop.wav", "gopher_steal.wav",
                       "game_win.wav",  "game_lose.wav",  "storm.mp3",
                       "cornhole.wav", "quack.wav",
+                      "dragon_roar.wav",   // Barnum's dragon — asset optional; skipped if absent
                       "fart.wav"]   // Tom's toot — asset optional; skipped if absent
         sounds.forEach { warmUpSound($0) }
     }
@@ -3968,7 +3969,7 @@ final class CornholeMiniGameScene: SKScene {
         gameWorldNode.addChild(dragon)
         dragonNode = dragon
 
-        run(SKAction.playSoundFileNamed("storm.mp3", waitForCompletion: false))
+        run(SKAction.playSoundFileNamed("dragon_roar.wav", waitForCompletion: false))
         UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
 
         // Rise → roar/wind-up → breathe flame → sink back → reschedule.
@@ -3997,6 +3998,7 @@ final class CornholeMiniGameScene: SKScene {
     /// Sweeps a wide, organic flame across the corridor for a sustained burn and ignites
     /// every airborne bag that passes through its lane for the full duration.
     private func breatheFlame(fromX startX: CGFloat, y: CGFloat, towardRight: Bool) {
+        run(SKAction.playSoundFileNamed("dragon_roar.wav", waitForCompletion: false))
         run(SKAction.playSoundFileNamed("hit.mp3", waitForCompletion: false))
         UINotificationFeedbackGenerator().notificationOccurred(.warning)
 
