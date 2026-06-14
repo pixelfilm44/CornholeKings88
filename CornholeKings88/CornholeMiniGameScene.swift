@@ -779,6 +779,188 @@ final class CornholeMiniGameScene: SKScene {
         return tex
     }
 
+    /// Shared helper: paint a square pixel grid (`cells × cells`) from a row-string
+    /// legend and a character→color map, return as a `.nearest` SKTexture.
+    private static func pixelPortrait(rows: [String],
+                                      colors: [Character: UIColor],
+                                      cells: Int = 16,
+                                      ps: CGFloat = 3) -> SKTexture {
+        let dim = CGFloat(cells) * ps
+        UIGraphicsBeginImageContextWithOptions(CGSize(width: dim, height: dim), false, 1.0)
+        defer { UIGraphicsEndImageContext() }
+        guard let ctx = UIGraphicsGetCurrentContext() else { return SKTexture() }
+        for (row, line) in rows.enumerated() {
+            for (col, ch) in line.enumerated() {
+                guard let c = colors[ch] else { continue }
+                ctx.setFillColor(c.cgColor)
+                ctx.fill(CGRect(x: CGFloat(col) * ps, y: CGFloat(row) * ps,
+                                width: ps, height: ps))
+            }
+        }
+        let image = UIGraphicsGetImageFromCurrentImageContext() ?? UIImage()
+        let tex = SKTexture(image: image)
+        tex.filteringMode = .nearest
+        return tex
+    }
+
+    /// Tom: short orange hair, peachy skin, blue/white striped tee, blue eyes.
+    static func makeTomPortraitTexture() -> SKTexture {
+        let rows = [
+            "................",
+            "....HHHHHHHH....",
+            "...HHHHHHHHHH...",
+            "..HHHHHHHHHHHH..",
+            "..HHSSSSSSSSHH..",
+            "..HSSSSSSSSSSH..",
+            "..HSSEESSSEESH..",
+            "..HSSSSSSSSSSH..",
+            "...SSSSMMSSSS...",
+            "....SSSSSSSS....",
+            ".....SSSSSS.....",
+            "...BBBWWWWBBB...",
+            "..BWWBBBBBBWWB..",
+            "..WBBWWWWWWBBW..",
+            "..BWWBBBBBBWWB..",
+            "..BB........BB..",
+        ]
+        let colors: [Character: UIColor] = [
+            "H": UIColor(red: 0.85, green: 0.45, blue: 0.18, alpha: 1), // orange hair
+            "S": UIColor(red: 0.97, green: 0.80, blue: 0.62, alpha: 1), // peach skin
+            "E": UIColor(red: 0.16, green: 0.32, blue: 0.62, alpha: 1), // blue eyes
+            "M": UIColor(red: 0.55, green: 0.22, blue: 0.18, alpha: 1), // mouth
+            "B": UIColor(red: 0.20, green: 0.42, blue: 0.78, alpha: 1), // shirt blue
+            "W": UIColor(red: 0.94, green: 0.94, blue: 0.94, alpha: 1), // shirt white
+        ]
+        return pixelPortrait(rows: rows, colors: colors)
+    }
+
+    /// Jenny: long dark wavy hair, tan skin, brown eyes, red top.
+    static func makeJennyPortraitTexture() -> SKTexture {
+        let rows = [
+            "....HHHHHHHH....",
+            "...HHHHHHHHHH...",
+            "..HHHHHHHHHHHH..",
+            ".HHHHHHHHHHHHHH.",
+            ".HHHSSSSSSSSHHH.",
+            ".HHSSSSSSSSSSHH.",
+            ".HHSSEESSSEESHH.",
+            ".HHSSSSSSSSSSHH.",
+            ".HHSSSSMMMMSSHH.",
+            ".HHHSSSSSSSSHHH.",
+            ".HHHHSSSSSSHHHH.",
+            ".HHHHHHHHHHHHHH.",
+            "..RRRRRRRRRRRR..",
+            ".RRRRRRRRRRRRRR.",
+            ".RRR........RRR.",
+            ".RR..........RR.",
+        ]
+        let colors: [Character: UIColor] = [
+            "H": UIColor(red: 0.18, green: 0.10, blue: 0.08, alpha: 1), // dark hair
+            "S": UIColor(red: 0.86, green: 0.62, blue: 0.46, alpha: 1), // tan skin
+            "E": UIColor(red: 0.10, green: 0.06, blue: 0.05, alpha: 1), // dark eyes
+            "M": UIColor(red: 0.55, green: 0.18, blue: 0.16, alpha: 1), // smile
+            "R": UIColor(red: 0.78, green: 0.22, blue: 0.22, alpha: 1), // red top
+        ]
+        return pixelPortrait(rows: rows, colors: colors)
+    }
+
+    /// Billy the Bully: messy spiky black hair, pale skin, angry brow, dark shirt.
+    static func makeBillyPortraitTexture() -> SKTexture {
+        let rows = [
+            "..H...HH..HH..H.",
+            ".HHH.HHHHHHHH.HH",
+            ".HHHHHHHHHHHHHH.",
+            "HHHHHHHHHHHHHHHH",
+            ".HHHSSSSSSSSHHH.",
+            "..HSSSSSSSSSSH..",
+            "..SSAASSSSAASS..",
+            "..SSEESSSSEESS..", // angry eyes
+            "..SSSSSSSSSSSS..",
+            "..SSSSMMMMSSSS..",
+            "...SSSSSSSSSS...",
+            "....SSSSSSSS....",
+            "...KKKKKKKKKK...",
+            "..KKRRRRRRRRKK..",
+            "..KRRRRRRRRRRK..",
+            "..KK........KK..",
+        ]
+        let colors: [Character: UIColor] = [
+            "H": UIColor(red: 0.10, green: 0.07, blue: 0.08, alpha: 1), // black hair
+            "S": UIColor(red: 0.92, green: 0.78, blue: 0.66, alpha: 1), // pale skin
+            "A": UIColor(red: 0.55, green: 0.18, blue: 0.14, alpha: 1), // red angry brow
+            "E": UIColor(red: 0.08, green: 0.05, blue: 0.05, alpha: 1), // dark eyes
+            "M": UIColor(red: 0.40, green: 0.10, blue: 0.10, alpha: 1), // snarl
+            "K": UIColor(red: 0.12, green: 0.08, blue: 0.08, alpha: 1), // dark shirt
+            "R": UIColor(red: 0.62, green: 0.16, blue: 0.16, alpha: 1), // red accent
+        ]
+        return pixelPortrait(rows: rows, colors: colors)
+    }
+
+    /// Jeff (player): brown sweep hair, peach skin, brown eyes, blue hoodie + yellow tee.
+    static func makeJeffPortraitTexture() -> SKTexture {
+        let rows = [
+            "................",
+            "....HHHHHHHH....",
+            "...HHHHHHHHHH...",
+            "..HHHHHHHHHHHH..",
+            "..HHSSSSSSSSHH..",
+            "..HSSSSSSSSSSH..",
+            "..HSSEESSSEESH..",
+            "..HSSSSSSSSSSH..",
+            "...SSSSNNSSSS...",
+            "....SSSSSSSS....",
+            "....SSSMMSSSS...",
+            ".....SSYYSS.....",
+            "...BBBBYYBBBB...",
+            "..BBBBBYYBBBBB..",
+            "..BBBB....BBBB..",
+            "..BBB......BBB..",
+        ]
+        let colors: [Character: UIColor] = [
+            "H": UIColor(red: 0.30, green: 0.18, blue: 0.10, alpha: 1), // brown hair
+            "S": UIColor(red: 0.95, green: 0.78, blue: 0.62, alpha: 1), // peach skin
+            "E": UIColor(red: 0.22, green: 0.14, blue: 0.08, alpha: 1), // brown eyes
+            "N": UIColor(red: 0.82, green: 0.62, blue: 0.48, alpha: 1), // nose shadow
+            "M": UIColor(red: 0.55, green: 0.22, blue: 0.18, alpha: 1), // smile
+            "B": UIColor(red: 0.24, green: 0.46, blue: 0.74, alpha: 1), // hoodie blue
+            "Y": UIColor(red: 0.96, green: 0.82, blue: 0.20, alpha: 1), // tee yellow
+        ]
+        return pixelPortrait(rows: rows, colors: colors)
+    }
+
+    /// Tree Spirit: leafy crown, bark-textured face, glowing yellow eyes.
+    static func makeSpiritPortraitTexture() -> SKTexture {
+        let rows = [
+            "....LL..LL.LL...",
+            "...LLLLLLLLLLL..",
+            "..LLGGLLGGGLLLL.",
+            ".LLGGGGGGGGGGLL.",
+            ".LBBBBBBBBBBBBL.",
+            ".BBBBBBBBBBBBBB.",
+            ".BBYYBBBBBBYYBB.",
+            ".BYWYBBBBBBYWYB.", // bright pupils
+            ".BBYYBBBBBBYYBB.",
+            ".BBBBBBKKBBBBBB.", // nose / wood knot
+            ".BBBBMMOOMMBBBB.",
+            ".BBBMMMMMMMMBBB.", // jagged mouth
+            ".BBBBBBBBBBBBBB.",
+            "..KKBBBBBBBBKK..",
+            "..KKKKKKKKKKKK..",
+            "...KK......KK...",
+        ]
+        let colors: [Character: UIColor] = [
+            "L": UIColor(red: 0.14, green: 0.32, blue: 0.18, alpha: 1), // dark leaves
+            "G": UIColor(red: 0.32, green: 0.56, blue: 0.28, alpha: 1), // light leaves
+            "B": UIColor(red: 0.36, green: 0.22, blue: 0.12, alpha: 1), // bark
+            "K": UIColor(red: 0.20, green: 0.12, blue: 0.06, alpha: 1), // dark bark
+            "Y": UIColor(red: 0.98, green: 0.82, blue: 0.20, alpha: 1), // glow ring
+            "W": UIColor(red: 1.00, green: 0.98, blue: 0.70, alpha: 1), // bright pupil
+            "M": UIColor(red: 0.10, green: 0.06, blue: 0.04, alpha: 1), // mouth dark
+            "O": UIColor(red: 0.85, green: 0.40, blue: 0.10, alpha: 1), // inner mouth ember
+        ]
+        return pixelPortrait(rows: rows, colors: colors)
+    }
+
     // MARK: - UI
 
     private func setupUI() {
@@ -4094,16 +4276,20 @@ final class CornholeMiniGameScene: SKScene {
         }
         let configs: [OpponentConfig] = [
             OpponentConfig(name: "TOM",    imageName: "tom",
-                           traitText: "TOPS YOUR HOLE SHOTS"),
+                           traitText: "TOPS YOUR HOLE SHOTS",
+                           textureOverride: CornholeMiniGameScene.makeTomPortraitTexture()),
             OpponentConfig(name: "JENNY",  imageName: "jenny",
-                           traitText: "KNOCKS BAGS OFF BOARD"),
+                           traitText: "KNOCKS BAGS OFF BOARD",
+                           textureOverride: CornholeMiniGameScene.makeJennyPortraitTexture()),
             OpponentConfig(name: "BARNUM", imageName: "barnum",
                            traitText: "DRAGON CAVE • TO 21",
                            textureOverride: CornholeMiniGameScene.makeBarnumPortraitTexture()),
             OpponentConfig(name: "BILLY",  imageName: "billy",
-                           traitText: "MATCHES YOUR SKILL • TO 21"),
+                           traitText: "MATCHES YOUR SKILL • TO 21",
+                           textureOverride: CornholeMiniGameScene.makeBillyPortraitTexture()),
             OpponentConfig(name: "SPIRIT", imageName: "spirit",
-                           traitText: "DROPS MAGIC BAGS • TO 21"),
+                           traitText: "DROPS MAGIC BAGS • TO 21",
+                           textureOverride: CornholeMiniGameScene.makeSpiritPortraitTexture()),
         ]
         let picker = OpponentPickerNode(opponents: configs, sceneSize: size)
         picker.zPosition = 3000
@@ -4226,10 +4412,23 @@ final class CornholeMiniGameScene: SKScene {
         }
         let tex: SKTexture
         let portraitSize: CGSize
-        if selectedOpponent == .barnum {
+        switch selectedOpponent {
+        case .tom:
+            tex = CornholeMiniGameScene.makeTomPortraitTexture()
+            portraitSize = CGSize(width: 48, height: 48)
+        case .jenny:
+            tex = CornholeMiniGameScene.makeJennyPortraitTexture()
+            portraitSize = CGSize(width: 48, height: 48)
+        case .billy:
+            tex = CornholeMiniGameScene.makeBillyPortraitTexture()
+            portraitSize = CGSize(width: 48, height: 48)
+        case .spirit:
+            tex = CornholeMiniGameScene.makeSpiritPortraitTexture()
+            portraitSize = CGSize(width: 48, height: 48)
+        case .barnum:
             tex = CornholeMiniGameScene.makeBarnumPortraitTexture()
             portraitSize = CGSize(width: 48, height: 48)
-        } else if selectedOpponent == .bully {
+        case .bully:
             // bully.png is a sprite sheet (8 cols x 14 rows of 64x64). Crop the
             // top-left frame for the portrait. SKTexture rect origin is bottom-left,
             // so the top row sits at y = 1 - 1/14.
@@ -4239,9 +4438,6 @@ final class CornholeMiniGameScene: SKScene {
             let fh: CGFloat = 1.0 / 14.0
             tex = SKTexture(rect: CGRect(x: 0, y: 1.0 - fh, width: fw, height: fh), in: sheet)
             portraitSize = CGSize(width: 32, height: 32)
-        } else {
-            tex = SKTexture(imageNamed: name)
-            portraitSize = CGSize(width: 48, height: 48)
         }
         tex.filteringMode = .nearest
         let bottomH = size.height * 0.09
@@ -4255,8 +4451,7 @@ final class CornholeMiniGameScene: SKScene {
 
     private func addPlayerPortrait() {
         playerPortrait?.removeFromParent()
-        let tex = SKTexture(imageNamed: "jeff")
-        tex.filteringMode = .nearest
+        let tex = CornholeMiniGameScene.makeJeffPortraitTexture()
         let bottomH = size.height * 0.09
         let portrait = SKSpriteNode(texture: tex, size: CGSize(width: 48, height: 48))
         portrait.position  = CGPoint(x: size.width / 2 - 28,
