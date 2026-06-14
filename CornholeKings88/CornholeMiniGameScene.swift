@@ -1992,9 +1992,42 @@ final class CornholeMiniGameScene: SKScene {
                     bag.rotV *= rainActive ? 0.88 : 0.65
                 }
 
-                // Hole detection
+                // Hole detection.
+                // In the long-distance variant the hole radius is half-size, so a bag
+                // sliding with moderate per-frame velocity can step *over* the hole
+                // between frames without its center ever falling inside. Augment the
+                // endpoint check with a segment-vs-circle sweep across the bag's
+                // current-frame motion, gated by speed: genuinely fast bags still skip,
+                // but "moving quickly" bags drop in.
                 let dist = hypot(bag.bx - holeCenter.x, bag.by - holeCenter.y)
-                if dist <= holeRadius && !bag.hasScored {
+                var captured = dist <= holeRadius
+                if !captured && distanceScale < 1.0 {
+                    let speed = hypot(bag.vx, bag.vy)
+                    let fastSkipSpeed: CGFloat = 7.0   // above this the bag still slides over
+                    if speed < fastSkipSpeed {
+                        // Segment from previous frame to current vs. hole circle.
+                        let px = bag.bx - bag.vx
+                        let py = bag.by - bag.vy
+                        let dx = bag.vx, dy = bag.vy
+                        let fx = px - holeCenter.x, fy = py - holeCenter.y
+                        let a = dx*dx + dy*dy
+                        let b = 2 * (fx*dx + fy*dy)
+                        let c = fx*fx + fy*fy - holeRadius*holeRadius
+                        let disc = b*b - 4*a*c
+                        if a > 0.0001 && disc >= 0 {
+                            let s = sqrt(disc)
+                            let t1 = (-b - s) / (2 * a)
+                            let t2 = (-b + s) / (2 * a)
+                            if (t1 >= 0 && t1 <= 1) || (t2 >= 0 && t2 <= 1) || (t1 <= 0 && t2 >= 1) {
+                                captured = true
+                                // Snap into the hole so the sink animation looks centered.
+                                bag.bx = holeCenter.x
+                                bag.by = holeCenter.y
+                            }
+                        }
+                    }
+                }
+                if captured && !bag.hasScored {
                     bag.hasScored  = true
                     CornholeStatsManager.shared.recordCornhole()
                     if bag.owner == .player { handlePlayerCornholeStreak() }

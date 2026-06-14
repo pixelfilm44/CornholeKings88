@@ -77,9 +77,20 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     private var poolPositions: [CGPoint] = []
     private var nearbyPoolPosition: CGPoint?
 
-    // Cave interaction — tileset name contains "cave"; launches cornhole vs. Barnum
+    // Cave interaction — tileset name contains "cave"; launches cornhole vs. Barnum.
+    // After the first Barnum win at a cave, that cave becomes a one-way portal to
+    // the other cave on the map (per-direction unlock persisted in UserDefaults).
     private var cavePositions: [CGPoint] = []
     private var nearbyCavePosition: CGPoint?
+    private var caveClusterA: [CGPoint] = []
+    private var caveClusterB: [CGPoint] = []
+    private var caveClusterACenter: CGPoint = .zero
+    private var caveClusterBCenter: CGPoint = .zero
+    private let caveAToBUnlockedKey = "caveAToB_unlocked_v1"
+    private let caveBToAUnlockedKey = "caveBToA_unlocked_v1"
+    /// Set when launching Barnum from a cave; on win, this is flipped to true and the
+    /// player is teleported to the matching destination exit.
+    private var pendingCaveTeleportFromIsA: Bool?
 
     // Fence interaction — "fences" layer; launches Suburban Jousters
     private var fencePositions: [CGPoint] = []
@@ -772,6 +783,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         extractBeehivePositions(from: m)
         extractPoolPositions(from: m)
         extractCavePositions(from: m)
+        clusterCavePositions()
         extractChestPositions(from: m)
         extractStorePositions(from: m)
         extractBridgeStonePositions(from: m)
@@ -1044,6 +1056,155 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         }
         if !cavePositions.isEmpty {
             print("🐉 Found \(cavePositions.count) cave tile(s)")
+        }
+    }
+
+    /// Groups cave tiles into spatial clusters (one per cave structure on the map)
+    /// and assigns the two largest clusters to A/B deterministically. Cluster A is
+    /// the one with the smaller centroid x (ties broken by smaller y), so the
+    /// per-direction unlock keys remain stable across launches.
+    private func clusterCavePositions() {
+        caveClusterA = []
+        caveClusterB = []
+        caveClusterACenter = .zero
+        caveClusterBCenter = .zero
+        guard cavePositions.count >= 2 else { return }
+
+        let threshold: CGFloat = 24  // ~3 tile widths — groups any reasonably-sized cave structure
+        let thresholdSq = threshold * threshold
+        var visited = Array(repeating: false, count: cavePositions.count)
+        var clusters: [[CGPoint]] = []
+        for i in 0..<cavePositions.count {
+            if visited[i] { continue }
+            var stack = [i]; visited[i] = true
+            var cluster: [CGPoint] = []
+            while let idx = stack.popLast() {
+                cluster.append(cavePositions[idx])
+                for j in 0..<cavePositions.count where !visited[j] {
+                    let dx = cavePositions[idx].x - cavePositions[j].x
+                    let dy = cavePositions[idx].y - cavePositions[j].y
+                    if dx * dx + dy * dy <= thresholdSq {
+                        visited[j] = true
+                        stack.append(j)
+                    }
+                }
+            }
+            clusters.append(cluster)
+        }
+
+        guard clusters.count >= 2 else {
+            print("⚠️ Cave teleport disabled: only \(clusters.count) cave cluster(s) found")
+            return
+        }
+        if clusters.count > 2 {
+            // Spec assumes exactly 2 caves. If there are more, take the two largest so
+            // a stray decoration tile picked up by the "cave" name match doesn't break pairing.
+            clusters.sort { $0.count > $1.count }
+            clusters = Array(clusters.prefix(2))
+        }
+
+        let centroids = clusters.map { tiles -> CGPoint in
+            let n = CGFloat(tiles.count)
+            let sx = tiles.reduce(0) { $0 + $1.x } / n
+            let sy = tiles.reduce(0) { $0 + $1.y } / n
+            return CGPoint(x: sx, y: sy)
+        }
+        let aFirst: Bool = {
+            if centroids[0].x != centroids[1].x { return centroids[0].x < centroids[1].x }
+            return centroids[0].y < centroids[1].y
+        }()
+        caveClusterA = aFirst ? clusters[0] : clusters[1]
+        caveClusterB = aFirst ? clusters[1] : clusters[0]
+        caveClusterACenter = aFirst ? centroids[0] : centroids[1]
+        caveClusterBCenter = aFirst ? centroids[1] : centroids[0]
+        print("🐉 Cave pairing: A@\(caveClusterACenter) ↔ B@\(caveClusterBCenter)")
+    }
+
+    /// `true` if the given world position belongs to cave cluster A (the lower-x cave).
+    /// Falls back to nearest-cluster when the position isn't an exact tile center.
+    private func cavePositionIsClusterA(_ p: CGPoint) -> Bool {
+        guard !caveClusterA.isEmpty, !caveClusterB.isEmpty else { return true }
+        func minDistSq(_ pt: CGPoint, _ tiles: [CGPoint]) -> CGFloat {
+            var best = CGFloat.greatestFiniteMagnitude
+            for t in tiles {
+                let dx = pt.x - t.x, dy = pt.y - t.y
+                let d = dx * dx + dy * dy
+                if d < best { best = d }
+            }
+            return best
+        }
+        return minDistSq(p, caveClusterA) <= minDistSq(p, caveClusterB)
+    }
+
+    /// World position the player should occupy after teleporting to a cave. Just south of
+    /// the cluster centroid (same offset as `setMiniGameReturnPosition`), clamped to the map.
+    private func caveExitPosition(forClusterA isA: Bool) -> CGPoint {
+        let center = isA ? caveClusterACenter : caveClusterBCenter
+        var p = CGPoint(x: center.x, y: center.y - 24)
+        if let m = map {
+            let half: CGFloat = 6
+            p.x = max(half, min(m.sizeInPoints.width  - half, p.x))
+            p.y = max(half, min(m.sizeInPoints.height - half, p.y))
+        }
+        return p
+    }
+
+    /// Plays the cave entry → fade → exit sequence and warps the player to the
+    /// destination cave's south-side exit. Called for already-unlocked directions.
+    /// Returns immediately; input is blocked via `isTransitioning` for the duration.
+    private func playCaveTeleport(fromCenter: CGPoint, toClusterA destIsA: Bool) {
+        guard let view = self.view, !isTransitioning else { return }
+        isTransitioning = true
+        player.moveDirection = .zero
+        player.physicsBody?.velocity = .zero
+        resetBeanbagControl()
+
+        let exit = caveExitPosition(forClusterA: destIsA)
+
+        // Phase 1: player walks up into the cave mouth.
+        let walkInDuration: TimeInterval = 0.35
+        let entryTarget = CGPoint(x: fromCenter.x, y: fromCenter.y - 4)
+        player.face(toward: CGVector(dx: 0, dy: 1))
+        let walkIn = SKAction.move(to: entryTarget, duration: walkInDuration)
+        walkIn.timingMode = .easeInEaseOut
+
+        // Phase 2: black fade (UIView on SKView, same surface SceneTransition uses).
+        let overlay = UIView(frame: view.bounds)
+        overlay.backgroundColor = .black
+        overlay.alpha = 0
+        overlay.isUserInteractionEnabled = true
+        overlay.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+
+        let fadeOutDuration: TimeInterval = 0.25
+        let holdDuration:    TimeInterval = 0.05
+        let fadeInDuration:  TimeInterval = 0.25
+        let walkOutDuration: TimeInterval = 0.35
+
+        player.run(walkIn) { [weak self, weak view] in
+            guard let self = self, let view = view else { return }
+            view.addSubview(overlay)
+            UIView.animate(withDuration: fadeOutDuration, animations: {
+                overlay.alpha = 1
+            }, completion: { _ in
+                // Reposition under cover of black.
+                self.player.position = CGPoint(x: exit.x, y: exit.y + 12)  // a bit inside the mouth
+                self.player.face(toward: CGVector(dx: 0, dy: -1))
+                self.updateCamera()
+
+                DispatchQueue.main.asyncAfter(deadline: .now() + holdDuration) {
+                    UIView.animate(withDuration: fadeInDuration, animations: {
+                        overlay.alpha = 0
+                    }, completion: { _ in
+                        overlay.removeFromSuperview()
+                        // Phase 3: walk out south.
+                        let walkOut = SKAction.move(to: exit, duration: walkOutDuration)
+                        walkOut.timingMode = .easeInEaseOut
+                        self.player.run(walkOut) { [weak self] in
+                            self?.isTransitioning = false
+                        }
+                    })
+                }
+            })
         }
     }
 
@@ -2195,6 +2356,29 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         pendingReturnPosition = p
     }
 
+    /// Routes a cave A-press: if the outbound direction is already unlocked, plays the
+    /// fast-travel teleport; otherwise launches the cornhole match vs. Barnum. On Barnum
+    /// win, the direction is unlocked and the player is dropped at the destination exit.
+    private func handleCaveInteraction(at tile: CGPoint) {
+        // No clusters (single-cave map, or detection failed) — fall back to Barnum-only.
+        guard !caveClusterA.isEmpty, !caveClusterB.isEmpty else {
+            setMiniGameReturnPosition(near: tile)
+            openCornholeMiniGame(preSelectedOpponent: .barnum)
+            return
+        }
+        let fromIsA = cavePositionIsClusterA(tile)
+        let unlockKey = fromIsA ? caveAToBUnlockedKey : caveBToAUnlockedKey
+        if UserDefaults.standard.bool(forKey: unlockKey) {
+            let fromCenter = fromIsA ? caveClusterACenter : caveClusterBCenter
+            playCaveTeleport(fromCenter: fromCenter, toClusterA: !fromIsA)
+            return
+        }
+        // Locked direction — fight Barnum, and remember which direction to unlock on win.
+        pendingCaveTeleportFromIsA = fromIsA
+        setMiniGameReturnPosition(near: tile)
+        openCornholeMiniGame(preSelectedOpponent: .barnum)
+    }
+
     private func openCornholeMiniGame(preSelectedOpponent: CornholeMiniGameScene.AIOpponent? = nil) {
         guard let view = self.view else { return }
         isTransitioning = true
@@ -2212,7 +2396,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         mini.availableMagicBags  = inventory.counts[.magicBag,  default: 0]
         mini.availableFireBags   = inventory.counts[.fireBag,   default: 0]
         mini.availableGoldenBags = inventory.counts[.goldenBag, default: 0]
-        mini.onComplete = { [weak self, weak mini] _ in
+        mini.onComplete = { [weak self, weak mini] won in
             if let used = mini?.honeyBagsUsed,  used > 0 { self?.inventory.consume(.honeyBag,  count: used) }
             if let used = mini?.bombBagsUsed,   used > 0 { self?.inventory.consume(.bombBag,   count: used) }
             if let used = mini?.magicBagsUsed,  used > 0 { self?.inventory.consume(.magicBag,  count: used) }
@@ -2224,6 +2408,17 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
             if let earned = mini?.goldenBagsEarned, earned > 0 { self?.inventory.collect(.goldenBag, count: earned) }
             if let earned = mini?.coinsEarned,     earned > 0 { self?.inventory.collect(.coin,     count: earned) }
             if CornholeStatsManager.shared.baseballUnlocked { self?.unlockBaseball() }
+            // Cave teleport on Barnum win: unlock this direction and drop the player at
+            // the destination cave's exit instead of the entry cave (overrides the south-
+            // of-tile return position set in handleCaveInteraction).
+            if let self = self, let fromIsA = self.pendingCaveTeleportFromIsA {
+                self.pendingCaveTeleportFromIsA = nil
+                if won {
+                    let unlockKey = fromIsA ? self.caveAToBUnlockedKey : self.caveBToAUnlockedKey
+                    UserDefaults.standard.set(true, forKey: unlockKey)
+                    self.pendingReturnPosition = self.caveExitPosition(forClusterA: !fromIsA)
+                }
+            }
             self?.isTransitioning = false
         }
 
@@ -2691,8 +2886,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
                 setMiniGameReturnPosition(near: p)
                 openBeachBallCornhole()
             } else if let p = nearbyCavePosition {
-                setMiniGameReturnPosition(near: p)
-                openCornholeMiniGame(preSelectedOpponent: .barnum)
+                handleCaveInteraction(at: p)
             } else if let p = nearbyBridgeWoodPosition {
                 if trigger == StoryManager.triggerBridge {
                     StoryManager.shared.pendingWorldTrigger = nil
