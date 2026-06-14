@@ -95,6 +95,9 @@ final class CornholeMiniGameScene: SKScene {
         /// Set when an off-board bag drops into Barnum's chasm — it falls into the dark and
         /// is removed from collisions/scoring. Prevents the plummet animation re-triggering.
         var isFallingInChasm = false
+        /// Set while a cave-match bat has snatched the bag and is carrying it to a drop point.
+        /// While true, physics and deform are skipped — the bat action drives position.
+        var isCarriedByBat = false
 
         // MARK: Soft-bag deformation (Tier 1/2 — pure visual, volume-preserving)
         /// Signed deform driven by a damped spring. >0 = flattened (wide + short, like a
@@ -337,6 +340,11 @@ final class CornholeMiniGameScene: SKScene {
     // Dragon — Barnum's cavern only. Rises from the chasm and breathes flame across
     // the bag-flight corridor, igniting any airborne bag into a fire bag.
     private var dragonNode: SKNode?
+
+    // Cave bat — when the dragon isn't out, a bat occasionally swoops in, snatches a
+    // thrown bag mid-air, and drops it on the board (mostly) or in the hole. The
+    // original thrower still scores the bag.
+    private var batNode: SKNode?
 
     // Opponent selection
     enum AIOpponent { case tom, jenny, billy, spirit, bully, barnum }
@@ -1665,6 +1673,10 @@ final class CornholeMiniGameScene: SKScene {
         dragonNode?.removeFromParent()
         dragonNode = nil
 
+        batNode?.removeAllActions()
+        batNode?.removeFromParent()
+        batNode = nil
+
         messageNode?.removeFromParent()
         messageNode = nil
 
@@ -1781,6 +1793,9 @@ final class CornholeMiniGameScene: SKScene {
             dragonNode?.removeAction(forKey: "dragonAct")
             dragonNode?.removeFromParent()
             dragonNode = nil
+            batNode?.removeAllActions()
+            batNode?.removeFromParent()
+            batNode = nil
             // PLACEHOLDER: add game_win.wav / game_lose.wav to Copy Bundle Resources
             let resultSound = playerScore > aiScore ? "game_win.wav" : "game_lose.wav"
             run(SKAction.playSoundFileNamed(resultSound, waitForCompletion: false))
@@ -1850,6 +1865,9 @@ final class CornholeMiniGameScene: SKScene {
 
                 // Bags that fell off the board are locked in place — skip
                 guard !a.hasAppliedGroundScale && !b.hasAppliedGroundScale else { continue }
+
+                // Bat-carried bags are action-driven; physics has no say while in the bat's claws.
+                guard !a.isCarriedByBat && !b.isCarriedByBat else { continue }
 
                 // Honey bags are sticky — they don't move when other bags hit them
                 guard !a.isHoney && !b.isHoney else { continue }
@@ -1930,6 +1948,8 @@ final class CornholeMiniGameScene: SKScene {
     }
 
     private func updateBagPhysics(_ bag: MiniGameBag, dt: CGFloat) {
+        // Carried by the cave bat — the action drives position, physics is paused.
+        if bag.isCarriedByBat { return }
         // Airborne wind push — honey bags are immune (they're sticky)
         if bag.bz > 0, !bag.isHoney {
             bag.vx += wind.dx * dt * 0.07
@@ -2127,6 +2147,7 @@ final class CornholeMiniGameScene: SKScene {
     /// (sink, poof, off-board shrink), so we return early and leave them alone.
     private func updateBagDeform(_ bag: MiniGameBag, dt: CGFloat) {
         guard !bag.hasScored, !bag.isDestroyed, !bag.hasAppliedGroundScale else { return }
+        if bag.isCarriedByBat { return }
 
         // Tier 2: while airborne and moving, hold a gentle tall-and-narrow stretch
         // (deform < 0) that reads as the bag leaning into its arc; it relaxes to 0 as
@@ -2611,6 +2632,14 @@ final class CornholeMiniGameScene: SKScene {
         if let gopher = activeGopher {
             gopher.diveAway()
             activeGopher = nil
+        }
+
+        // Cave match: ~10% of the time, when the dragon isn't out, a bat swoops in,
+        // grabs the bag mid-air, and drops it on the board (mostly) or in the hole.
+        if isCaveMatch && dragonNode == nil && batNode == nil
+            && !useFire && !useMagic && !useBomb && !useGolden && !useHoney
+            && Double.random(in: 0..<1) < 0.10 {
+            scheduleBatSnatch(for: bag)
         }
     }
 
@@ -4237,6 +4266,287 @@ final class CornholeMiniGameScene: SKScene {
 
         showFireEffect(at: CGPoint(x: bag.bx, y: bag.by + bag.bz * 0.5))
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+    }
+
+    // MARK: - Cave Bat
+
+    /// Schedules a delayed snatch attempt mid-flight. If, at the time it fires, the
+    /// bag is still airborne and nothing else has claimed the airspace (no dragon,
+    /// no other bat, not ignited, not destroyed, not yet grounded/scored), a bat
+    /// swoops in and carries the bag to a drop point.
+    private func scheduleBatSnatch(for bag: MiniGameBag) {
+        let delay = Double.random(in: 0.25...0.45)
+        run(SKAction.sequence([
+            SKAction.wait(forDuration: delay),
+            SKAction.run { [weak self, weak bag] in
+                guard let s = self, let bag = bag else { return }
+                guard s.isCaveMatch, s.dragonNode == nil, s.batNode == nil,
+                      s.gameState != .gameOver, !s.isPausedGame else { return }
+                guard !bag.isDestroyed, !bag.isGrounded, !bag.hasScored,
+                      !bag.isFire, !bag.isCarriedByBat, bag.bz > 6 else { return }
+                s.snatchBagWithBat(bag)
+            },
+        ]))
+    }
+
+    /// Builds the bat, flies it in to the bag, carries the bag to a drop point above
+    /// the board, releases the bag (it falls and lands at the target — original
+    /// thrower still scores), then flies the bat off the opposite side.
+    private func snatchBagWithBat(_ bag: MiniGameBag) {
+        // Drop target — 75% random board point, 25% in the hole.
+        let dropTarget: CGPoint
+        if Double.random(in: 0..<1) < 0.25 {
+            dropTarget = holeCenter
+        } else {
+            dropTarget = CGPoint(
+                x: CGFloat.random(in: -boardHalfW * 0.80 ... boardHalfW * 0.80),
+                y: CGFloat.random(in: (boardY - boardHalfH * 0.80) ... (boardY + boardHalfH * 0.80))
+            )
+        }
+
+        // Bat enters from above — diving from the cave ceiling toward the bag.
+        // Loop direction will swing toward whichever screen edge is opposite the bag.
+        let halfW = size.width / 2
+        let halfH = size.height / 2
+        let fromRight = bag.bx < 0    // affects loop direction + exit side, not entry
+        let exitX   = fromRight ? -halfW - 60 :  halfW + 60
+        // Freeze the bag in mid-air *now* (before the telegraph plays). Otherwise
+        // its arc would land it on the board before the bat finishes diving.
+        // `isCarriedByBat` short-circuits physics, collisions, and the deform spring;
+        // the bag just hangs at this position until the carry phase moves it.
+        bag.isCarriedByBat = true
+        bag.vx = 0; bag.vy = 0; bag.vz = 0; bag.rotV = 0
+        let bagScreen = CGPoint(x: bag.bx, y: bag.by + bag.bz * 0.5)
+        // Bat starts off-screen top, slightly to the side of the bag so the dive
+        // has a visible diagonal sweep instead of dropping straight down.
+        let entryOffsetX: CGFloat = fromRight ? 70 : -70
+        let entryPos = CGPoint(x: bagScreen.x + entryOffsetX, y: halfH + 80)
+
+        // Telegraph — a pulsing yellow exclamation that appears at the snatch point
+        // for ~0.45s before the bat arrives, so the player knows where to look.
+        let telegraph = SKLabelNode(text: "!")
+        telegraph.fontName             = "PressStart2P-Regular"
+        telegraph.fontSize             = 22
+        telegraph.fontColor            = SKColor(red: 1.0, green: 0.85, blue: 0.20, alpha: 1)
+        telegraph.position             = CGPoint(x: bagScreen.x, y: bagScreen.y + 28)
+        telegraph.zPosition            = 60
+        telegraph.verticalAlignmentMode   = .center
+        telegraph.horizontalAlignmentMode = .center
+        telegraph.setScale(0.1)
+        gameWorldNode.addChild(telegraph)
+        telegraph.run(SKAction.sequence([
+            SKAction.group([
+                SKAction.scale(to: 1.4, duration: 0.18),
+                SKAction.fadeAlpha(to: 1.0, duration: 0.10),
+            ]),
+            SKAction.repeat(SKAction.sequence([
+                SKAction.scale(to: 1.0, duration: 0.10),
+                SKAction.scale(to: 1.4, duration: 0.10),
+            ]), count: 2),
+            SKAction.group([
+                SKAction.fadeOut(withDuration: 0.18),
+                SKAction.scale(to: 0.6, duration: 0.18),
+            ]),
+            SKAction.removeFromParent(),
+        ]))
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        run(SKAction.playSoundFileNamed("gopher_pop.wav", waitForCompletion: false))
+
+        let bat = makeBatNode(facingRight: !fromRight)
+        bat.position  = entryPos
+        bat.zPosition = 50
+        // Hidden during the telegraph window, then appears and dives.
+        bat.alpha = 0
+        bat.setScale((distanceScale < 1.0 ? 1.1 : 1.0) * 1.6)   // larger on entry — perspective cue
+        gameWorldNode.addChild(bat)
+        batNode = bat
+
+        // Phase 0: hold off-screen while the telegraph plays. ~0.45s.
+        let waitForTelegraph = SKAction.wait(forDuration: 0.45)
+        let appear = SKAction.fadeAlpha(to: 1.0, duration: 0.08)
+
+        // Phase 1: dive from above to the bag. ~0.6s, with a slight ease-in so it
+        // accelerates downward like a real swoop. The bat shrinks to its carry
+        // size as it "lands" on the bag, selling depth.
+        let dive = SKAction.group([
+            SKAction.move(to: CGPoint(x: bagScreen.x, y: bagScreen.y + 14), duration: 0.60),
+            SKAction.scale(to: (distanceScale < 1.0 ? 1.1 : 1.0), duration: 0.60),
+        ])
+        dive.timingMode = .easeIn
+
+        // Snap the bag onto the bat: freeze physics, lock its world position to the
+        // bag's current spot. The carry phase moves bag.node directly.
+        let grab = SKAction.run { [weak self, weak bag] in
+            guard let s = self, let bag = bag else { return }
+            guard !bag.isDestroyed, !bag.hasScored else { return }
+            bag.isCarriedByBat = true
+            bag.vx = 0; bag.vy = 0; bag.vz = 0; bag.rotV = 0
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+            s.run(SKAction.playSoundFileNamed("hit.mp3", waitForCompletion: false))
+        }
+
+        // Phase 2: rise, fly a visible loop with the bag, then descend to the drop
+        // point. ~1.6s total — slow enough to read what's happening.
+        // The trajectory has three sub-phases (all in one customAction):
+        //   t ∈ [0.00, 0.22]  rise from snatch point up to the loop entry
+        //   t ∈ [0.22, 0.75]  one full circular loop around `loopCenter`
+        //   t ∈ [0.75, 1.00]  glide across to hover above the drop point
+        let carryDuration: TimeInterval = 2.4
+        let hoverHeight: CGFloat = 70
+        let startBatPos = CGPoint(x: bagScreen.x, y: bagScreen.y + 14)
+        let endBatPos   = CGPoint(x: dropTarget.x, y: dropTarget.y + hoverHeight + 14)
+
+        // Loop sits between the snatch point and the drop point, biased up-screen
+        // so the loop arc is on-camera even when the bag was grabbed low.
+        let loopCenter = CGPoint(
+            x: (startBatPos.x + endBatPos.x) * 0.5,
+            y: max(startBatPos.y, endBatPos.y) + 70
+        )
+        let loopRadius: CGFloat = 46
+        // Loop entry: bottom of the circle — bat sweeps in from below and circles up.
+        let loopEntry = CGPoint(x: loopCenter.x, y: loopCenter.y - loopRadius)
+        // Loop direction: spin away from the screen edge the bat entered from so the
+        // arc reads naturally rather than crossing back over itself.
+        let loopCW = fromRight   // entered from right → clockwise loop reads "forward"
+
+        let carry = SKAction.customAction(withDuration: carryDuration) { [weak self, weak bag, weak bat] _, elapsed in
+            guard let s = self, let bag = bag, let bat = bat else { return }
+            let t = max(0, min(1, CGFloat(elapsed / CGFloat(carryDuration))))
+
+            let bx: CGFloat
+            let by: CGFloat
+            if t < 0.22 {
+                // Rise to loop entry.
+                let u = t / 0.22
+                let e = u * u * (3 - 2 * u)
+                bx = startBatPos.x + (loopEntry.x - startBatPos.x) * e
+                by = startBatPos.y + (loopEntry.y - startBatPos.y) * e
+            } else if t < 0.75 {
+                // Full circle around loopCenter, starting at the bottom (entry).
+                let u = (t - 0.22) / (0.75 - 0.22)
+                // -π/2 is straight down from center (loopEntry). Sweep ±2π for one revolution.
+                let dir: CGFloat = loopCW ? -1 : 1
+                let angle = -CGFloat.pi / 2 + dir * (2 * CGFloat.pi) * u
+                bx = loopCenter.x + loopRadius * cos(angle)
+                by = loopCenter.y + loopRadius * sin(angle)
+            } else {
+                // Glide from loop entry across to the drop hover position.
+                let u = (t - 0.75) / 0.25
+                let e = u * u * (3 - 2 * u)
+                bx = loopEntry.x + (endBatPos.x - loopEntry.x) * e
+                by = loopEntry.y + (endBatPos.y - loopEntry.y) * e
+            }
+            bat.position = CGPoint(x: bx, y: by)
+
+            // Bag dangles ~14pt below the bat's body. Lift bz gradually so the
+            // released bag drops from a clean hover height.
+            bag.bx = bx
+            let bz = max(0, hoverHeight * (0.55 + 0.45 * t))
+            bag.bz = bz
+            bag.by = (by - 14) - bz * 0.5
+            bag.node.position   = CGPoint(x: bag.bx, y: bag.by + bag.bz * 0.5)
+            bag.shadow.position = CGPoint(x: bag.bx + bag.bz * 0.08, y: bag.by)
+            bag.shadow.alpha    = max(0.08, 0.35 - bag.bz * 0.005)
+            bag.shadow.setScale(max(0.5, 1.0 - bag.bz * 0.005) * s.distanceScale)
+            bag.node.zPosition  = 20 + bag.bz * 0.1 - bag.by * 0.02
+        }
+
+        // Phase 3: release the bag — set it directly above the drop target with zero
+        // velocity, then resume physics (gravity will drop it straight down). The
+        // original thrower's `owner` is intact, so scoring credits the right player.
+        let release = SKAction.run { [weak bag] in
+            guard let bag = bag, !bag.isDestroyed else { return }
+            bag.bx = dropTarget.x
+            bag.by = dropTarget.y
+            bag.bz = hoverHeight
+            bag.vx = 0; bag.vy = 0; bag.vz = 0
+            bag.rotV = 0
+            bag.isCarriedByBat = false
+        }
+
+        // Phase 4: flap off-screen upward and to the opposite side — back to the
+        // cave ceiling it came from. Scales up again on the way out for visibility.
+        let exit = SKAction.group([
+            SKAction.move(to: CGPoint(x: exitX, y: halfH + 100), duration: 0.85),
+            SKAction.scale(to: (distanceScale < 1.0 ? 1.1 : 1.0) * 1.3, duration: 0.85),
+            SKAction.fadeAlpha(to: 0.0, duration: 0.85),
+        ])
+        exit.timingMode = .easeIn
+
+        bat.run(SKAction.sequence([
+            waitForTelegraph, appear, dive, grab, carry, release, exit,
+            SKAction.removeFromParent(),
+            SKAction.run { [weak self, weak bat] in
+                if self?.batNode === bat { self?.batNode = nil }
+            },
+        ]))
+    }
+
+    /// Builds a chunky pixel-art bat: dark body, two flapping triangle wings, glowing eyes.
+    private func makeBatNode(facingRight: Bool) -> SKNode {
+        let bat = SKNode()
+        // Bumped up from near-black so the bat reads against the dark cave floor.
+        let fur  = SKColor(red: 0.42, green: 0.28, blue: 0.46, alpha: 1)   // dusky purple
+        let dark = SKColor(red: 0.22, green: 0.14, blue: 0.26, alpha: 1)
+        let eye  = SKColor(red: 1.00, green: 0.85, blue: 0.20, alpha: 1)
+
+        // Body
+        let body = SKSpriteNode(color: fur, size: CGSize(width: 16, height: 14))
+        bat.addChild(body)
+
+        // Head
+        let head = SKSpriteNode(color: fur, size: CGSize(width: 12, height: 10))
+        head.position = CGPoint(x: 0, y: 8)
+        bat.addChild(head)
+
+        // Ears (two small triangles)
+        for ex in [-4, 4] {
+            let ear = makeTriangle(width: 4, height: 6, color: dark, pointingDown: false)
+            ear.position = CGPoint(x: CGFloat(ex), y: 14)
+            bat.addChild(ear)
+        }
+
+        // Eyes
+        let eyeL = SKSpriteNode(color: eye, size: CGSize(width: 2, height: 2))
+        eyeL.position = CGPoint(x: -3, y: 9)
+        bat.addChild(eyeL)
+        let eyeR = SKSpriteNode(color: eye, size: CGSize(width: 2, height: 2))
+        eyeR.position = CGPoint(x: 3, y: 9)
+        bat.addChild(eyeR)
+
+        // Wings — large triangles that flap by squashing horizontally. Each wing
+        // sits in a pivot container at the body edge so xScale squashes toward
+        // the body (proper wingbeat) rather than collapsing into thin air.
+        let leftPivot = SKNode()
+        leftPivot.position = CGPoint(x: -8, y: 0)
+        bat.addChild(leftPivot)
+        let leftWing = makeTriangle(width: 22, height: 14, color: fur, pointingDown: false)
+        leftWing.position = CGPoint(x: -11, y: -2)   // base centered 11pt out from pivot
+        leftWing.zRotation = -.pi / 2                // base now runs vertical along the body edge
+        leftPivot.addChild(leftWing)
+
+        let rightPivot = SKNode()
+        rightPivot.position = CGPoint(x: 8, y: 0)
+        bat.addChild(rightPivot)
+        let rightWing = makeTriangle(width: 22, height: 14, color: fur, pointingDown: false)
+        rightWing.position = CGPoint(x: 11, y: -2)
+        rightWing.zRotation = .pi / 2
+        rightPivot.addChild(rightWing)
+
+        // Flap: squash wing pivot on X axis to read as wingbeats.
+        let flap = SKAction.sequence([
+            SKAction.scaleX(to: 0.4, duration: 0.12),
+            SKAction.scaleX(to: 1.0, duration: 0.12),
+        ])
+        leftPivot.run(SKAction.repeatForever(flap))
+        rightPivot.run(SKAction.repeatForever(SKAction.sequence([
+            SKAction.wait(forDuration: 0.12),
+            flap,
+        ])))
+
+        bat.setScale(distanceScale < 1.0 ? 1.1 : 1.0)
+        if !facingRight { bat.xScale *= -1 }
+        return bat
     }
 
     /// An off-board bag that lands in the chasm tumbles straight down and vanishes into
