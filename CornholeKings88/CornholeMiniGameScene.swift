@@ -897,6 +897,39 @@ final class CornholeMiniGameScene: SKScene {
         return pixelPortrait(rows: rows, colors: colors)
     }
 
+    /// Generic street bully (world-roaming attackers): buzz cut, eye scar,
+    /// weathered tan skin, snarl, sleeveless dirty-white muscle tee.
+    static func makeBullyPortraitTexture() -> SKTexture {
+        let rows = [
+            "................",
+            "....HHHHHHHH....",
+            "...HHHHHHHHHH...",
+            "..HHHHHHHHHHHH..",
+            "..HHSSSSSSSSHH..",
+            "..HSSSSSSSSSSH..",
+            "..HSSEESCSEESH..",
+            "..HSSSSSCSSSSH..",
+            "...SSSSSSSSSS...",
+            "....SSSMMMSSSS..",
+            "....SSSSSSSS....",
+            ".....SSSSSS.....",
+            "...TT.TTTT.TT...",
+            "..TTTTTTTTTTTT..",
+            "..TTTRRRRRRTTT..",
+            "..TT........TT..",
+        ]
+        let colors: [Character: UIColor] = [
+            "H": UIColor(red: 0.16, green: 0.10, blue: 0.06, alpha: 1), // dark buzz cut
+            "S": UIColor(red: 0.84, green: 0.62, blue: 0.46, alpha: 1), // tan/weathered skin
+            "E": UIColor(red: 0.08, green: 0.05, blue: 0.05, alpha: 1), // hard eyes
+            "C": UIColor(red: 0.62, green: 0.18, blue: 0.16, alpha: 1), // red scar
+            "M": UIColor(red: 0.42, green: 0.12, blue: 0.10, alpha: 1), // snarl
+            "T": UIColor(red: 0.86, green: 0.82, blue: 0.74, alpha: 1), // dirty white tee
+            "R": UIColor(red: 0.62, green: 0.20, blue: 0.16, alpha: 1), // tee scuff
+        ]
+        return pixelPortrait(rows: rows, colors: colors)
+    }
+
     /// Jeff (player): brown sweep hair, peach skin, brown eyes, blue hoodie + yellow tee.
     static func makeJeffPortraitTexture() -> SKTexture {
         let rows = [
@@ -4403,45 +4436,16 @@ final class CornholeMiniGameScene: SKScene {
 
     private func addOpponentPortrait() {
         opponentPortrait?.removeFromParent()
-        let name: String
-        switch selectedOpponent {
-        case .tom:    name = "tom"
-        case .jenny:  name = "jenny"
-        case .billy:  name = "billy"
-        case .spirit: name = "spirit"
-        case .bully:  name = "bully"
-        case .barnum: name = "barnum"
-        }
         let tex: SKTexture
-        let portraitSize: CGSize
         switch selectedOpponent {
-        case .tom:
-            tex = CornholeMiniGameScene.makeTomPortraitTexture()
-            portraitSize = CGSize(width: 48, height: 48)
-        case .jenny:
-            tex = CornholeMiniGameScene.makeJennyPortraitTexture()
-            portraitSize = CGSize(width: 48, height: 48)
-        case .billy:
-            tex = CornholeMiniGameScene.makeBillyPortraitTexture()
-            portraitSize = CGSize(width: 48, height: 48)
-        case .spirit:
-            tex = CornholeMiniGameScene.makeSpiritPortraitTexture()
-            portraitSize = CGSize(width: 48, height: 48)
-        case .barnum:
-            tex = CornholeMiniGameScene.makeBarnumPortraitTexture()
-            portraitSize = CGSize(width: 48, height: 48)
-        case .bully:
-            // bully.png is a sprite sheet (8 cols x 14 rows of 64x64). Crop the
-            // top-left frame for the portrait. SKTexture rect origin is bottom-left,
-            // so the top row sits at y = 1 - 1/14.
-            let sheet = SKTexture(imageNamed: name)
-            sheet.filteringMode = .nearest
-            let fw: CGFloat = 1.0 / 8.0
-            let fh: CGFloat = 1.0 / 14.0
-            tex = SKTexture(rect: CGRect(x: 0, y: 1.0 - fh, width: fw, height: fh), in: sheet)
-            portraitSize = CGSize(width: 32, height: 32)
+        case .tom:    tex = CornholeMiniGameScene.makeTomPortraitTexture()
+        case .jenny:  tex = CornholeMiniGameScene.makeJennyPortraitTexture()
+        case .billy:  tex = CornholeMiniGameScene.makeBillyPortraitTexture()
+        case .spirit: tex = CornholeMiniGameScene.makeSpiritPortraitTexture()
+        case .barnum: tex = CornholeMiniGameScene.makeBarnumPortraitTexture()
+        case .bully:  tex = CornholeMiniGameScene.makeBullyPortraitTexture()
         }
-        tex.filteringMode = .nearest
+        let portraitSize = CGSize(width: 48, height: 48)
         let bottomH = size.height * 0.09
         let portrait = SKSpriteNode(texture: tex, size: portraitSize)
         portrait.position  = CGPoint(x: -size.width / 2 + 28,
