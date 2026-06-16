@@ -44,6 +44,10 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     private var nearbyBridgeWoodPosition: CGPoint?
     private var bridgePhysicsNodes: [SKNode] = []
     private let bridgeUnlockedKey    = "bridgeUnlocked_v1"
+    // Gate layer — blocks the cave area until the player beats Barnum at the
+    // world cave. Persists across launches once unlocked.
+    private var gatePhysicsNodes: [SKNode] = []
+    private let gateUnlockedKey      = "barnumGateUnlocked_v1"
     private let baseballUnlockedKey  = "baseballUnlocked_v1"
     private let beachBallBeatenKey   = "beachBallBeaten_v1"
     private let goldenLanceKey       = "goldenLanceEarned_v1"
@@ -797,6 +801,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         ySortStaticLayers(in: m)
 
         if UserDefaults.standard.bool(forKey: bridgeUnlockedKey) { unlockBridge() }
+        if UserDefaults.standard.bool(forKey: gateUnlockedKey) { unlockGate() }
         if CornholeStatsManager.shared.baseballUnlocked { unlockBaseball() }
         if StoryManager.shared.hasFlag(.baseballEnabled) { unlockBaseball() }
         spawnStoryBatIfNeeded()
@@ -2417,6 +2422,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
                     let unlockKey = fromIsA ? self.caveAToBUnlockedKey : self.caveBToAUnlockedKey
                     UserDefaults.standard.set(true, forKey: unlockKey)
                     self.pendingReturnPosition = self.caveExitPosition(forClusterA: !fromIsA)
+                    self.unlockGate()
                 }
             }
             self?.isTransitioning = false
@@ -2612,6 +2618,13 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         map?.layerNodes["Baseball"]?.isHidden = false
     }
 
+    private func unlockGate() {
+        UserDefaults.standard.set(true, forKey: gateUnlockedKey)
+        map?.layerNodes["Gate"]?.isHidden = true
+        gatePhysicsNodes.forEach { $0.removeFromParent() }
+        gatePhysicsNodes.removeAll()
+    }
+
     /// Walks playerHearts down to `remaining`, animating each lost heart in the HUD.
     private func syncHeartsFromBeeHive(to remaining: Int) {
         let target = max(0, remaining)
@@ -2628,6 +2641,9 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         let fences = m.layerGIDs["fences"]
         let ground = m.layerGIDs["Ground"]
         let interactions = m.layerGIDs["Interactions"]
+        let gateLocked = !UserDefaults.standard.bool(forKey: gateUnlockedKey)
+        let gate = gateLocked ? m.layerGIDs["Gate"] : nil
+        gatePhysicsNodes.removeAll()
         // Mountain (high-area) cells are always walled off — the Golden Lance
         // lets the player knock chests down from them, never stand on them.
         let mountainGrids: [[[Int]]] = m.layerGIDs
@@ -2646,8 +2662,10 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
 
         for r in 0..<m.rows {
             for c in 0..<m.cols {
+                let gateHere = (gate?[r][c] ?? 0) != 0
                 let blocked = (collisions?[r][c] ?? 0) != 0
                                     || (fences?[r][c] ?? 0) != 0
+                                    || gateHere
                                     || isMountain(r, c)
                 let waterHere = isWater(ground?[r][c] ?? 0)
                 // A bridge (any tile on the Interactions layer at this cell)
@@ -2666,6 +2684,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
                 body.contactTestBitMask = PlayerNode.categoryBit
                 blocker.physicsBody = body
                 m.mapNode.addChild(blocker)
+                if gateHere { gatePhysicsNodes.append(blocker) }
             }
         }
     }
@@ -3410,6 +3429,10 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
             return false
         }
         if let fences = m.layerGIDs["fences"], fences[row][col] != 0 {
+            return false
+        }
+        if !UserDefaults.standard.bool(forKey: gateUnlockedKey),
+           let gate = m.layerGIDs["Gate"], gate[row][col] != 0 {
             return false
         }
         let groundGid = (m.layerGIDs["Ground"]?[row][col] ?? 0) & 0x0FFF_FFFF
