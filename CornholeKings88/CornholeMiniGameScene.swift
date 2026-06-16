@@ -1895,7 +1895,7 @@ final class CornholeMiniGameScene: SKScene {
             // PLACEHOLDER: add round_end.wav to Copy Bundle Resources
             run(SKAction.playSoundFileNamed("round_end.wav", waitForCompletion: false))
             showBanner()
-            run(SKAction.wait(forDuration: 2.0)) { [weak self] in self?.startRound() }
+            run(SKAction.wait(forDuration: 2.4)) { [weak self] in self?.startRound() }
         }
     }
 
@@ -3072,12 +3072,20 @@ final class CornholeMiniGameScene: SKScene {
 
     private func showRoundResultMessage(roundPlayer: Int, roundAI: Int) {
         let net = roundPlayer - roundAI
-        let text: String
-        if net > 0      { text = "+\(net) YOU" }
-        else if net < 0 { text = "+\(abs(net)) \(opponentName)" }
-        else            { text = "WASH" }
+        let headline: String
+        let delta: String
+        if net > 0 {
+            headline = "ROUND TO YOU"
+            delta = "+\(net)"
+        } else if net < 0 {
+            headline = "ROUND TO \(opponentName)"
+            delta = "+\(abs(net))"
+        } else {
+            headline = "ROUND WASH"
+            delta = ""
+        }
 
-        animateRoundBanner(text: text, playerFavored: net >= 0)
+        animateRoundBanner(headline: headline, delta: delta, playerFavored: net >= 0)
     }
 
     /// CathyX round banner. Player hole-ins are the headline (they nullify your round),
@@ -3086,43 +3094,87 @@ final class CornholeMiniGameScene: SKScene {
     private func showCathyRoundResultMessage(boardNet: Int,
                                              playerSank: Bool,
                                              aiSank: Bool) {
-        let text: String
+        let headline: String
+        let delta: String
         let playerFavored: Bool
         if playerSank && boardNet <= 0 {
-            text = "SANK! ROUND LOST"
+            headline = "YOU SANK!"
+            delta = "ROUND LOST"
             playerFavored = false          // render in opponent color
         } else if aiSank && boardNet >= 0 {
-            text = "\(opponentName) SANK!"
+            headline = "\(opponentName) SANK!"
+            delta = "ROUND WON"
             playerFavored = true
         } else if boardNet > 0 {
-            text = "+\(boardNet) YOU"
+            headline = "ROUND TO YOU"
+            delta = "+\(boardNet)"
             playerFavored = true
         } else if boardNet < 0 {
-            text = "+\(abs(boardNet)) \(opponentName)"
+            headline = "ROUND TO \(opponentName)"
+            delta = "+\(abs(boardNet))"
             playerFavored = false
         } else {
-            text = "WASH"
+            headline = "ROUND WASH"
+            delta = ""
             playerFavored = true
         }
-        animateRoundBanner(text: text, playerFavored: playerFavored)
+        animateRoundBanner(headline: headline, delta: delta, playerFavored: playerFavored)
     }
 
-    /// Shared round-banner fade animation. `playerFavored` picks the color: warm red for
-    /// the player, cool blue for the opponent (matching the original round message).
-    private func animateRoundBanner(text: String, playerFavored: Bool) {
-        let lbl = makeLabel(text: text, size: max(6, size.width * 0.055),
-                            color: playerFavored
-                                ? SKColor(red: 0.9, green: 0.42, blue: 0.42, alpha: 1)
-                                : SKColor(red: 0.4, green: 0.6, blue: 0.9, alpha: 1))
-        lbl.position   = CGPoint(x: 0, y: 0)
-        lbl.zPosition  = 800
-        lbl.alpha      = 0
-        addChild(lbl)
+    /// Shared round-end modal: dark wood panel with gold trim showing who took the round
+    /// and the score delta. `playerFavored` picks the delta color (green when the player
+    /// gains, red when the opponent does).
+    private func animateRoundBanner(headline: String, delta: String, playerFavored: Bool) {
+        let panelW = min(size.width * 0.72, 360)
+        let panelH: CGFloat = delta.isEmpty ? 64 : 96
 
-        lbl.run(SKAction.sequence([
-            SKAction.fadeIn(withDuration: 0.25),
-            SKAction.wait(forDuration: 1.4),
-            SKAction.fadeOut(withDuration: 0.30),
+        let container = SKNode()
+        container.zPosition = 900
+        container.alpha = 0
+        container.setScale(0.85)
+
+        let body = SKSpriteNode(color: SKColor(red: 0.10, green: 0.04, blue: 0.02, alpha: 0.96),
+                                size: CGSize(width: panelW, height: panelH))
+        container.addChild(body)
+
+        let goldColor = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 1)
+        let borderT: CGFloat = 2
+        let top    = SKSpriteNode(color: goldColor, size: CGSize(width: panelW, height: borderT))
+        top.position    = CGPoint(x: 0, y:  panelH/2 - borderT/2)
+        let bottom = SKSpriteNode(color: goldColor, size: CGSize(width: panelW, height: borderT))
+        bottom.position = CGPoint(x: 0, y: -panelH/2 + borderT/2)
+        let left   = SKSpriteNode(color: goldColor, size: CGSize(width: borderT, height: panelH))
+        left.position   = CGPoint(x: -panelW/2 + borderT/2, y: 0)
+        let right  = SKSpriteNode(color: goldColor, size: CGSize(width: borderT, height: panelH))
+        right.position  = CGPoint(x:  panelW/2 - borderT/2, y: 0)
+        container.addChild(top); container.addChild(bottom)
+        container.addChild(left); container.addChild(right)
+
+        let headlineLbl = makeLabel(text: headline,
+                                    size: max(6, size.width * 0.045),
+                                    color: goldColor)
+        headlineLbl.position = CGPoint(x: 0, y: delta.isEmpty ? -6 : panelH * 0.12)
+        container.addChild(headlineLbl)
+
+        if !delta.isEmpty {
+            let deltaLbl = makeLabel(text: delta,
+                                     size: max(8, size.width * 0.07),
+                                     color: playerFavored
+                                        ? SKColor(red: 0.45, green: 0.92, blue: 0.50, alpha: 1)
+                                        : SKColor(red: 0.95, green: 0.42, blue: 0.42, alpha: 1))
+            deltaLbl.position = CGPoint(x: 0, y: -panelH * 0.22)
+            container.addChild(deltaLbl)
+        }
+
+        addChild(container)
+
+        container.run(SKAction.sequence([
+            SKAction.group([
+                SKAction.fadeIn(withDuration: 0.18),
+                SKAction.scale(to: 1.0, duration: 0.18),
+            ]),
+            SKAction.wait(forDuration: 1.6),
+            SKAction.fadeOut(withDuration: 0.28),
             SKAction.removeFromParent(),
         ]))
     }
