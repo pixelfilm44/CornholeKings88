@@ -347,7 +347,7 @@ final class CornholeMiniGameScene: SKScene {
     private var batNode: SKNode?
 
     // Opponent selection
-    enum AIOpponent { case tom, jenny, billy, spirit, bully, barnum }
+    enum AIOpponent { case tom, jenny, billy, spirit, bully, barnum, cathy }
     /// Set before presenting to skip the picker and start with a specific opponent.
     var preSelectedOpponent: AIOpponent? = nil
     private var selectedOpponent: AIOpponent = .tom
@@ -361,8 +361,14 @@ final class CornholeMiniGameScene: SKScene {
         case .spirit: return "SPIRIT"
         case .bully:  return "BULLY"
         case .barnum: return "BARNUM"
+        case .cathy:  return "CATHYX"
         }
     }
+
+    // CathyX — inverted scoring match: you only score by landing ON the board, and a
+    // bag that drops in the hole is a 3-point penalty (floored at zero). Set by
+    // applyCathySettings(); read by calculateRoundScore() and the cornhole-streak guard.
+    private var isCathyMatch = false
 
     // Barnum — "good but not great". Fixed aim noise (lower = tighter). Tom/Jenny
     // sit around 2.5; Billy adapts down toward 1.4. Barnum lands in between.
@@ -869,6 +875,38 @@ final class CornholeMiniGameScene: SKScene {
             "E": UIColor(red: 0.10, green: 0.06, blue: 0.05, alpha: 1), // dark eyes
             "M": UIColor(red: 0.55, green: 0.18, blue: 0.16, alpha: 1), // smile
             "R": UIColor(red: 0.78, green: 0.22, blue: 0.22, alpha: 1), // red top
+        ]
+        return pixelPortrait(rows: rows, colors: colors)
+    }
+
+    /// CathyX: long platinum hair, fair skin, sly green eyes and a sideways smirk,
+    /// violet top. The trickster who punishes you for sinking the hole.
+    static func makeCathyPortraitTexture() -> SKTexture {
+        let rows = [
+            "...HHHHHHHHHH...",
+            "..HHHHHHHHHHHH..",
+            ".HHHHHHHHHHHHHH.",
+            ".HHHSSSSSSSSHHH.",
+            ".HHSSSSSSSSSSHH.",
+            ".HHSSEESSSEESHH.",
+            ".HHSSGGSSSGGSHH.",
+            ".HHSSSSSSSSSSHH.",
+            ".HHSSSSSSSMMSHH.",
+            ".HHHSSSSMMSSHHH.",
+            ".HHHHSSSSSSHHHH.",
+            "..HHHHHHHHHHHH..",
+            "..VVVVVVVVVVVV..",
+            ".VVVVVVVVVVVVVV.",
+            ".VVV........VVV.",
+            ".VV..........VV.",
+        ]
+        let colors: [Character: UIColor] = [
+            "H": UIColor(red: 0.93, green: 0.86, blue: 0.58, alpha: 1), // platinum hair
+            "S": UIColor(red: 0.95, green: 0.80, blue: 0.68, alpha: 1), // fair skin
+            "E": UIColor(red: 0.10, green: 0.08, blue: 0.06, alpha: 1), // eye outline
+            "G": UIColor(red: 0.22, green: 0.62, blue: 0.34, alpha: 1), // sly green eyes
+            "M": UIColor(red: 0.58, green: 0.18, blue: 0.30, alpha: 1), // sideways smirk
+            "V": UIColor(red: 0.42, green: 0.20, blue: 0.55, alpha: 1), // violet top
         ]
         return pixelPortrait(rows: rows, colors: colors)
     }
@@ -1746,6 +1784,8 @@ final class CornholeMiniGameScene: SKScene {
         guard !hasCalculatedScore else { return }
         hasCalculatedScore = true
 
+        if isCathyMatch { calculateCathyRoundScore(); return }
+
         var roundPlayer = 0
         var roundAI     = 0
 
@@ -1783,6 +1823,54 @@ final class CornholeMiniGameScene: SKScene {
             deactivateStorm(keepNightTint: true)
         }
 
+        concludeRound { [weak self] in
+            guard let self else { return }
+            self.showRoundResultMessage(roundPlayer: roundPlayer, roundAI: roundAI)
+        }
+    }
+
+    /// CathyX inverted scoring. A bag in the hole **nullifies the thrower's board
+    /// points for the round** — so an opponent who lands 2 on the board AND sinks one
+    /// can't cancel out your 4 board bags; her board contribution this round becomes 0
+    /// and you get the full +4. Round-only effect, no cumulative penalty. Board points
+    /// then settle by cancellation as normal. Symmetric: applies to both player and
+    /// CathyX.
+    private func calculateCathyRoundScore() {
+        var playerBoard = 0, aiBoard = 0
+        var playerSank  = false, aiSank = false
+
+        for bag in activeBags {
+            guard !bag.isDestroyed else { continue }
+            if bag.hasScored {                       // dropped in the hole
+                if bag.owner == .player { playerSank = true } else { aiSank = true }
+            } else if checkIsOnBoard(bag) {          // rests on the board → normal points
+                let pts = bag.isGolden ? 2 : 1
+                if bag.owner == .player { playerBoard += pts } else { aiBoard += pts }
+            }
+        }
+
+        // Hole-in nullifies that thrower's board points for the round.
+        if playerSank { playerBoard = 0 }
+        if aiSank     { aiBoard     = 0 }
+
+        // Board points cancel out, using the post-nullification values.
+        let boardNet = playerBoard - aiBoard
+        if boardNet > 0      { playerScore += boardNet }
+        else if boardNet < 0 { aiScore     += abs(boardNet) }
+
+        updateScoreLabels()
+
+        concludeRound { [weak self] in
+            guard let self else { return }
+            self.showCathyRoundResultMessage(boardNet: boardNet,
+                                             playerSank: playerSank,
+                                             aiSank: aiSank)
+        }
+    }
+
+    /// Shared round-end tail: tear down on a win, otherwise play the round-end beat,
+    /// show the supplied banner, and schedule the next round.
+    private func concludeRound(showBanner: @escaping () -> Void) {
         if playerScore >= winScore || aiScore >= winScore {
             gameState = .gameOver
             removeAction(forKey: "crowSchedule")
@@ -1806,7 +1894,7 @@ final class CornholeMiniGameScene: SKScene {
         } else {
             // PLACEHOLDER: add round_end.wav to Copy Bundle Resources
             run(SKAction.playSoundFileNamed("round_end.wav", waitForCompletion: false))
-            showRoundResultMessage(roundPlayer: roundPlayer, roundAI: roundAI)
+            showBanner()
             run(SKAction.wait(forDuration: 2.0)) { [weak self] in self?.startRound() }
         }
     }
@@ -2050,7 +2138,9 @@ final class CornholeMiniGameScene: SKScene {
                 if captured && !bag.hasScored {
                     bag.hasScored  = true
                     CornholeStatsManager.shared.recordCornhole()
-                    if bag.owner == .player { handlePlayerCornholeStreak() }
+                    // In a CathyX match a hole-in is a penalty, not an achievement — no
+                    // celebratory streak banner or fire-bag rewards for sinking it.
+                    if bag.owner == .player && !isCathyMatch { handlePlayerCornholeStreak() }
                     bag.isGrounded = true
                     bag.vx = 0; bag.vy = 0; bag.vz = 0; bag.rotV = 0
                     UINotificationFeedbackGenerator().notificationOccurred(.success)
@@ -2716,6 +2806,20 @@ final class CornholeMiniGameScene: SKScene {
             return
         }
 
+        // CathyX — plays by her own inverted rule: a hole-in costs her 3 points, so she
+        // deliberately aims for the open board surface (front half, clear of the cup)
+        // rather than the hole. Moderate accuracy.
+        if selectedOpponent == .cathy {
+            let cathyNoise = holeRadius * 1.6
+            let cathyAimX  = CGFloat.random(in: -boardHalfW * 0.70 ... boardHalfW * 0.70)
+            let frontY     = boardY - boardHalfH * 0.35   // front of board, away from hole band
+            let cathyAimY  = frontY + CGFloat.random(in: -cathyNoise * 0.4 ... cathyNoise * 0.4)
+            let cathyVx    = (cathyAimX - startX) / flightFrames
+            let cathyVy    = (cathyAimY - throwLineY) / flightFrames
+            throwBag(owner: .ai, startX: startX, vx: cathyVx, vy: cathyVy)
+            return
+        }
+
         throwBag(owner: .ai, startX: startX, vx: vx, vy: vy)
     }
 
@@ -2919,6 +3023,9 @@ final class CornholeMiniGameScene: SKScene {
         if !playerWon && selectedOpponent == .spirit {
             hint = ("SPECIAL BAGS MAY HELP\nAGAINST SUCH A FOE...",
                     SKColor(red: 0.12, green: 0.82, blue: 0.35, alpha: 1))
+        } else if !playerWon && selectedOpponent == .cathy {
+            hint = ("AIM FOR THE BOARD —\nTHE HOLE WIPES YOUR ROUND!",
+                    SKColor(red: 0.85, green: 0.55, blue: 0.30, alpha: 1))
         }
 
         // Prize lines — only in reward context (world / story), never from the menu.
@@ -2942,6 +3049,10 @@ final class CornholeMiniGameScene: SKScene {
                     rewards = [.unlock("EARNED A BASEBALL!"),
                                .unlock("BASEBALL UNLOCKED")]
                 }
+            case .cathy:
+                // No item reward — beating CathyX opens the graveyard (grave layer
+                // cleared by GameScene). Surface that as the win line.
+                rewards = [.unlock("GRAVEYARD OPENED!")]
             }
         }
 
@@ -2966,8 +3077,41 @@ final class CornholeMiniGameScene: SKScene {
         else if net < 0 { text = "+\(abs(net)) \(opponentName)" }
         else            { text = "WASH" }
 
+        animateRoundBanner(text: text, playerFavored: net >= 0)
+    }
+
+    /// CathyX round banner. Player hole-ins are the headline (they nullify your round),
+    /// so a player sink is shown first and in the "bad" color. Otherwise fall back to
+    /// the board-net swing, mirroring the normal banner.
+    private func showCathyRoundResultMessage(boardNet: Int,
+                                             playerSank: Bool,
+                                             aiSank: Bool) {
+        let text: String
+        let playerFavored: Bool
+        if playerSank && boardNet <= 0 {
+            text = "SANK! ROUND LOST"
+            playerFavored = false          // render in opponent color
+        } else if aiSank && boardNet >= 0 {
+            text = "\(opponentName) SANK!"
+            playerFavored = true
+        } else if boardNet > 0 {
+            text = "+\(boardNet) YOU"
+            playerFavored = true
+        } else if boardNet < 0 {
+            text = "+\(abs(boardNet)) \(opponentName)"
+            playerFavored = false
+        } else {
+            text = "WASH"
+            playerFavored = true
+        }
+        animateRoundBanner(text: text, playerFavored: playerFavored)
+    }
+
+    /// Shared round-banner fade animation. `playerFavored` picks the color: warm red for
+    /// the player, cool blue for the opponent (matching the original round message).
+    private func animateRoundBanner(text: String, playerFavored: Bool) {
         let lbl = makeLabel(text: text, size: max(6, size.width * 0.055),
-                            color: net >= 0
+                            color: playerFavored
                                 ? SKColor(red: 0.9, green: 0.42, blue: 0.42, alpha: 1)
                                 : SKColor(red: 0.4, green: 0.6, blue: 0.9, alpha: 1))
         lbl.position   = CGPoint(x: 0, y: 0)
@@ -3698,6 +3842,20 @@ final class CornholeMiniGameScene: SKScene {
         presentTutorial(autoTriggered: true)
     }
 
+    /// CathyX rules card. Shown **every** match against CathyX (not gated by
+    /// TutorialManager) because the scoring inverts what the player has just learned —
+    /// the reminder is needed each time, not only on first encounter. Calls `then` after
+    /// the card is dismissed; if the opponent isn't CathyX, runs `then` immediately.
+    private func showCathyRulesIfNeeded(then: @escaping () -> Void) {
+        guard selectedOpponent == .cathy else { then(); return }
+        let steps: [TutorialStep] = [
+            .card(title: "CATHYX RULES",
+                  body:  "FIRST TO 7 — BUT THE HOLE IS A TRAP! BAG ON BOARD = 1 PT. BAG IN HOLE = ALL YOUR ROUND POINTS WIPED. HIT THE FLYING DUCK = +3 PTS!"),
+        ]
+        let overlay = TutorialOverlay(steps: steps, sceneSize: size) { then() }
+        addChild(overlay)
+    }
+
     /// Presents the cornhole tutorial via the shared `TutorialOverlay`. On
     /// auto-trigger (first play, before the first round starts) we kick off
     /// `startRound()` after completion; on replay (HUD `?` button) we do nothing
@@ -3715,7 +3873,7 @@ final class CornholeMiniGameScene: SKScene {
             guard let self = self else { return }
             if autoTriggered {
                 TutorialManager.shared.markSeen(TutorialManager.cornhole)
-                self.startRound()
+                self.showCathyRulesIfNeeded { [weak self] in self?.startRound() }
             }
         }
         addChild(overlay)
@@ -3994,6 +4152,15 @@ final class CornholeMiniGameScene: SKScene {
         removeAction(forKey: "crowSchedule")
         crow.removeAction(forKey: "crowFly")
 
+        // CathyX bonus — hitting the duck is +3 to the player on the spot, applied
+        // immediately rather than through round cancellation. Encourages high arcs in a
+        // game type where the hole is a trap. AI duck-hits don't bonus her.
+        if isCathyMatch && bag.owner == .player {
+            playerScore += 3
+            updateScoreLabels()
+            showDuckBonusBanner(at: crow.position)
+        }
+
         // Bag stops horizontally; gravity pulls it straight down next frame
         bag.vx = 0; bag.vy = 0; bag.vz = 0
 
@@ -4028,6 +4195,24 @@ final class CornholeMiniGameScene: SKScene {
             SKAction.fadeIn(withDuration: 0.09),
             SKAction.moveBy(x: 0, y: 32, duration: 0.65),
             SKAction.fadeOut(withDuration: 0.25),
+            SKAction.removeFromParent(),
+        ]))
+    }
+
+    /// Floating "+3 DUCK!" label for the CathyX duck-hit bonus. Rises beside the
+    /// existing "SQUAWK!" callout and fades; purely visual.
+    private func showDuckBonusBanner(at point: CGPoint) {
+        let lbl = makeLabel(text: "+3 DUCK!",
+                            size: max(8, size.width * 0.052),
+                            color: SKColor(red: 1.0, green: 0.85, blue: 0.20, alpha: 1))
+        lbl.position  = CGPoint(x: point.x, y: point.y - 18)
+        lbl.zPosition = 305
+        lbl.alpha     = 0
+        gameWorldNode.addChild(lbl)
+        lbl.run(SKAction.sequence([
+            SKAction.fadeIn(withDuration: 0.10),
+            SKAction.moveBy(x: 0, y: 30, duration: 0.85),
+            SKAction.fadeOut(withDuration: 0.30),
             SKAction.removeFromParent(),
         ]))
     }
@@ -4641,12 +4826,13 @@ final class CornholeMiniGameScene: SKScene {
             case .spirit: applySpiritSettings()
             case .bully:  applyBullySettings()
             case .barnum: applyBarnumSettings()
+            case .cathy:  applyCathySettings()
             default: break
             }
             rollWeatherScenarios()
             addOpponentPortrait()
             if TutorialManager.shared.hasSeen(TutorialManager.cornhole) {
-                startRound()
+                showCathyRulesIfNeeded { [weak self] in self?.startRound() }
             } else {
                 showFirstTimeTutorial()
             }
@@ -4668,6 +4854,9 @@ final class CornholeMiniGameScene: SKScene {
             OpponentConfig(name: "SPIRIT", imageName: "spirit",
                            traitText: "DROPS MAGIC BAGS • TO 21",
                            textureOverride: CornholeMiniGameScene.makeSpiritPortraitTexture()),
+            OpponentConfig(name: "CATHYX", imageName: "cathy",
+                           traitText: "HOLE COSTS YOU 3 PTS!",
+                           textureOverride: CornholeMiniGameScene.makeCathyPortraitTexture()),
         ]
         let picker = OpponentPickerNode(opponents: configs, sceneSize: size)
         picker.zPosition = 3000
@@ -4682,14 +4871,17 @@ final class CornholeMiniGameScene: SKScene {
             case 3:
                 self.selectedOpponent = .billy
                 self.applyBillySettings()
-            default:
+            case 4:
                 self.selectedOpponent = .spirit
                 self.applySpiritSettings()
+            default:
+                self.selectedOpponent = .cathy
+                self.applyCathySettings()
             }
             self.rollWeatherScenarios()
             self.addOpponentPortrait()
             if TutorialManager.shared.hasSeen(TutorialManager.cornhole) {
-                self.startRound()
+                self.showCathyRulesIfNeeded { [weak self] in self?.startRound() }
             } else {
                 self.showFirstTimeTutorial()
             }
@@ -4711,6 +4903,44 @@ final class CornholeMiniGameScene: SKScene {
         distanceScale = 0.5
         rebuildPlayfieldForDistance()
         applyCaveScenery()
+    }
+
+    /// Configures CathyX: a standard 11-point match on the normal-distance board, but
+    /// with inverted scoring — you only score by landing ON the board, and dropping a
+    /// bag in the hole costs the thrower 3 points (see calculateCathyRoundScore). No
+    /// special weather or scenery; the twist is purely in how points are tallied.
+    private func applyCathySettings() {
+        winScore = 7
+        isCathyMatch = true
+        addCathyHoleMarker()
+    }
+
+    /// Paints a chunky red X inside the cornhole for CathyX matches — a visual reminder
+    /// that the hole is a trap (-3 pts) in this game type. Sized to the current hole
+    /// radius so it survives `distanceScale` changes (none today, but future-proof).
+    private func addCathyHoleMarker() {
+        guard let board = boardContainerNode else { return }
+        board.childNode(withName: "cathyHoleMarker")?.removeFromParent()
+
+        let marker = SKNode()
+        marker.name = "cathyHoleMarker"
+        let holeRelY = holeCenter.y - boardY
+        marker.position = CGPoint(x: 0, y: holeRelY)
+        marker.zPosition = 3                          // sits above the hole sprite
+
+        let red       = UIColor(red: 0.92, green: 0.20, blue: 0.18, alpha: 1)
+        let length    = holeRadius * 1.30             // crosses just past the rim
+        let thickness = max(2.5, holeRadius * 0.18)   // chunky pixel-art stroke
+
+        let bar1 = SKSpriteNode(color: red, size: CGSize(width: length, height: thickness))
+        bar1.zRotation = .pi / 4
+        marker.addChild(bar1)
+
+        let bar2 = SKSpriteNode(color: red, size: CGSize(width: length, height: thickness))
+        bar2.zRotation = -.pi / 4
+        marker.addChild(bar2)
+
+        board.addChild(marker)
     }
 
     /// Configures Tree Spirit game overrides: score to 21, long-distance throw, and
@@ -4787,6 +5017,7 @@ final class CornholeMiniGameScene: SKScene {
         case .spirit: tex = CornholeMiniGameScene.makeSpiritPortraitTexture()
         case .barnum: tex = CornholeMiniGameScene.makeBarnumPortraitTexture()
         case .bully:  tex = CornholeMiniGameScene.makeBullyPortraitTexture()
+        case .cathy:  tex = CornholeMiniGameScene.makeCathyPortraitTexture()
         }
         let portraitSize = CGSize(width: 48, height: 48)
         let bottomH = size.height * 0.09

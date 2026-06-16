@@ -80,7 +80,26 @@ final class OpponentPickerNode: SKNode {
         title.position = CGPoint(x: 0, y: panelH * 0.44)
         addChild(title)
 
-        if opponents.count >= 5 {
+        if opponents.count >= 6 {
+            // 3 regular on top, 3 boss below. The first three configs are the regular
+            // opponents (Tom, Jenny, Barnum); the last three are bosses (Billy, Spirit,
+            // CathyX), laid out in matching columns.
+            let cardW   = panelW * 0.30
+            let cardH   = panelH * 0.32
+            let topY    = panelH * 0.15
+            let bottomY = -panelH * 0.25
+            let colXs:  [CGFloat] = [-panelW * 0.32, 0, panelW * 0.32]
+            for i in 0..<3 {
+                let card = buildCard(config: opponents[i], index: i, w: cardW, h: cardH, fs: fs * 0.9, isBoss: false)
+                card.position = CGPoint(x: colXs[i], y: topY)
+                addChild(card)
+            }
+            for i in 3..<6 {
+                let card = buildCard(config: opponents[i], index: i, w: cardW, h: cardH, fs: fs * 0.9, isBoss: true)
+                card.position = CGPoint(x: colXs[i - 3], y: bottomY)
+                addChild(card)
+            }
+        } else if opponents.count >= 5 {
             // 3 regular on top, 2 boss centered below. The first three configs are the
             // regular opponents (Tom, Jenny, Barnum); the last two are bosses.
             let cardW   = panelW * 0.30

@@ -48,6 +48,10 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     // world cave. Persists across launches once unlocked.
     private var gatePhysicsNodes: [SKNode] = []
     private let gateUnlockedKey      = "barnumGateUnlocked_v1"
+    // Grave layer — walls off the graveyard until the player beats CathyX. Hidden and
+    // unblocked on that win; persists across launches. Same pattern as the Gate layer.
+    private var gravePhysicsNodes: [SKNode] = []
+    private let graveUnlockedKey     = "cathyGraveUnlocked_v1"
     private let baseballUnlockedKey  = "baseballUnlocked_v1"
     private let beachBallBeatenKey   = "beachBallBeaten_v1"
     private let goldenLanceKey       = "goldenLanceEarned_v1"
@@ -99,6 +103,10 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     // Fence interaction — "fences" layer; launches Suburban Jousters
     private var fencePositions: [CGPoint] = []
     private var nearbyFencePosition: CGPoint?
+
+    // Grave interaction — "grave" layer; launches cornhole vs. CathyX (inverted scoring)
+    private var gravePositions: [CGPoint] = []
+    private var nearbyGravePosition: CGPoint?
 
     // Well interaction — tileset name contains "well"; launches Well Flinger
     private var wellPositions: [CGPoint] = []
@@ -793,6 +801,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         extractBridgeStonePositions(from: m)
         extractBridgeWoodPositions(from: m)
         extractFencePositions(from: m)
+        extractGravePositions(from: m)
         extractWellPositions(from: m)
         extractAxPositions(from: m)
         loadChoppedTrees()
@@ -802,6 +811,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
 
         if UserDefaults.standard.bool(forKey: bridgeUnlockedKey) { unlockBridge() }
         if UserDefaults.standard.bool(forKey: gateUnlockedKey) { unlockGate() }
+        if UserDefaults.standard.bool(forKey: graveUnlockedKey) { unlockGrave() }
         if CornholeStatsManager.shared.baseballUnlocked { unlockBaseball() }
         if StoryManager.shared.hasFlag(.baseballEnabled) { unlockBaseball() }
         spawnStoryBatIfNeeded()
@@ -1352,6 +1362,26 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         print("🏚️ Found \(fencePositions.count) fence tile(s) on the map")
     }
 
+    /// Scans the "grave" layer (by layer name, like "fences") → cornhole vs. CathyX.
+    /// Fires once grave tiles are painted on a layer named "grave" in Tiled; until then
+    /// the layer is absent and no trigger appears.
+    private func extractGravePositions(from m: TMXMap) {
+        gravePositions.removeAll()
+        guard let grid = m.layerGIDs["grave"] else { return }
+        var seen = Set<String>()
+        for r in 0..<m.rows {
+            for c in 0..<m.cols {
+                let gid = grid[r][c] & 0x0FFF_FFFF
+                guard gid != 0 else { continue }
+                let key = "\(r),\(c)"
+                guard !seen.contains(key) else { continue }
+                seen.insert(key)
+                gravePositions.append(m.tileCenter(col: c, row: r))
+            }
+        }
+        print("🪦 Found \(gravePositions.count) grave tile(s) on the map")
+    }
+
     private func extractWellPositions(from m: TMXMap) {
         wellPositions.removeAll()
         let ranges = m.tilesetRanges
@@ -1582,6 +1612,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         let caveRadius:        CGFloat = 36
         let bridgeWoodRadius:  CGFloat = 36
         let fenceRadius:       CGFloat = 36
+        let graveRadius:       CGFloat = 30
         let wellRadius:        CGFloat = 36
         let highChestRadius:   CGFloat = 34
         let axRadius:          CGFloat = 24
@@ -1600,6 +1631,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         var bestBridgeWood:   CGPoint? = nil
         var bestStore:        CGPoint? = nil
         var bestFence:        CGPoint? = nil
+        var bestGrave:        CGPoint? = nil
         var bestWell:         CGPoint? = nil
         var bestHighChest:    CGPoint? = nil
         var bestAx:           CGPoint? = nil
@@ -1685,12 +1717,25 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
             }
         }
 
+        // Grave prompt only while the graveyard is still walled off (CathyX not yet beaten).
+        if !UserDefaults.standard.bool(forKey: graveUnlockedKey) {
+            for pos in gravePositions {
+                let d = hypot(player.position.x - pos.x, player.position.y - pos.y)
+                if d < graveRadius && d < bestDist {
+                    bestDist = d; bestBoard = nil; bestChest = nil; bestStore = nil; bestBridgeStone = nil
+                    bestBaseball = nil; bestTree = nil; bestAppleTree = nil
+                    bestBeehive = nil; bestPool = nil; bestBridgeWood = nil; bestFence = nil; bestGrave = pos
+                }
+            }
+        }
+
         for pos in wellPositions {
             let d = hypot(player.position.x - pos.x, player.position.y - pos.y)
             if d < wellRadius && d < bestDist {
                 bestDist = d; bestBoard = nil; bestChest = nil; bestStore = nil; bestBridgeStone = nil
                 bestBaseball = nil; bestTree = nil; bestAppleTree = nil
-                bestBeehive = nil; bestPool = nil; bestCave = nil; bestBridgeWood = nil; bestFence = nil; bestWell = pos
+                bestBeehive = nil; bestPool = nil; bestCave = nil; bestBridgeWood = nil; bestFence = nil
+                bestGrave = nil; bestWell = pos
             }
         }
 
@@ -1699,7 +1744,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
             if d < caveRadius && d < bestDist {
                 bestDist = d; bestBoard = nil; bestChest = nil; bestStore = nil; bestBridgeStone = nil
                 bestBaseball = nil; bestTree = nil; bestAppleTree = nil
-                bestBeehive = nil; bestPool = nil; bestBridgeWood = nil; bestFence = nil; bestWell = nil
+                bestBeehive = nil; bestPool = nil; bestBridgeWood = nil; bestFence = nil; bestGrave = nil; bestWell = nil
                 bestCave = pos
             }
         }
@@ -1712,7 +1757,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
                     bestDist = d; bestBoard = nil; bestChest = nil; bestStore = nil; bestBridgeStone = nil
                     bestBaseball = nil; bestTree = nil; bestAppleTree = nil
                     bestBeehive = nil; bestPool = nil; bestCave = nil; bestBridgeWood = nil
-                    bestFence = nil; bestWell = nil; bestHighChest = nil; bestAx = pos
+                    bestFence = nil; bestGrave = nil; bestWell = nil; bestHighChest = nil; bestAx = pos
                 }
             }
         }
@@ -1726,7 +1771,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
                     bestDist = d; bestBoard = nil; bestChest = nil; bestStore = nil; bestBridgeStone = nil
                     bestBaseball = nil; bestTree = nil; bestAppleTree = nil
                     bestBeehive = nil; bestPool = nil; bestCave = nil; bestBridgeWood = nil
-                    bestFence = nil; bestWell = nil; bestHighChest = pos
+                    bestFence = nil; bestGrave = nil; bestWell = nil; bestHighChest = pos
                 }
             }
         }
@@ -1740,7 +1785,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
                 bestBoard = nil; bestChest = nil; bestStore = nil; bestBridgeStone = nil
                 bestBaseball = nil; bestTree = nil; bestAppleTree = nil
                 bestBeehive = nil; bestPool = nil; bestCave = nil; bestBridgeWood = nil; bestFence = nil
-                bestWell = nil; bestHighChest = nil; bestAx = nil
+                bestGrave = nil; bestWell = nil; bestHighChest = nil; bestAx = nil
                 bestStoryBat = batPos
             }
         }
@@ -1757,6 +1802,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         nearbyCavePosition        = bestCave
         nearbyBridgeWoodPosition  = bestBridgeWood
         nearbyFencePosition       = bestFence
+        nearbyGravePosition       = bestGrave
         nearbyWellPosition        = bestWell
         nearbyHighChestPosition   = bestHighChest
         nearbyAxPosition          = bestAx
@@ -1779,6 +1825,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         else if let p = bestCave          { anchor = CGPoint(x: p.x, y: p.y + 22) }
         else if let p = bestBridgeWood    { anchor = CGPoint(x: p.x, y: p.y + 22) }
         else if let p = bestFence         { anchor = CGPoint(x: p.x, y: p.y + 22) }
+        else if let p = bestGrave         { anchor = CGPoint(x: p.x, y: p.y + 22) }
         else if let p = bestWell          { anchor = CGPoint(x: p.x, y: p.y + 22) }
         else if let p = bestHighChest     { anchor = CGPoint(x: p.x, y: p.y + 22) }
         else if let p = bestAx            { anchor = CGPoint(x: p.x, y: p.y + 22) }
@@ -2391,6 +2438,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         player.physicsBody?.velocity = .zero
         resetBeanbagControl()
 
+        let isCathyMatch = (preSelectedOpponent == .cathy)
         let mini = CornholeMiniGameScene(size: self.size)
         mini.scaleMode              = self.scaleMode
         mini.previousScene          = self
@@ -2413,6 +2461,8 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
             if let earned = mini?.goldenBagsEarned, earned > 0 { self?.inventory.collect(.goldenBag, count: earned) }
             if let earned = mini?.coinsEarned,     earned > 0 { self?.inventory.collect(.coin,     count: earned) }
             if CornholeStatsManager.shared.baseballUnlocked { self?.unlockBaseball() }
+            // Beating CathyX clears the graveyard wall (grave layer).
+            if won && isCathyMatch { self?.unlockGrave() }
             // Cave teleport on Barnum win: unlock this direction and drop the player at
             // the destination cave's exit instead of the entry cave (overrides the south-
             // of-tile return position set in handleCaveInteraction).
@@ -2625,6 +2675,15 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         gatePhysicsNodes.removeAll()
     }
 
+    /// Beating CathyX clears the graveyard's grave-layer wall: hide the tiles and remove
+    /// their collision so the player can walk in. Persists across launches.
+    private func unlockGrave() {
+        UserDefaults.standard.set(true, forKey: graveUnlockedKey)
+        map?.layerNodes["grave"]?.isHidden = true
+        gravePhysicsNodes.forEach { $0.removeFromParent() }
+        gravePhysicsNodes.removeAll()
+    }
+
     /// Walks playerHearts down to `remaining`, animating each lost heart in the HUD.
     private func syncHeartsFromBeeHive(to remaining: Int) {
         let target = max(0, remaining)
@@ -2644,6 +2703,9 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         let gateLocked = !UserDefaults.standard.bool(forKey: gateUnlockedKey)
         let gate = gateLocked ? m.layerGIDs["Gate"] : nil
         gatePhysicsNodes.removeAll()
+        let graveLocked = !UserDefaults.standard.bool(forKey: graveUnlockedKey)
+        let grave = graveLocked ? m.layerGIDs["grave"] : nil
+        gravePhysicsNodes.removeAll()
         // Mountain (high-area) cells are always walled off — the Golden Lance
         // lets the player knock chests down from them, never stand on them.
         let mountainGrids: [[[Int]]] = m.layerGIDs
@@ -2663,9 +2725,11 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         for r in 0..<m.rows {
             for c in 0..<m.cols {
                 let gateHere = (gate?[r][c] ?? 0) != 0
+                let graveHere = (grave?[r][c] ?? 0) != 0
                 let blocked = (collisions?[r][c] ?? 0) != 0
                                     || (fences?[r][c] ?? 0) != 0
                                     || gateHere
+                                    || graveHere
                                     || isMountain(r, c)
                 let waterHere = isWater(ground?[r][c] ?? 0)
                 // A bridge (any tile on the Interactions layer at this cell)
@@ -2685,6 +2749,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
                 blocker.physicsBody = body
                 m.mapNode.addChild(blocker)
                 if gateHere { gatePhysicsNodes.append(blocker) }
+                if graveHere { gravePhysicsNodes.append(blocker) }
             }
         }
     }
@@ -2925,6 +2990,9 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
                 } else {
                     showHintBanner("In order to joust\non your bike, you need\nsomething to use\nas a lance.")
                 }
+            } else if let p = nearbyGravePosition {
+                setMiniGameReturnPosition(near: p)
+                openCornholeMiniGame(preSelectedOpponent: .cathy)
             } else if let p = nearbyWellPosition {
                 if inventory.counts[.bag, default: 0] > 0 {
                     setMiniGameReturnPosition(near: p)
@@ -3915,7 +3983,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         let gameTriggers = clusteredPins(
             cornholeBoardPositions + baseballPositions + appleTreePositions +
             beehivePositions + poolPositions + bridgeStonePositions +
-            bridgeWoodPositions + wellPositions + fencePositions + cavePositions)
+            bridgeWoodPositions + wellPositions + fencePositions + cavePositions + gravePositions)
         for p in gameTriggers where visitedCells.contains(cellKey(for: p)) {
             let pin = SKShapeNode(rectOf: CGSize(width: pinSide, height: pinSide))
             pin.fillColor = dsGold; pin.strokeColor = .clear
