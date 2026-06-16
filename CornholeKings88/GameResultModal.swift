@@ -80,6 +80,13 @@ enum GameResultModal {
         // Lay content out from the top down so spacing is uniform regardless of count.
         var y = panelH * 0.5 - fs * 1.6
 
+        // Dancing Jeff perched on top of the panel — win celebration.
+        if won, let jeff = makeDancingJeff(size: max(192, W * 0.72)) {
+            jeff.position = .zero
+            jeff.zPosition = 0
+            panel.addChild(jeff)
+        }
+
         // Title
         let titleLbl = label(won ? title : title, size: fs * 0.85,
                              color: won ? dsWin : dsLoss)
@@ -154,6 +161,76 @@ enum GameResultModal {
         panel.alpha = 0
         panel.run(.fadeIn(withDuration: 0.30))
         return panel
+    }
+
+    // MARK: - Dancing Jeff
+
+    /// 64×64 frames in a 6-column sheet (matches PlayerNode layout).
+    private static let jeffSheet: SKTexture? = {
+        let t = SKTexture(imageNamed: "jeff_sprite")
+        t.filteringMode = .nearest
+        return t.size().width > 0 ? t : nil
+    }()
+
+    private static func jeffFrame(row: Int, col: Int) -> SKTexture? {
+        guard let sheet = jeffSheet else { return nil }
+        let nW = 64.0 / sheet.size().width
+        let nH = 64.0 / sheet.size().height
+        let nX = CGFloat(col) * nW
+        let nY = 1.0 - CGFloat(row + 1) * nH
+        let t = SKTexture(rect: CGRect(x: nX, y: nY, width: nW, height: nH), in: sheet)
+        t.filteringMode = .nearest
+        return t
+    }
+
+    /// A little Jeff sprite that hops back-and-forth and swaps step frames in beat.
+    private static func makeDancingJeff(size: CGFloat) -> SKNode? {
+        // Row 3 = move-down (legs apart on different frames). Frames 0 & 3 read as opposite steps.
+        guard let stepA = jeffFrame(row: 3, col: 0),
+              let stepB = jeffFrame(row: 3, col: 3) else { return nil }
+
+        let sprite = SKSpriteNode(texture: stepA, size: CGSize(width: size, height: size))
+        sprite.texture?.filteringMode = .nearest
+
+        // Foot-swap on the beat.
+        let beat = 0.22
+        let stepAnim = SKAction.repeatForever(.sequence([
+            .setTexture(stepA, resize: false),
+            .wait(forDuration: beat),
+            .setTexture(stepB, resize: false),
+            .wait(forDuration: beat),
+        ]))
+        sprite.run(stepAnim)
+
+        // Side-to-side sway, flipping facing on each side for that shuffle look.
+        let sway: CGFloat = size * 0.18
+        let flipR = SKAction.run { [weak sprite] in sprite?.xScale =  abs(sprite?.xScale ?? 1) }
+        let flipL = SKAction.run { [weak sprite] in sprite?.xScale = -abs(sprite?.xScale ?? 1) }
+        let swayAnim = SKAction.repeatForever(.sequence([
+            flipR,
+            .moveBy(x:  sway, y: 0, duration: beat * 2),
+            flipL,
+            .moveBy(x: -sway, y: 0, duration: beat * 2),
+        ]))
+        sprite.run(swayAnim)
+
+        // Little hop synced to the beat.
+        let hop: CGFloat = size * 0.10
+        let hopAnim = SKAction.repeatForever(.sequence([
+            .moveBy(x: 0, y:  hop, duration: beat * 0.5),
+            .moveBy(x: 0, y: -hop, duration: beat * 0.5),
+        ]))
+        sprite.run(hopAnim)
+
+        // Slight tilt for extra groove.
+        let tilt: CGFloat = .pi / 28
+        let tiltAnim = SKAction.repeatForever(.sequence([
+            .rotate(toAngle:  tilt, duration: beat * 2, shortestUnitArc: true),
+            .rotate(toAngle: -tilt, duration: beat * 2, shortestUnitArc: true),
+        ]))
+        sprite.run(tiltAnim)
+
+        return sprite
     }
 
     // MARK: - Factories
