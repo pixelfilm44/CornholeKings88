@@ -2088,8 +2088,10 @@ final class CornholeMiniGameScene: SKScene {
                     bag.isGrounded = true
                 } else {
                     // Small bounce then slide — rain makes the surface very slippery.
+                    // CathyX's graveboard ignores the rain slip — bone-dry no matter the weather.
                     // Long-distance variant: friction (1-f) is tripled (half-slide × 1.5×).
-                    let baseFriction: CGFloat = rainActive ? 0.968 : 0.92
+                    let slippery = rainActive && !isCathyMatch
+                    let baseFriction: CGFloat = slippery ? 0.968 : 0.92
                     let boardFriction: CGFloat = distanceScale < 1.0
                         ? 1.0 - (1.0 - baseFriction) * 3.0
                         : baseFriction
@@ -2101,7 +2103,7 @@ final class CornholeMiniGameScene: SKScene {
                     }
                     bag.vx *= boardFriction
                     bag.vy *= boardFriction
-                    bag.rotV *= rainActive ? 0.88 : 0.65
+                    bag.rotV *= slippery ? 0.88 : 0.65
                 }
 
                 // Hole detection.
@@ -2216,7 +2218,7 @@ final class CornholeMiniGameScene: SKScene {
 
         // Friction stop on board surface — rain raises the stop threshold so bags
         // slide until nearly stationary rather than snapping to a halt.
-        let stopThreshold: CGFloat = rainActive ? 0.012 : 0.04
+        let stopThreshold: CGFloat = (rainActive && !isCathyMatch) ? 0.012 : 0.04
         if bag.isGrounded && abs(bag.vx) < stopThreshold && abs(bag.vy) < stopThreshold {
             bag.vx = 0; bag.vy = 0
         }
@@ -3374,6 +3376,27 @@ final class CornholeMiniGameScene: SKScene {
     // MARK: - Rain
 
     private func rollWeatherScenarios() {
+        // World weather propagates into the mini-game: if it's raining or
+        // storming on the world map, the match starts wet from round 1 and
+        // stays that way for the duration. Spirit + Billy still get their
+        // bespoke weather treatment below.
+        switch WeatherManager.shared.weather {
+        case .rain:
+            rainStartRound = 1
+            rainEndRound   = Int.max
+            stormStartRound = -1
+            stormEndRound   = Int.max
+            return
+        case .storm:
+            stormStartRound = 1
+            stormEndRound   = Int.max
+            rainStartRound  = -1
+            rainEndRound    = Int.max
+            return
+        case .clear:
+            break
+        }
+
         // Spirit forces a permanent thunderstorm in applySpiritSettings — don't re-roll.
         guard selectedOpponent == .billy else { return }
         rollRainScenario()

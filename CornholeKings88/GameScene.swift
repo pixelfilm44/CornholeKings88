@@ -27,6 +27,23 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     private var treePositions: [CGPoint] = []
     private var nearbyTreePosition: CGPoint?
 
+    // Weather system — day tint, rain, storm. WeatherManager owns state across scenes;
+    // GameScene owns the visual overlays + shelter / damage logic.
+    private var weatherTintOverlay: SKSpriteNode?
+    private var rainContainer: SKNode?
+    private var stormDarkOverlay: SKSpriteNode?
+    private var stormFlashOverlay: SKSpriteNode?
+    private var weatherBannerAt: TimeInterval = 0
+    private var lastShownWeather: WeatherManager.Weather = .clear
+    private var rainDamageTimer: TimeInterval = 0
+    private var nextLightningFlash: TimeInterval = 0
+    /// Every house tile center, extracted at map load.
+    private var housePositions: [CGPoint] = []
+    /// Leftmost-house anchor — player is sheltered when standing within `houseShelterRadius`.
+    private var leftmostHouseCenter: CGPoint?
+    private let houseShelterRadius: CGFloat = 36
+    private let treeShelterRadius: CGFloat = 22
+
     // Apple tree interaction (launches cornhole vs. Spirit)
     private var appleTreePositions: [CGPoint] = []
     private var nearbyAppleTreePosition: CGPoint?
@@ -308,6 +325,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         setupScene()
         loadMap()
         setupPlayer()
+        setupWeatherOverlays()
         addCrtOverlay()
     }
 
@@ -803,6 +821,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         extractFencePositions(from: m)
         extractGravePositions(from: m)
         extractWellPositions(from: m)
+        extractHousePositions(from: m)
         extractAxPositions(from: m)
         loadChoppedTrees()
         hideAlreadyChoppedTrees()
@@ -3170,6 +3189,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
             trackVisitedCell()
             checkBoardProximity()
             tickBuildMode()
+            tickWeather(dt: dt)
         }
     }
 
@@ -4060,5 +4080,247 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         let t = SKTransition.fade(withDuration: 0.45)
         t.pausesOutgoingScene = false
         view.presentScene(menu, transition: t)
+    }
+
+    // MARK: - Weather system
+    //
+    // Visual layers (all attached to `cameraNode` so they follow the player):
+    //   z = 3_900  weatherTintOverlay   — day-cycle color wash
+    //   z = 3_950  stormDarkOverlay     — extra darkening during a storm
+    //   z = 4_000  rainContainer        — animated raindrops
+    //   z = 4_010  stormFlashOverlay    — periodic lightning flash
+    // Chrome at z = 5_000 covers the top/bottom bars over these.
+
+    private func setupWeatherOverlays() {
+        let w = size.width, h = size.height
+
+        let tint = SKSpriteNode(color: .clear, size: CGSize(width: w, height: h))
+        tint.position = .zero
+        tint.zPosition = 3_900
+        tint.alpha = 0
+        tint.isUserInteractionEnabled = false
+        cameraNode.addChild(tint)
+        weatherTintOverlay = tint
+
+        let dark = SKSpriteNode(color: SKColor(white: 0, alpha: 0.55),
+                                size: CGSize(width: w, height: h))
+        dark.position = .zero
+        dark.zPosition = 3_950
+        dark.alpha = 0
+        dark.isUserInteractionEnabled = false
+        cameraNode.addChild(dark)
+        stormDarkOverlay = dark
+
+        let flash = SKSpriteNode(color: .white, size: CGSize(width: w, height: h))
+        flash.position = .zero
+        flash.zPosition = 4_010
+        flash.alpha = 0
+        flash.isUserInteractionEnabled = false
+        cameraNode.addChild(flash)
+        stormFlashOverlay = flash
+    }
+
+    private func spawnRainOverlay() {
+        guard rainContainer == nil else { return }
+        let w = size.width, h = size.height
+        let container = SKNode()
+        container.zPosition = 4_000
+        container.isUserInteractionEnabled = false
+        cameraNode.addChild(container)
+        rainContainer = container
+
+        for _ in 0..<70 {
+            let drop = SKSpriteNode(
+                color: SKColor(red: 0.55, green: 0.72, blue: 0.95, alpha: 0.55),
+                size: CGSize(width: 2, height: 10))
+            drop.zRotation = -0.12
+            drop.position = CGPoint(x: CGFloat.random(in: -w/2 ... w/2),
+                                    y: CGFloat.random(in: -h/2 ... h/2))
+            container.addChild(drop)
+
+            let duration = TimeInterval(CGFloat.random(in: 0.22...0.48))
+            let fall = h + 30
+            let driftX = fall * -0.12
+            let reset = SKAction.customAction(withDuration: 0) { [weak drop] _, _ in
+                drop?.position = CGPoint(x: CGFloat.random(in: -w/2 ... w/2),
+                                         y: h/2 + 15)
+            }
+            let cycle = SKAction.sequence([
+                SKAction.moveBy(x: driftX, y: -fall, duration: duration),
+                reset,
+            ])
+            let delay = SKAction.wait(forDuration: TimeInterval(CGFloat.random(in: 0...0.5)))
+            drop.run(SKAction.sequence([delay, SKAction.repeatForever(cycle)]))
+        }
+    }
+
+    private func removeRainOverlay() {
+        guard let container = rainContainer else { return }
+        container.run(SKAction.sequence([
+            SKAction.fadeOut(withDuration: 0.5),
+            SKAction.removeFromParent(),
+        ]))
+        rainContainer = nil
+    }
+
+    /// Scans every map layer for tiles from a tileset whose name contains
+    /// "house", clusters them, and records the leftmost cluster's centroid as
+    /// the player's home shelter point.
+    private func extractHousePositions(from m: TMXMap) {
+        housePositions.removeAll()
+        leftmostHouseCenter = nil
+
+        let houseRanges = m.tilesetRanges
+            .filter { $0.name.contains("house") }
+            .map(\.gidRange)
+        guard !houseRanges.isEmpty else { return }
+
+        var seen = Set<String>()
+        for (_, grid) in m.layerGIDs {
+            for r in 0..<m.rows {
+                for c in 0..<m.cols {
+                    let gid = grid[r][c] & 0x0FFF_FFFF
+                    guard houseRanges.contains(where: { $0.contains(gid) }) else { continue }
+                    let key = "\(r),\(c)"
+                    if seen.insert(key).inserted {
+                        housePositions.append(m.tileCenter(col: c, row: r))
+                    }
+                }
+            }
+        }
+
+        // Cluster tiles within a ~3-tile radius and pick the leftmost centroid.
+        let threshold = m.tileSize.width * 3
+        var clusters: [[CGPoint]] = []
+        var assigned = Array(repeating: false, count: housePositions.count)
+        for i in 0..<housePositions.count where !assigned[i] {
+            var cluster: [CGPoint] = [housePositions[i]]
+            assigned[i] = true
+            var changed = true
+            while changed {
+                changed = false
+                for j in 0..<housePositions.count where !assigned[j] {
+                    if cluster.contains(where: {
+                        hypot($0.x - housePositions[j].x, $0.y - housePositions[j].y) <= threshold
+                    }) {
+                        cluster.append(housePositions[j])
+                        assigned[j] = true
+                        changed = true
+                    }
+                }
+            }
+            clusters.append(cluster)
+        }
+        let centroids = clusters.map { c -> CGPoint in
+            let sx = c.reduce(0) { $0 + $1.x }
+            let sy = c.reduce(0) { $0 + $1.y }
+            return CGPoint(x: sx / CGFloat(c.count), y: sy / CGFloat(c.count))
+        }
+        leftmostHouseCenter = centroids.min(by: { $0.x < $1.x })
+        print("🏠 Found \(housePositions.count) house tile(s) in \(clusters.count) cluster(s); home = \(String(describing: leftmostHouseCenter))")
+    }
+
+    private func tickWeather(dt: TimeInterval) {
+        WeatherManager.shared.tick(dt: dt)
+
+        let tint = WeatherManager.shared.currentSkyTint()
+        weatherTintOverlay?.color = tint.color
+        weatherTintOverlay?.alpha = tint.alpha
+
+        let weather = WeatherManager.shared.weather
+        applyWeatherVisuals(weather)
+
+        let raining = (weather == .rain || weather == .storm)
+        if raining && !isPlayerSheltered() {
+            rainDamageTimer += dt
+            if rainDamageTimer >= 3.0 {
+                rainDamageTimer = 0
+                HeartsManager.shared.lose()
+                resyncHeartsDisplay()
+                if HeartsManager.shared.currentHearts <= 0 {
+                    triggerGameOver()
+                }
+            }
+        } else {
+            rainDamageTimer = max(0, rainDamageTimer - dt * 0.5)
+        }
+
+        if weather == .storm {
+            nextLightningFlash -= dt
+            if nextLightningFlash <= 0 {
+                triggerLightningFlash()
+                nextLightningFlash = TimeInterval.random(in: 4...9)
+            }
+        }
+    }
+
+    private func applyWeatherVisuals(_ weather: WeatherManager.Weather) {
+        switch weather {
+        case .clear:
+            if rainContainer != nil { removeRainOverlay() }
+        case .rain, .storm:
+            if rainContainer == nil { spawnRainOverlay() }
+        }
+
+        if let dark = stormDarkOverlay {
+            let target: CGFloat = (weather == .storm) ? 1.0 : 0.0
+            if abs(dark.alpha - target) > 0.01 {
+                dark.removeAllActions()
+                dark.run(SKAction.fadeAlpha(to: target, duration: 1.2))
+            }
+        }
+
+        if weather != lastShownWeather {
+            lastShownWeather = weather
+            switch weather {
+            case .clear: showWeatherBanner("CLEAR SKIES")
+            case .rain:  showWeatherBanner("RAIN! FIND SHELTER!")
+            case .storm: showWeatherBanner("THUNDERSTORM!")
+            }
+        }
+    }
+
+    private func triggerLightningFlash() {
+        guard let flash = stormFlashOverlay else { return }
+        flash.removeAllActions()
+        flash.run(SKAction.sequence([
+            SKAction.fadeAlpha(to: 0.85, duration: 0.05),
+            SKAction.fadeAlpha(to: 0.0,  duration: 0.35),
+        ]))
+    }
+
+    private func showWeatherBanner(_ text: String) {
+        let lbl = SKLabelNode(fontNamed: "PressStart2P-Regular")
+        lbl.text = text
+        lbl.fontSize = max(8, size.width * 0.045)
+        lbl.fontColor = SKColor(red: 0.95, green: 0.85, blue: 0.55, alpha: 1)
+        lbl.position = CGPoint(x: 0, y: size.height * 0.18)
+        lbl.zPosition = 4_500
+        lbl.alpha = 0
+        cameraNode.addChild(lbl)
+        lbl.run(SKAction.sequence([
+            SKAction.fadeIn(withDuration: 0.3),
+            SKAction.wait(forDuration: 1.6),
+            SKAction.fadeOut(withDuration: 0.4),
+            SKAction.removeFromParent(),
+        ]))
+    }
+
+    /// True when the player is under any tree canopy or inside the leftmost house.
+    private func isPlayerSheltered() -> Bool {
+        guard let player = player else { return true }
+        let p = player.position
+
+        for tree in treePositions {
+            if hypot(p.x - tree.x, p.y - tree.y) <= treeShelterRadius { return true }
+        }
+        for apple in appleTreePositions {
+            if hypot(p.x - apple.x, p.y - apple.y) <= treeShelterRadius { return true }
+        }
+        if let home = leftmostHouseCenter,
+           hypot(p.x - home.x, p.y - home.y) <= houseShelterRadius {
+            return true
+        }
+        return false
     }
 }
