@@ -314,6 +314,9 @@ final class CornholeMiniGameScene: SKScene {
     // Thunderstorm scenario — mutually exclusive with rain; rolled once per game
     private var stormActive      = false
     private var stormStartRound  = -1
+    /// Per-match interval between lightning bolts that zap an on-board bag. Default is
+    /// 7–15 s; CathyX bumps this way up so strikes feel like a rare freak event.
+    private var bagStrikeIntervalRange: ClosedRange<TimeInterval> = 7.0...15.0
     private var stormEndRound    = Int.max
     private var stormDarkOverlay: SKSpriteNode?
     private var stormParticleNode: SKNode?
@@ -687,6 +690,7 @@ final class CornholeMiniGameScene: SKScene {
         boardTex.filteringMode = .nearest
         let surface = SKSpriteNode(texture: boardTex, size: CGSize(width: bw, height: bh))
         surface.zPosition = 0
+        surface.name = "boardSurface"
         boardContainer.addChild(surface)
 
         // Hole — dark circle positioned in the upper third of the board
@@ -3781,7 +3785,7 @@ final class CornholeMiniGameScene: SKScene {
     private func scheduleNextLightningStrike() {
         guard stormActive else { return }
         run(SKAction.sequence([
-            SKAction.wait(forDuration: TimeInterval.random(in: 7.0...15.0)),
+            SKAction.wait(forDuration: TimeInterval.random(in: bagStrikeIntervalRange)),
             SKAction.run { [weak self] in
                 guard let self, self.stormActive else { return }
                 self.triggerLightningStrike()
@@ -4964,7 +4968,58 @@ final class CornholeMiniGameScene: SKScene {
     private func applyCathySettings() {
         winScore = 7
         isCathyMatch = true
+        applyGraveboardSkin()
+        applyDirtScenery()
         addCathyHoleMarker()
+        // Permanent moonlit thunderstorm for the whole match — graveyard mood.
+        rainStartRound  = -1
+        rainEndRound    = Int.max
+        stormStartRound = 1
+        stormEndRound   = Int.max
+        // Bag-frying strikes are a rare freak event here — much longer than the
+        // default 7–15 s cadence.
+        bagStrikeIntervalRange = 35.0...75.0
+    }
+
+    /// Swaps the standard board art for the spooky `graveboard.png` used in CathyX matches.
+    private func applyGraveboardSkin() {
+        guard let surface = boardContainerNode?.childNode(withName: "boardSurface") as? SKSpriteNode
+        else { return }
+        let tex = SKTexture(imageNamed: "graveboard")
+        tex.filteringMode = .nearest
+        surface.texture = tex
+    }
+
+    /// Replaces the grass field with a packed-dirt ground for CathyX matches — dusty
+    /// brown background with scattered darker pebble flecks. No chasm, no weather.
+    private func applyDirtScenery() {
+        worldBackground?.color = SKColor(red: 0.36, green: 0.25, blue: 0.16, alpha: 1)
+        grassContainerNode?.removeFromParent()
+
+        let dirt = SKNode()
+        dirt.zPosition = -199
+        let palette: [SKColor] = [
+            SKColor(red: 0.28, green: 0.19, blue: 0.11, alpha: 1),
+            SKColor(red: 0.42, green: 0.30, blue: 0.18, alpha: 1),
+            SKColor(red: 0.22, green: 0.15, blue: 0.09, alpha: 1),
+            SKColor(red: 0.33, green: 0.23, blue: 0.14, alpha: 1),
+        ]
+        var x = -size.width
+        while x < size.width {
+            var y = -size.height
+            while y < size.height {
+                if Int.random(in: 0..<4) == 0 {
+                    let fleck = SKSpriteNode(color: palette.randomElement()!,
+                                             size: CGSize(width: 4, height: 4))
+                    fleck.position = CGPoint(x: x + 2, y: y + 2)
+                    dirt.addChild(fleck)
+                }
+                y += 4
+            }
+            x += 4
+        }
+        gameWorldNode.addChild(dirt)
+        grassContainerNode = dirt
     }
 
     /// Paints a chunky red X inside the cornhole for CathyX matches — a visual reminder
