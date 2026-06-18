@@ -41,6 +41,9 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     private var housePositions: [CGPoint] = []
     /// Leftmost-house anchor — player is sheltered when standing within `houseShelterRadius`.
     private var leftmostHouseCenter: CGPoint?
+    /// Centroid of every house cluster on the map — any of these shelters the
+    /// player from rain when they stand within `houseShelterRadius`.
+    private var houseShelterCenters: [CGPoint] = []
     private let houseShelterRadius: CGFloat = 36
     private let treeShelterRadius: CGFloat = 22
 
@@ -152,6 +155,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
 
     // Tutorial state
     private var hasShownDogTutorial = false
+    private var hasShownWolfTutorial = false
 
     // Enemy dogs
     private var dogs: [DogNode] = []
@@ -3333,14 +3337,25 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
             bag.position.y += bag.velocity.dy * CGFloat(dt)
             bag.lifeRemaining -= dt
 
-            // Hit a dog? Any dog within radius starts fleeing and the bag pops.
+            // Hit a dog (or wolf) within radius? Dogs flee on the first hit;
+            // wolves take two hits before fleeing.
             var consumed = false
             for dog in dogs where !dog.isFleeing {
                 let d = hypot(dog.position.x - bag.position.x,
                               dog.position.y - bag.position.y)
                 if d < projectileHitRadius {
-                    dog.startFleeing(awayFrom: bag.position)
-                    dogsTouchingPlayer.remove(ObjectIdentifier(dog))
+                    if let wolf = dog as? WolfNode {
+                        wolf.bagHitsTaken += 1
+                        if wolf.bagHitsTaken >= 2 {
+                            wolf.startFleeing(awayFrom: bag.position)
+                            dogsTouchingPlayer.remove(ObjectIdentifier(wolf))
+                        } else {
+                            wolf.flashHit()
+                        }
+                    } else {
+                        dog.startFleeing(awayFrom: bag.position)
+                        dogsTouchingPlayer.remove(ObjectIdentifier(dog))
+                    }
                     bag.pop()
                     consumed = true
                     break
@@ -3437,12 +3452,20 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
             for dog in dogs { dog.physicsBody?.velocity = .zero }
             return
         }
+        let weather = WeatherManager.shared.weather
+        let isRaining = (weather == .rain || weather == .storm)
+        let isNight = WeatherManager.shared.isNight
+
         dogSpawnTimer += dt
-        if dogSpawnTimer >= nextDogSpawnInterval && dogs.count < maxDogs
-            && StoryManager.shared.hasFlag(.dogsEnabled) {
+        if dogSpawnTimer >= nextDogSpawnInterval && dogs.count < maxDogs {
             dogSpawnTimer = 0
             nextDogSpawnInterval = TimeInterval.random(in: 14...24)
-            spawnDog()
+            if isNight {
+                // Only wolves prowl at night.
+                spawnWolf()
+            } else if !isRaining && StoryManager.shared.hasFlag(.dogsEnabled) {
+                spawnDog()
+            }
         }
         // Attract non-distracted dogs toward any unclaimed biscuits within sniff range.
         let sniffRadius: CGFloat = 80
@@ -3495,6 +3518,20 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         if !hasShownDogTutorial {
             hasShownDogTutorial = true
             showHintBanner("Dodge the dogs!\nClimb a tree\nfor safety \u{25B2}A")
+        }
+    }
+
+    private func spawnWolf() {
+        guard let m = map else { return }
+        guard let pos = randomEdgeSpawn() else { return }
+        let wolf = WolfNode()
+        wolf.position = pos
+        dogs.append(wolf)
+        m.mapNode.addChild(wolf)
+
+        if !hasShownWolfTutorial {
+            hasShownWolfTutorial = true
+            showHintBanner("WOLVES PROWL!\nTwo bag hits\nscare them off")
         }
     }
 
@@ -3582,8 +3619,11 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         if bullyCooldownRemaining > 0 {
             bullyCooldownRemaining -= dt
         }
+        let bullyWeather = WeatherManager.shared.weather
+        let bullyRaining = (bullyWeather == .rain || bullyWeather == .storm)
         bullySpawnTimer += dt
         if bullyCooldownRemaining <= 0
+           && !bullyRaining && !WeatherManager.shared.isNight
            && bullySpawnTimer >= nextBullySpawnInterval && bullies.count < maxBullies {
             // TODO: re-enable story gate — `StoryManager.shared.hasFlag(.bulliesEnabled)` —
             // once bully testing is done. Currently always-on for testing.
@@ -4216,6 +4256,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
             let sy = c.reduce(0) { $0 + $1.y }
             return CGPoint(x: sx / CGFloat(c.count), y: sy / CGFloat(c.count))
         }
+        houseShelterCenters = centroids
         leftmostHouseCenter = centroids.min(by: { $0.x < $1.x })
         print("🏠 Found \(housePositions.count) house tile(s) in \(clusters.count) cluster(s); home = \(String(describing: leftmostHouseCenter))")
     }
@@ -4317,9 +4358,8 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         for apple in appleTreePositions {
             if hypot(p.x - apple.x, p.y - apple.y) <= treeShelterRadius { return true }
         }
-        if let home = leftmostHouseCenter,
-           hypot(p.x - home.x, p.y - home.y) <= houseShelterRadius {
-            return true
+        for home in houseShelterCenters {
+            if hypot(p.x - home.x, p.y - home.y) <= houseShelterRadius { return true }
         }
         return false
     }

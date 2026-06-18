@@ -22,6 +22,12 @@ final class WeatherManager {
 
     private(set) var weather: Weather = .clear
 
+    /// True during the night portion of the day cycle. The world scene uses
+    /// this to suppress dog/bully spawns and bring out wolves.
+    /// 0.50 = sunset, 0.75 = midnight, 1.0 wraps to dawn — treat the wedge
+    /// from late sunset to just before dawn as night.
+    var isNight: Bool { timeOfDay >= 0.58 && timeOfDay < 0.95 }
+
     /// Real-time seconds before the next weather roll.
     private var nextWeatherRoll: TimeInterval = 25
 

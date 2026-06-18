@@ -1,6 +1,6 @@
 import SpriteKit
 
-final class DogNode: SKNode {
+class DogNode: SKNode {
 
     let chaseSpeed: CGFloat = 62.0
 
