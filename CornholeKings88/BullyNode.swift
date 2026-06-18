@@ -12,6 +12,11 @@ final class BullyNode: SKNode {
     /// bully halts and produces no further contacts.
     var isEngaged: Bool = false
 
+    /// GameScene supplies this so the bully can probe whether a world point
+    /// is passable. When set, the bully steers around walls/water before its
+    /// reactive stuck-detection kicks in.
+    var walkableProbe: ((CGPoint) -> Bool)? = nil
+
     /// Bag-hit state. After 2 bag hits the bully flees off-screen.
     private(set) var bagHits: Int = 0
     private(set) var isFleeingFromBag: Bool = false
@@ -188,6 +193,9 @@ final class BullyNode: SKNode {
             speedScale = wanderSpeed
         }
 
+        // Proactive look-ahead: steer around walls before we collide with them.
+        desired = steerAroundObstacles(desired: desired)
+
         // Detect "stuck" by sampling actual displacement vs commanded motion.
         // If physics has pinned us against a wall, our position barely changes
         // even though velocity is large.
@@ -264,6 +272,27 @@ final class BullyNode: SKNode {
             animTime = 0
             bodySprite.texture = frames[0]
         }
+    }
+
+    /// Probe a few angles around the desired heading and return the closest
+    /// unit vector that lands on a walkable tile ~22 units ahead.
+    private func steerAroundObstacles(desired: CGVector) -> CGVector {
+        guard let probe = walkableProbe else { return desired }
+        let lookAhead: CGFloat = 22
+        let ahead = CGPoint(x: position.x + desired.dx * lookAhead,
+                            y: position.y + desired.dy * lookAhead)
+        if probe(ahead) { return desired }
+        let deflections: [CGFloat] = [30, -30, 60, -60, 90, -90, 130, -130]
+        for deg in deflections {
+            let rad = deg * .pi / 180
+            let c = cos(rad), s = sin(rad)
+            let nx = desired.dx * c - desired.dy * s
+            let ny = desired.dx * s + desired.dy * c
+            let p = CGPoint(x: position.x + nx * lookAhead,
+                            y: position.y + ny * lookAhead)
+            if probe(p) { return CGVector(dx: nx, dy: ny) }
+        }
+        return desired
     }
 
     private func pickNewWanderHeading() {

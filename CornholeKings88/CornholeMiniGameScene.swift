@@ -375,7 +375,7 @@ final class CornholeMiniGameScene: SKScene {
 
     // Barnum — "good but not great". Fixed aim noise (lower = tighter). Tom/Jenny
     // sit around 2.5; Billy adapts down toward 1.4. Barnum lands in between.
-    private var barnumNoiseFactor: CGFloat = 1.9
+    private var barnumNoiseFactor: CGFloat = 2.8
     // Cave-match flag: dark cavern scenery, no gophers, a dragon that ignites bags.
     private var isCaveMatch = false
     private var caveDragonScheduled = false
@@ -2931,10 +2931,31 @@ final class CornholeMiniGameScene: SKScene {
         let dx = end.x - start.x
         let dy = end.y - start.y
 
+        var vx = dx * powerScale
+        var vy = dy * powerScale
+
+        // Magic-bag aim assist: blend the throw 50% toward a hole-aligned
+        // trajectory, preserving the swipe's overall power. Bumps the magic
+        // bag's odds of landing in the hole well above a normal toss.
+        if magicBagSelected {
+            let startX = turnIndicator?.position.x ?? 0
+            let toHoleX = holeCenter.x - startX
+            let toHoleY = holeCenter.y - throwLineY
+            let toHoleMag = hypot(toHoleX, toHoleY)
+            let swipeMag = hypot(vx, vy)
+            if toHoleMag > 0.001 && swipeMag > 0.001 {
+                let idealVx = toHoleX / toHoleMag * swipeMag
+                let idealVy = toHoleY / toHoleMag * swipeMag
+                let assist: CGFloat = 0.5
+                vx = vx * (1 - assist) + idealVx * assist
+                vy = vy * (1 - assist) + idealVy * assist
+            }
+        }
+
         throwBag(owner: .player,
                  startX: turnIndicator?.position.x ?? 0,
-                 vx: dx * powerScale,
-                 vy: dy * powerScale)
+                 vx: vx,
+                 vy: vy)
     }
 
     override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {

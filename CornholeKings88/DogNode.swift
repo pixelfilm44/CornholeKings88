@@ -15,6 +15,11 @@ class DogNode: SKNode {
 
     // Biscuit distraction — GameScene assigns a world position; dog walks there and eats.
     var biscuitTarget: CGPoint? = nil
+
+    /// GameScene supplies this so the dog can probe whether a world point is
+    /// passable. When set, the dog steers around walls and water instead of
+    /// running straight into them.
+    var walkableProbe: ((CGPoint) -> Bool)? = nil
     private(set) var isEating = false
     private var eatTimer: TimeInterval = 0
     private let eatDuration: TimeInterval = 3.0
@@ -159,8 +164,10 @@ class DogNode: SKNode {
             let dx   = target.x - position.x
             let dy   = target.y - position.y
             let dist = max(hypot(dx, dy), 0.001)
-            targetVelocity = CGVector(dx: dx / dist * chaseSpeed,
-                                      dy: dy / dist * chaseSpeed)
+            let desired = CGVector(dx: dx / dist, dy: dy / dist)
+            let steered = steerAroundObstacles(desired: desired)
+            targetVelocity = CGVector(dx: steered.dx * chaseSpeed,
+                                      dy: steered.dy * chaseSpeed)
         }
         physicsBody?.velocity = targetVelocity
 
@@ -179,6 +186,30 @@ class DogNode: SKNode {
             animTime = 0
             bodySprite.texture = DogNode.walkFrames[0]
         }
+    }
+
+    /// Probe a few angles around the desired heading and return the closest
+    /// unit vector that lands on a walkable tile ~18 units ahead. Falls back
+    /// to the desired direction if no probe is configured or every angle is
+    /// blocked (lets physics resolve it).
+    private func steerAroundObstacles(desired: CGVector) -> CGVector {
+        guard let probe = walkableProbe else { return desired }
+        let lookAhead: CGFloat = 18
+        let ahead = CGPoint(x: position.x + desired.dx * lookAhead,
+                            y: position.y + desired.dy * lookAhead)
+        if probe(ahead) { return desired }
+        // Try alternating left/right deflections, widening until something opens up.
+        let deflections: [CGFloat] = [30, -30, 60, -60, 90, -90, 130, -130]
+        for deg in deflections {
+            let rad = deg * .pi / 180
+            let c = cos(rad), s = sin(rad)
+            let nx = desired.dx * c - desired.dy * s
+            let ny = desired.dx * s + desired.dy * c
+            let p = CGPoint(x: position.x + nx * lookAhead,
+                            y: position.y + ny * lookAhead)
+            if probe(p) { return CGVector(dx: nx, dy: ny) }
+        }
+        return desired
     }
 
     required init?(coder aDecoder: NSCoder) { fatalError() }

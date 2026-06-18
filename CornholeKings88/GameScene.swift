@@ -3512,6 +3512,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
 
         let dog = DogNode()
         dog.position = pos
+        dog.walkableProbe = { [weak self] p in self?.isWalkable(p) ?? true }
         dogs.append(dog)
         m.mapNode.addChild(dog)
 
@@ -3526,6 +3527,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         guard let pos = randomEdgeSpawn() else { return }
         let wolf = WolfNode()
         wolf.position = pos
+        wolf.walkableProbe = { [weak self] p in self?.isWalkable(p) ?? true }
         dogs.append(wolf)
         m.mapNode.addChild(wolf)
 
@@ -3677,6 +3679,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
 
         let bully = BullyNode()
         bully.position = pos
+        bully.walkableProbe = { [weak self] p in self?.isWalkable(p) ?? true }
         bullies.append(bully)
         m.mapNode.addChild(bully)
     }
