@@ -124,6 +124,25 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     private var fencePositions: [CGPoint] = []
     private var nearbyFencePosition: CGPoint?
 
+    // Flashlight pickup — "flashlight" layer; one-time, persisted via UserDefaults.
+    // Lights a circle around the player at night.
+    private var flashlightPositions: [CGPoint] = []
+    private var nearbyFlashlightPosition: CGPoint?
+    private let flashlightFoundKey = "flashlightFound_v1"
+    private var hasFlashlight: Bool { UserDefaults.standard.bool(forKey: flashlightFoundKey) }
+    /// True when the player can light the area at night — either a found flashlight
+    /// or any torch in inventory satisfies this.
+    private var hasLight: Bool { hasFlashlight || inventory.counts[.torch, default: 0] > 0 }
+
+    // Night darkness overlay (children of cameraNode).
+    // The dark sprite follows the player's screen position so the flashlight
+    // hole stays centered on the player even when the camera is clamped at a map edge.
+    private var nightOverlay: SKSpriteNode?
+    private var nightEyesContainer: SKNode?
+    private var nightDarkSolidTex: SKTexture?
+    private var nightDarkFlashlightTex: SKTexture?
+    private var wasNight: Bool = false
+
     // Grave interaction — "grave" layer; launches cornhole vs. CathyX (inverted scoring)
     private var gravePositions: [CGPoint] = []
     private var nearbyGravePosition: CGPoint?
@@ -140,6 +159,20 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     /// High knockables that are really the axe pickup (keyed "<intX>,<intY>"
     /// of the high position) — they land as the axe, not as a 50/50 chest.
     private var highAxKeys: Set<String> = []
+    /// High knockables that are really a torch (keyed "<intX>,<intY>" of the
+    /// high position) — they land as a torch pickup, not a 50/50 chest.
+    private var highTorchKeys: Set<String> = []
+    /// Torch pickups (knocked down from a mountain) waiting to be collected.
+    private var torchPositions: [CGPoint] = []
+    private var nearbyTorchPosition: CGPoint? = nil
+    /// Map source-tile key ("intX,intY") for each grounded torch so collecting one
+    /// persists the original mountain position (the tile we need to keep hidden).
+    private var torchSourceKey: [String: String] = [:]
+    private let torchesCollectedKey = "torchesCollected_v1"
+    private var collectedTorchKeys: Set<String> {
+        get { Set(UserDefaults.standard.stringArray(forKey: torchesCollectedKey) ?? []) }
+        set { UserDefaults.standard.set(Array(newValue), forKey: torchesCollectedKey) }
+    }
     /// Fallen-chest sprites keyed by landing position ("<intX>,<intY>"),
     /// so openChest can remove them when the chest is opened.
     private var fallenChestNodes: [String: SKSpriteNode] = [:]
@@ -276,6 +309,9 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     }
     /// Passive Golden Lance indicator in the top HUD (not an action button).
     private var lanceIndicator: SKNode?
+    /// Passive torch indicator in the top HUD; visible when the player carries ≥1 torch.
+    private var torchIndicator: SKNode?
+    private var torchCountLabel: SKLabelNode?
     private let actionBtnRadius: CGFloat = 26
 
     // HUD elements (so we can update them later).
@@ -432,6 +468,50 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         lanceIcon.addChild(lanceArt)
         cameraNode.addChild(lanceIcon)
         lanceIndicator = lanceIcon
+
+        // Torch indicator — sits just left of the lance. Visible while the player
+        // is carrying at least one torch; the count badge sits to the lower-right.
+        let torchIcon = SKNode()
+        torchIcon.position = CGPoint(x: W / 2 - 78, y: hudY)
+        torchIcon.zPosition = 10_001
+        torchIcon.isHidden = true
+        let torchArt = makeTorchIndicatorContent()
+        torchArt.setScale(0.72)
+        torchIcon.addChild(torchArt)
+        let torchBadge = SKLabelNode(text: "")
+        torchBadge.fontName = "Menlo-Bold"
+        torchBadge.fontSize = 9
+        torchBadge.fontColor = dsGold
+        torchBadge.horizontalAlignmentMode = .left
+        torchBadge.verticalAlignmentMode = .center
+        torchBadge.position = CGPoint(x: 8, y: -6)
+        torchBadge.zPosition = 2
+        torchIcon.addChild(torchBadge)
+        cameraNode.addChild(torchIcon)
+        torchIndicator = torchIcon
+        torchCountLabel = torchBadge
+    }
+
+    /// Small flame-on-stick art for the top-HUD torch indicator.
+    private func makeTorchIndicatorContent() -> SKNode {
+        let root = SKNode()
+        root.zPosition = 1
+        // Wooden handle running bottom-left to top-right.
+        let handle = SKSpriteNode(color: SKColor(red: 0.45, green: 0.28, blue: 0.10, alpha: 1.0),
+                                  size: CGSize(width: 18, height: 3))
+        handle.zRotation = .pi / 4
+        handle.position = CGPoint(x: -3, y: -5)
+        root.addChild(handle)
+        // Flame: layered orange + yellow blobs at the head.
+        let outer = SKSpriteNode(color: SKColor(red: 1.00, green: 0.45, blue: 0.10, alpha: 1.0),
+                                 size: CGSize(width: 8, height: 11))
+        outer.position = CGPoint(x: 6, y: 7)
+        root.addChild(outer)
+        let inner = SKSpriteNode(color: SKColor(red: 1.00, green: 0.85, blue: 0.30, alpha: 1.0),
+                                 size: CGSize(width: 4, height: 7))
+        inner.position = CGPoint(x: 6, y: 8)
+        root.addChild(inner)
+        return root
     }
 
     /// Vertical center for the controls — within the bottom chrome but above
@@ -703,6 +783,12 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         return root
     }
 
+    private func updateTorchIndicator() {
+        let count = inventory.counts[.torch, default: 0]
+        torchIndicator?.isHidden = count == 0
+        torchCountLabel?.text = count > 1 ? "×\(count)" : ""
+    }
+
     private func updateBiscuitButton() {
         let count = inventory.counts[.dogBiscuit, default: 0]
         btnBiscuit?.isHidden = count == 0
@@ -755,11 +841,13 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
             self.updateBiscuitButton()
             self.updateThrowButton()
             self.updateFortButton()
+            self.updateTorchIndicator()
             self.storeModal?.refreshCardStates()
         }
         updateBiscuitButton()
         updateThrowButton()
         updateFortButton()
+        updateTorchIndicator()
         // Wood resets every round — trees respawn at scene load (see loadChoppedTrees)
         // so any wood the player chopped last session is no longer "in their pocket."
         // They have to re-chop trees this round to refill the pile.
@@ -823,10 +911,12 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         extractBridgeStonePositions(from: m)
         extractBridgeWoodPositions(from: m)
         extractFencePositions(from: m)
+        extractFlashlightPositions(from: m)
         extractGravePositions(from: m)
         extractWellPositions(from: m)
         extractHousePositions(from: m)
         extractAxPositions(from: m)
+        extractTorchPositions(from: m)
         loadChoppedTrees()
         hideAlreadyChoppedTrees()
         cacheBridgePhysicsNodes(from: m)
@@ -1385,6 +1475,32 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         print("🏚️ Found \(fencePositions.count) fence tile(s) on the map")
     }
 
+    /// Scans the "flashlight" map layer for any non-zero tile and stores one world-space
+    /// center per tile. Pressing A near one collects the flashlight (permanent unlock).
+    /// Tiles already collected on a prior launch are hidden on load.
+    private func extractFlashlightPositions(from m: TMXMap) {
+        flashlightPositions.removeAll()
+        guard let grid = m.layerGIDs["flashlight"] else { return }
+        let alreadyFound = hasFlashlight
+        var seen = Set<String>()
+        for r in 0..<m.rows {
+            for c in 0..<m.cols {
+                let gid = grid[r][c] & 0x0FFF_FFFF
+                guard gid != 0 else { continue }
+                let key = "\(r),\(c)"
+                guard !seen.contains(key) else { continue }
+                seen.insert(key)
+                let pos = m.tileCenter(col: c, row: r)
+                if alreadyFound {
+                    hideChestTile(at: pos) // same tile-hide helper works for any layer
+                } else {
+                    flashlightPositions.append(pos)
+                }
+            }
+        }
+        print("🔦 Found \(flashlightPositions.count) flashlight tile(s) on the map")
+    }
+
     /// Scans the "grave" layer (by layer name, like "fences") → cornhole vs. CathyX.
     /// Fires once grave tiles are painted on a layer named "grave" in Tiled; until then
     /// the layer is absent and no trigger appears.
@@ -1461,6 +1577,47 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
             }
         }
         print("🪓 Found \(axPositions.count) axe pickup tile(s) + \(highAxKeys.count) on high areas (earned=\(earned))")
+    }
+
+    /// Scans any layer for torch tiles (tileset name contains "torch"). High-area
+    /// torches go into the lance-knockable list and are tagged in `highTorchKeys`
+    /// so they land as torches; ground torches go straight into `torchPositions`.
+    private func extractTorchPositions(from m: TMXMap) {
+        torchPositions.removeAll()
+        highTorchKeys.removeAll()
+        torchSourceKey.removeAll()
+        let ranges = m.tilesetRanges
+            .filter { $0.name.contains("torch") }
+            .map(\.gidRange)
+        guard !ranges.isEmpty else { return }
+        let collected = collectedTorchKeys
+        var seen = Set<String>()
+        for (_, grid) in m.layerGIDs {
+            for r in 0..<m.rows {
+                for c in 0..<m.cols {
+                    let gid = grid[r][c] & 0x0FFF_FFFF
+                    guard ranges.contains(where: { $0.contains(gid) }) else { continue }
+                    let key = "\(r),\(c)"
+                    guard !seen.contains(key) else { continue }
+                    seen.insert(key)
+                    let pos = m.tileCenter(col: c, row: r)
+                    let posKey = "\(Int(pos.x)),\(Int(pos.y))"
+                    if collected.contains(posKey) {
+                        // Already picked up on a previous run — hide and skip.
+                        hideChestTile(at: pos)
+                        continue
+                    }
+                    if isOnHighArea(row: r, col: c, in: m) {
+                        highChestPositions.append(pos)
+                        highTorchKeys.insert(posKey)
+                    } else {
+                        torchPositions.append(pos)
+                        torchSourceKey[posKey] = posKey
+                    }
+                }
+            }
+        }
+        print("🔥 Found \(torchPositions.count) torch tile(s) + \(highTorchKeys.count) on high areas")
     }
 
     private func loadChoppedTrees() {
@@ -1658,6 +1815,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         var bestWell:         CGPoint? = nil
         var bestHighChest:    CGPoint? = nil
         var bestAx:           CGPoint? = nil
+        var bestTorch:        CGPoint? = nil
 
         for pos in cornholeBoardPositions {
             let d = hypot(player.position.x - pos.x, player.position.y - pos.y)
@@ -1740,6 +1898,19 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
             }
         }
 
+        // Flashlight pickup — once collected, the array is empty so this is a no-op.
+        let flashlightRadius: CGFloat = 24
+        var bestFlashlight: CGPoint? = nil
+        for pos in flashlightPositions {
+            let d = hypot(player.position.x - pos.x, player.position.y - pos.y)
+            if d < flashlightRadius && d < bestDist {
+                bestDist = d; bestBoard = nil; bestChest = nil; bestStore = nil; bestBridgeStone = nil
+                bestBaseball = nil; bestTree = nil; bestAppleTree = nil
+                bestBeehive = nil; bestPool = nil; bestBridgeWood = nil; bestFence = nil
+                bestFlashlight = pos
+            }
+        }
+
         // Grave prompt only while the graveyard is still walled off (CathyX not yet beaten).
         if !UserDefaults.standard.bool(forKey: graveUnlockedKey) {
             for pos in gravePositions {
@@ -1795,7 +1966,20 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
                     bestBaseball = nil; bestTree = nil; bestAppleTree = nil
                     bestBeehive = nil; bestPool = nil; bestCave = nil; bestBridgeWood = nil
                     bestFence = nil; bestGrave = nil; bestWell = nil; bestHighChest = pos
+                    bestAx = nil; bestTorch = nil
                 }
+            }
+        }
+
+        // Grounded torch pickups (knocked down from a mountain).
+        for pos in torchPositions {
+            let d = hypot(player.position.x - pos.x, player.position.y - pos.y)
+            if d < axRadius && d < bestDist {
+                bestDist = d; bestBoard = nil; bestChest = nil; bestStore = nil; bestBridgeStone = nil
+                bestBaseball = nil; bestTree = nil; bestAppleTree = nil
+                bestBeehive = nil; bestPool = nil; bestCave = nil; bestBridgeWood = nil
+                bestFence = nil; bestGrave = nil; bestWell = nil; bestHighChest = nil; bestAx = nil
+                bestTorch = pos
             }
         }
 
@@ -1825,10 +2009,12 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         nearbyCavePosition        = bestCave
         nearbyBridgeWoodPosition  = bestBridgeWood
         nearbyFencePosition       = bestFence
+        nearbyFlashlightPosition  = bestFlashlight
         nearbyGravePosition       = bestGrave
         nearbyWellPosition        = bestWell
         nearbyHighChestPosition   = bestHighChest
         nearbyAxPosition          = bestAx
+        nearbyTorchPosition       = bestTorch
         nearbyStoryBatPosition    = bestStoryBat
 
         // Auto-descend when the player walks away from the tree they climbed.
@@ -1848,10 +2034,12 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         else if let p = bestCave          { anchor = CGPoint(x: p.x, y: p.y + 22) }
         else if let p = bestBridgeWood    { anchor = CGPoint(x: p.x, y: p.y + 22) }
         else if let p = bestFence         { anchor = CGPoint(x: p.x, y: p.y + 22) }
+        else if let p = bestFlashlight    { anchor = CGPoint(x: p.x, y: p.y + 22) }
         else if let p = bestGrave         { anchor = CGPoint(x: p.x, y: p.y + 22) }
         else if let p = bestWell          { anchor = CGPoint(x: p.x, y: p.y + 22) }
         else if let p = bestHighChest     { anchor = CGPoint(x: p.x, y: p.y + 22) }
         else if let p = bestAx            { anchor = CGPoint(x: p.x, y: p.y + 22) }
+        else if let p = bestTorch         { anchor = CGPoint(x: p.x, y: p.y + 22) }
         else if let p = bestStoryBat      { anchor = CGPoint(x: p.x, y: p.y + 22) }
         else                              { anchor = nil }
 
@@ -2020,14 +2208,17 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
 
     private func launchChestArc(from chestPos: CGPoint, to landing: CGPoint) {
         guard let m = map else { return }
+        // Grab the source tile's actual texture (torch, axe-chest, treasure
+        // chest, …) so the flyer matches what was knocked off, before we hide it.
+        let flyerTexture = tileTextureAt(worldPos: chestPos, in: m)
         hideChestTile(at: chestPos)
 
-        // Closed-chest art = frame 0 of the same sheet openChest animates.
+        // Fallback art = closed chest (frame 0 of the open-chest sheet).
         let sheet = SKTexture(imageNamed: "Chest_Anim")
         sheet.filteringMode = .nearest
         let closed = SKTexture(rect: CGRect(x: 0, y: 0, width: 1.0 / 6.0, height: 1), in: sheet)
         closed.filteringMode = .nearest
-        let flyer = SKSpriteNode(texture: closed, size: m.tileSize)
+        let flyer = SKSpriteNode(texture: flyerTexture ?? closed, size: m.tileSize)
         flyer.position = chestPos
         flyer.zPosition = 5_000   // above everything while airborne
         m.mapNode.addChild(flyer)
@@ -2054,8 +2245,13 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
                 self.fallenChestNodes["\(Int(landing.x)),\(Int(landing.y))"] = flyer
                 // Grounded — A-press now collects it. Axe pickups keep their
                 // identity; everything else lands as a normal 50/50 chest.
-                if self.highAxKeys.remove("\(Int(chestPos.x)),\(Int(chestPos.y))") != nil {
+                let highKey = "\(Int(chestPos.x)),\(Int(chestPos.y))"
+                if self.highAxKeys.remove(highKey) != nil {
                     self.axPositions.append(landing)
+                } else if self.highTorchKeys.remove(highKey) != nil {
+                    self.torchPositions.append(landing)
+                    // Remember the original mountain tile so collecting persists it.
+                    self.torchSourceKey["\(Int(landing.x)),\(Int(landing.y))"] = highKey
                 } else {
                     self.chestPositions.append(landing)
                 }
@@ -2082,6 +2278,25 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         axPositions.removeAll { abs($0.x - pos.x) < 1 && abs($0.y - pos.y) < 1 }
         nearbyAxPosition = nil
         showPickupText("+ AXE", at: pos)
+    }
+
+    private func collectTorch() {
+        guard let pos = nearbyTorchPosition else { return }
+        let landingKey = "\(Int(pos.x)),\(Int(pos.y))"
+        hideChestTile(at: pos)
+        if let fallen = fallenChestNodes.removeValue(forKey: landingKey) {
+            fallen.removeFromParent()
+        }
+        torchPositions.removeAll { abs($0.x - pos.x) < 1 && abs($0.y - pos.y) < 1 }
+        // Persist the original mountain tile (or ground tile) so it stays hidden next run.
+        if let sourceKey = torchSourceKey.removeValue(forKey: landingKey) {
+            var collected = collectedTorchKeys
+            collected.insert(sourceKey)
+            collectedTorchKeys = collected
+        }
+        nearbyTorchPosition = nil
+        inventory.collect(.torch, count: 1)
+        showPickupText("+ TORCH", at: pos)
     }
 
     /// Chops the nearest tree tile (any tree/apple tileset, not just the climbable ones).
@@ -2295,6 +2510,22 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         return root
     }
 
+    /// Returns the first visible tile sprite's texture at `worldPos` (any layer).
+    /// Used so the lance-knock flyer matches whatever was actually up on the ledge
+    /// (torch, axe-as-chest, treasure chest, …).
+    private func tileTextureAt(worldPos: CGPoint, in m: TMXMap) -> SKTexture? {
+        for (_, layerNode) in m.layerNodes {
+            for child in layerNode.children {
+                guard let sprite = child as? SKSpriteNode, !sprite.isHidden else { continue }
+                if abs(sprite.position.x - worldPos.x) < 2 && abs(sprite.position.y - worldPos.y) < 2,
+                   let tex = sprite.texture {
+                    return tex
+                }
+            }
+        }
+        return nil
+    }
+
     private func hideChestTile(at worldPos: CGPoint) {
         guard let m = map else { return }
         for (_, layerNode) in m.layerNodes {
@@ -2304,6 +2535,20 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
                 }
             }
         }
+    }
+
+    // MARK: - Flashlight
+
+    private func collectFlashlight() {
+        guard let pos = nearbyFlashlightPosition else { return }
+        UserDefaults.standard.set(true, forKey: flashlightFoundKey)
+        hideChestTile(at: pos)
+        flashlightPositions.removeAll { abs($0.x - pos.x) < 2 && abs($0.y - pos.y) < 2 }
+        nearbyFlashlightPosition = nil
+        showPickupText("+ FLASHLIGHT", at: pos)
+        showHintBanner("FLASHLIGHT FOUND!\nLIGHTS YOUR WAY\nAT NIGHT")
+        if let tex = nightDarkFlashlightTex { nightOverlay?.texture = tex }
+        HapticsManager.shared.lightImpact()
     }
 
     // MARK: - Story Mode World Helpers
@@ -2960,6 +3205,8 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
                 collectStoryBat()
             } else if nearbyAxPosition != nil {
                 collectAxe()
+            } else if nearbyTorchPosition != nil {
+                collectTorch()
             } else if let p = nearbyBoardPosition {
                 if trigger == StoryManager.triggerCornhole {
                     StoryManager.shared.pendingWorldTrigger = nil
@@ -2968,6 +3215,8 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
                     setMiniGameReturnPosition(near: p)
                     openCornholeMiniGame()
                 }
+            } else if nearbyFlashlightPosition != nil {
+                collectFlashlight()
             } else if nearbyChestPosition != nil {
                 openChest()
             } else if nearbyStorePosition != nil {
@@ -4161,6 +4410,148 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         flash.isUserInteractionEnabled = false
         cameraNode.addChild(flash)
         stormFlashOverlay = flash
+
+        setupNightOverlay()
+    }
+
+    // MARK: - Night overlay (pitch black + optional flashlight hole)
+    //
+    //   z = 4_400  nightOverlay         — opaque-black sprite; follows player. Optional radial hole when flashlight is held.
+    //   z = 4_450  nightEyesContainer   — wolf red-eye glows rendered above the dark.
+    //
+    // Sized 2× the scene so the hole stays inside the screen rect even when the
+    // camera is clamped at a map edge and the player drifts toward a corner.
+    private func setupNightOverlay() {
+        let w = size.width, h = size.height
+        let overlayW = w * 2, overlayH = h * 2
+
+        nightDarkSolidTex      = makeNightDarkTexture(size: CGSize(width: overlayW, height: overlayH),
+                                                     holeRadius: 0)
+        // Hole radius (in screen points) — radius of the inner fully-clear circle.
+        // Outside that, blackness ramps up over `falloff` points to fully opaque.
+        let holeRadius: CGFloat = min(w, h) * 0.22
+        nightDarkFlashlightTex = makeNightDarkTexture(size: CGSize(width: overlayW, height: overlayH),
+                                                     holeRadius: holeRadius)
+
+        let dark = SKSpriteNode(texture: hasLight ? nightDarkFlashlightTex
+                                                   : nightDarkSolidTex)
+        dark.size = CGSize(width: overlayW, height: overlayH)
+        dark.position = .zero
+        dark.zPosition = 4_400
+        dark.alpha = 0
+        dark.isUserInteractionEnabled = false
+        cameraNode.addChild(dark)
+        nightOverlay = dark
+
+        let eyes = SKNode()
+        eyes.zPosition = 4_450
+        eyes.isUserInteractionEnabled = false
+        cameraNode.addChild(eyes)
+        nightEyesContainer = eyes
+    }
+
+    /// Creates a pre-rendered texture: opaque black with a soft-edged transparent
+    /// circle in the center. `holeRadius == 0` produces a fully opaque texture.
+    private func makeNightDarkTexture(size: CGSize, holeRadius: CGFloat) -> SKTexture {
+        let format = UIGraphicsImageRendererFormat.default()
+        format.opaque = false
+        let renderer = UIGraphicsImageRenderer(size: size, format: format)
+        let img = renderer.image { ctx in
+            let cg = ctx.cgContext
+            // Fill black everywhere.
+            cg.setFillColor(UIColor.black.cgColor)
+            cg.fill(CGRect(origin: .zero, size: size))
+            guard holeRadius > 0 else { return }
+            // Punch a soft-edged transparent disc in the center.
+            let center = CGPoint(x: size.width / 2, y: size.height / 2)
+            let falloff: CGFloat = 70 // soft edge in screen pts
+            let outer = holeRadius + falloff
+            cg.setBlendMode(.destinationOut)
+            let colors = [
+                UIColor(white: 0, alpha: 1.0).cgColor,
+                UIColor(white: 0, alpha: 1.0).cgColor,
+                UIColor(white: 0, alpha: 0.0).cgColor,
+            ] as CFArray
+            let stops: [CGFloat] = [0.0, holeRadius / outer, 1.0]
+            if let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(),
+                                         colors: colors, locations: stops) {
+                cg.drawRadialGradient(gradient,
+                                      startCenter: center, startRadius: 0,
+                                      endCenter: center, endRadius: outer,
+                                      options: [])
+            }
+        }
+        let tex = SKTexture(image: img)
+        tex.filteringMode = .linear
+        return tex
+    }
+
+    /// Called every frame by `tickWeather`. Drives the night fade in/out, keeps
+    /// the darkness centered on the player, and re-positions wolf-eye glows on
+    /// top of the dark so they remain visible in pitch black.
+    private func tickNight(dt: TimeInterval) {
+        guard let dark = nightOverlay else { return }
+        let isNight = WeatherManager.shared.isNight
+
+        // Edge-triggered ~2s fade.
+        if isNight != wasNight {
+            wasNight = isNight
+            dark.removeAction(forKey: "nightFade")
+            dark.run(.fadeAlpha(to: isNight ? 1.0 : 0.0, duration: 2.0),
+                     withKey: "nightFade")
+        }
+        // Keep the texture in sync with flashlight state in case it changed mid-night.
+        if isNight, let want = hasLight ? nightDarkFlashlightTex : nightDarkSolidTex,
+           dark.texture !== want {
+            dark.texture = want
+        }
+
+        // Position dark sprite over the player's screen position so the flashlight
+        // hole tracks the player even when the camera is clamped at a map edge.
+        let zoom = worldZoom
+        let off = CGPoint(x: (player.position.x - cameraNode.position.x) * zoom,
+                          y: (player.position.y - cameraNode.position.y) * zoom)
+        dark.position = off
+
+        updateWolfEyeGlows(active: isNight && dark.alpha > 0.01, zoom: zoom)
+    }
+
+    /// Mirrors each live wolf to a glowing-eyes sprite on the camera, above the
+    /// night overlay. Pools eye nodes by reusing children of `nightEyesContainer`.
+    private func updateWolfEyeGlows(active: Bool, zoom: CGFloat) {
+        guard let eyes = nightEyesContainer else { return }
+        if !active {
+            if !eyes.children.isEmpty { eyes.removeAllChildren() }
+            return
+        }
+        let wolves = dogs.compactMap { $0 as? WolfNode }
+        // Grow / shrink the pool to wolves.count, with one pair of eyes per node.
+        while eyes.children.count < wolves.count {
+            eyes.addChild(makeWolfEyesNode())
+        }
+        while eyes.children.count > wolves.count {
+            eyes.children.last?.removeFromParent()
+        }
+        for (i, wolf) in wolves.enumerated() {
+            let pair = eyes.children[i]
+            pair.position = CGPoint(
+                x: (wolf.position.x - cameraNode.position.x) * zoom,
+                y: (wolf.position.y - cameraNode.position.y) * zoom + 8
+            )
+        }
+    }
+
+    private func makeWolfEyesNode() -> SKNode {
+        let node = SKNode()
+        for dx: CGFloat in [-6, 6] {
+            let eye = SKShapeNode(circleOfRadius: 2.2)
+            eye.fillColor = SKColor(red: 1.0, green: 0.10, blue: 0.10, alpha: 1)
+            eye.strokeColor = .clear
+            eye.glowWidth = 3.0
+            eye.position = CGPoint(x: dx, y: 0)
+            node.addChild(eye)
+        }
+        return node
     }
 
     private func spawnRainOverlay() {
@@ -4270,6 +4661,8 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         let tint = WeatherManager.shared.currentSkyTint()
         weatherTintOverlay?.color = tint.color
         weatherTintOverlay?.alpha = tint.alpha
+
+        tickNight(dt: dt)
 
         let weather = WeatherManager.shared.weather
         applyWeatherVisuals(weather)

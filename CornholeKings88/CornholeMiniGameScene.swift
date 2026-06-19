@@ -4946,7 +4946,7 @@ final class CornholeMiniGameScene: SKScene {
                            traitText: "KNOCKS BAGS OFF BOARD",
                            textureOverride: CornholeMiniGameScene.makeJennyPortraitTexture()),
             OpponentConfig(name: "BARNUM", imageName: "barnum",
-                           traitText: "DRAGON CAVE • TO 21",
+                           traitText: "DRAGON CAVE • TO 11",
                            textureOverride: CornholeMiniGameScene.makeBarnumPortraitTexture()),
             OpponentConfig(name: "BILLY",  imageName: "billy",
                            traitText: "MATCHES YOUR SKILL • TO 21",
@@ -4989,11 +4989,11 @@ final class CornholeMiniGameScene: SKScene {
         addChild(picker)
     }
 
-    /// Configures Barnum: a 21-point long-distance match thrown across a dark cavern.
+    /// Configures Barnum: an 11-point long-distance match thrown across a dark cavern.
     /// No weather, no gophers — instead a dragon periodically rises from the chasm and
     /// breathes flame, turning any bag it catches mid-flight into a fire bag.
     private func applyBarnumSettings() {
-        winScore = 21
+        winScore = 11
         rainStartRound  = -1
         rainEndRound    = Int.max
         stormStartRound = -1

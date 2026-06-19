@@ -24,9 +24,8 @@ final class WeatherManager {
 
     /// True during the night portion of the day cycle. The world scene uses
     /// this to suppress dog/bully spawns and bring out wolves.
-    /// 0.50 = sunset, 0.75 = midnight, 1.0 wraps to dawn — treat the wedge
-    /// from late sunset to just before dawn as night.
-    var isNight: Bool { timeOfDay >= 0.58 && timeOfDay < 0.95 }
+    /// Window is tuned so real-time night lasts ~60s of the 240s cycle.
+    var isNight: Bool { timeOfDay >= 0.70 && timeOfDay < 0.95 }
 
     /// Real-time seconds before the next weather roll.
     private var nextWeatherRoll: TimeInterval = 25
@@ -72,7 +71,7 @@ final class WeatherManager {
             Frame(t: 0.00, color: SKColor(red: 1.00, green: 0.50, blue: 0.20, alpha: 1), alpha: 0.35), // dawn orange
             Frame(t: 0.25, color: SKColor(red: 1.00, green: 0.95, blue: 0.55, alpha: 1), alpha: 0.10), // midday bright
             Frame(t: 0.50, color: SKColor(red: 0.20, green: 0.30, blue: 0.65, alpha: 1), alpha: 0.40), // sunset blue
-            Frame(t: 0.75, color: SKColor(red: 0.00, green: 0.00, blue: 0.05, alpha: 1), alpha: 0.78), // midnight
+            Frame(t: 0.75, color: SKColor(red: 0.00, green: 0.00, blue: 0.05, alpha: 1), alpha: 0.0),  // midnight — GameScene's night overlay handles the dark
             Frame(t: 1.00, color: SKColor(red: 1.00, green: 0.50, blue: 0.20, alpha: 1), alpha: 0.35), // wrap to dawn
         ]
         let t = timeOfDay

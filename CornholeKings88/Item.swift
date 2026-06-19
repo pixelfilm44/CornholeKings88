@@ -29,6 +29,10 @@ enum ItemType: String, CaseIterable {
     case goldenLance
     /// Chopped from trees with the axe. Currently a cosmetic count; future crafting may consume it.
     case wood
+    /// Found in the world (map layer "flashlight"). Lights a circle around the player at night.
+    case flashlight
+    /// Knocked off a mountain with the Golden Lance. Cosmetic count for now.
+    case torch
 
     var color: SKColor {
         switch self {
@@ -44,6 +48,8 @@ enum ItemType: String, CaseIterable {
         case .floatingBag: return SKColor(red: 0.35, green: 0.80, blue: 0.95, alpha: 1.0)
         case .goldenLance: return SKColor(red: 1.00, green: 0.84, blue: 0.00, alpha: 1.0)
         case .wood:       return SKColor(red: 0.55, green: 0.36, blue: 0.18, alpha: 1.0)
+        case .flashlight: return SKColor(red: 1.00, green: 0.92, blue: 0.55, alpha: 1.0)
+        case .torch:      return SKColor(red: 1.00, green: 0.55, blue: 0.15, alpha: 1.0)
         }
     }
 
@@ -61,6 +67,8 @@ enum ItemType: String, CaseIterable {
         case .floatingBag: return "FLOAT BAG"
         case .goldenLance: return "GOLDEN LANCE"
         case .wood:       return "WOOD"
+        case .flashlight: return "FLASHLIGHT"
+        case .torch:      return "TORCH"
         }
     }
 
@@ -78,6 +86,8 @@ enum ItemType: String, CaseIterable {
         case .floatingBag: return "≈"
         case .goldenLance: return "⚡"
         case .wood:       return "W"
+        case .flashlight: return "✦"
+        case .torch:      return "T"
         }
     }
 }
