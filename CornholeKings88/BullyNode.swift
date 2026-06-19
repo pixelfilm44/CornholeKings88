@@ -26,6 +26,19 @@ final class BullyNode: SKNode {
     private var knockbackVelocity: CGVector = .zero
     private let stunDuration: TimeInterval = 0.8
 
+    /// Force the bully into flee mode directly away from `awayPos`, without a
+    /// bag-hit flash. Used when GameScene detects the bully has been stuck
+    /// against geometry for too long and should just leave the scene.
+    func startFleeing(awayFrom awayPos: CGPoint) {
+        guard !isFleeingFromBag else { return }
+        isFleeingFromBag = true
+        let dx = position.x - awayPos.x
+        let dy = position.y - awayPos.y
+        let d = max(hypot(dx, dy), 0.001)
+        let speed: CGFloat = chaseSpeed * 1.5
+        fleeVelocity = CGVector(dx: dx / d * speed, dy: dy / d * speed)
+    }
+
     /// Called by GameScene when a thrown beanbag connects.
     /// Returns true if the bully is now fleeing (so caller can drop the contact).
     @discardableResult

@@ -325,6 +325,13 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     /// Identity-based set of dogs currently overlapping the player.
     /// Maintained via didBegin / didEnd so we know whether a damage tick should fire.
     private var dogsTouchingPlayer: Set<ObjectIdentifier> = []
+
+    // Per-enemy stuck tracking: if an enemy fails to make net progress for
+    // `enemyStuckLimit` seconds, force it to flee the scene. Keyed by
+    // ObjectIdentifier; value is (lastSampledPosition, secondsWithoutProgress).
+    private var enemyStuckData: [ObjectIdentifier: (pos: CGPoint, timer: TimeInterval)] = [:]
+    private let enemyStuckLimit: TimeInterval = 3.5
+    private let enemyStuckProgressEps: CGFloat = 6.0
     /// Seconds remaining before the next bite can deal damage.
     private var damageCooldown: TimeInterval = 0
     private let damageCooldownDuration: TimeInterval = 0.6
@@ -3745,14 +3752,43 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
                        playerInTree: player.isInTree,
                        isBiting: biting)
         }
+        for dog in dogs where !dog.isFleeing && dog.biscuitTarget == nil && !player.isInTree {
+            if checkStuckAndFlee(node: dog, dt: dt) {
+                dog.startFleeing(awayFrom: player.position)
+                dogsTouchingPlayer.remove(ObjectIdentifier(dog))
+            }
+        }
         dogs = dogs.filter { dog in
             if isDogOffScreen(dog) {
                 dogsTouchingPlayer.remove(ObjectIdentifier(dog))
+                enemyStuckData.removeValue(forKey: ObjectIdentifier(dog))
                 dog.removeFromParent()
                 return false
             }
             return true
         }
+    }
+
+    /// Returns true if `node` has failed to make meaningful net progress for
+    /// `enemyStuckLimit` seconds — caller should send it into flee mode.
+    private func checkStuckAndFlee(node: SKNode, dt: TimeInterval) -> Bool {
+        let id = ObjectIdentifier(node)
+        guard let prev = enemyStuckData[id] else {
+            enemyStuckData[id] = (node.position, 0)
+            return false
+        }
+        let moved = hypot(node.position.x - prev.pos.x, node.position.y - prev.pos.y)
+        if moved >= enemyStuckProgressEps {
+            enemyStuckData[id] = (node.position, 0)
+            return false
+        }
+        let t = prev.timer + dt
+        if t >= enemyStuckLimit {
+            enemyStuckData.removeValue(forKey: id)
+            return true
+        }
+        enemyStuckData[id] = (prev.pos, t)
+        return false
     }
 
     private func spawnDog() {
@@ -3888,8 +3924,14 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
                          playerPosition: player.position,
                          playerInTree: player.isInTree)
         }
+        for bully in bullies where !bully.isFleeingFromBag && !bully.isEngaged && !player.isInTree {
+            if checkStuckAndFlee(node: bully, dt: dt) {
+                bully.startFleeing(awayFrom: player.position)
+            }
+        }
         bullies = bullies.filter { bully in
             if isBullyOffScreen(bully) {
+                enemyStuckData.removeValue(forKey: ObjectIdentifier(bully))
                 bully.removeFromParent()
                 return false
             }
@@ -4429,7 +4471,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
                                                      holeRadius: 0)
         // Hole radius (in screen points) — radius of the inner fully-clear circle.
         // Outside that, blackness ramps up over `falloff` points to fully opaque.
-        let holeRadius: CGFloat = min(w, h) * 0.22
+        let holeRadius: CGFloat = min(w, h) * 0.11
         nightDarkFlashlightTex = makeNightDarkTexture(size: CGSize(width: overlayW, height: overlayH),
                                                      holeRadius: holeRadius)
 

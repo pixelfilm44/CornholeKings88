@@ -42,23 +42,23 @@ final class WeatherManager {
         nextWeatherRoll -= dt
         if nextWeatherRoll <= 0 {
             rollWeather()
-            nextWeatherRoll = TimeInterval.random(in: 20...45)
+            nextWeatherRoll = TimeInterval.random(in: 45...90)
         }
     }
 
     private func rollWeather() {
-        // Bias toward clear; occasional rain; rarer storms.
+        // Strong bias toward clear; rain is uncommon; storms are rare.
         let r = Int.random(in: 0..<100)
         switch weather {
         case .clear:
-            if r < 18 { weather = .rain }
-            else if r < 25 { weather = .storm }
+            if r < 5 { weather = .rain }
+            else if r < 7 { weather = .storm }
         case .rain:
-            if r < 60 { weather = .clear }
-            else if r < 70 { weather = .storm }
+            if r < 80 { weather = .clear }
+            else if r < 85 { weather = .storm }
         case .storm:
-            if r < 70 { weather = .clear }
-            else if r < 85 { weather = .rain }
+            if r < 85 { weather = .clear }
+            else if r < 95 { weather = .rain }
         }
     }
 
