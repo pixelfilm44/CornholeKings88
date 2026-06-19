@@ -186,6 +186,25 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     private var choppedTreeKeys: Set<String> = []
     private let choppedTreesKey = "choppedTrees_v1"
 
+    /// GID ranges of every loaded berry tileset, captured at extract time so we can
+    /// hide only the berry sprite at a tile (not the Ground tile painted beneath it).
+    private var berryGidRanges: [ClosedRange<Int>] = []
+
+    // Berries — walking over a "berries" tile eats it (additive +0.5 growth, max 3).
+    // After the eat window the player stays giant for `growthGiantDuration`, then shrinks.
+    // While `isGiant`, enemies flee and the player takes no contact damage.
+    private var berryPositions: [CGPoint] = []
+    private var growth: Int = 0
+    private let maxGrowth: Int = 3
+    private let berryEatRadius: CGFloat = 14
+    private let growthEatWindowDuration: TimeInterval = 60.0
+    private let growthGiantDuration: TimeInterval = 60.0
+    private var growthEatRemaining: TimeInterval = 0
+    private var growthGiantRemaining: TimeInterval = 0
+    private var isGiant: Bool { growth > 0 }
+    /// Visual scale derived from growth count: 1.0, 1.5, 2.0, 2.5.
+    private var growthScale: CGFloat { 1.0 + 0.5 * CGFloat(growth) }
+
     // Tutorial state
     private var hasShownDogTutorial = false
     private var hasShownWolfTutorial = false
@@ -914,6 +933,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         extractCavePositions(from: m)
         clusterCavePositions()
         extractChestPositions(from: m)
+        extractBerryPositions(from: m)
         extractStorePositions(from: m)
         extractBridgeStonePositions(from: m)
         extractBridgeWoodPositions(from: m)
@@ -1488,7 +1508,11 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     private func extractFlashlightPositions(from m: TMXMap) {
         flashlightPositions.removeAll()
         guard let grid = m.layerGIDs["flashlight"] else { return }
-        let alreadyFound = hasFlashlight
+        // Already-collected → hide the whole layer in one step and skip detection.
+        if hasFlashlight {
+            m.layerNodes["flashlight"]?.isHidden = true
+            return
+        }
         var seen = Set<String>()
         for r in 0..<m.rows {
             for c in 0..<m.cols {
@@ -1497,12 +1521,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
                 let key = "\(r),\(c)"
                 guard !seen.contains(key) else { continue }
                 seen.insert(key)
-                let pos = m.tileCenter(col: c, row: r)
-                if alreadyFound {
-                    hideChestTile(at: pos) // same tile-hide helper works for any layer
-                } else {
-                    flashlightPositions.append(pos)
-                }
+                flashlightPositions.append(m.tileCenter(col: c, row: r))
             }
         }
         print("🔦 Found \(flashlightPositions.count) flashlight tile(s) on the map")
@@ -2533,6 +2552,126 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         return nil
     }
 
+    // MARK: - Berries
+
+    /// Scans every map layer for berry tiles (any tileset whose name contains "berries"
+    /// or "berry") and stores one world-space center per tile.
+    private func extractBerryPositions(from m: TMXMap) {
+        berryPositions.removeAll()
+        let ranges = m.tilesetRanges
+            .filter { $0.name.contains("berries") || $0.name.contains("berry") }
+            .map(\.gidRange)
+        berryGidRanges = ranges
+        guard !ranges.isEmpty else { return }
+        var seen = Set<String>()
+        for (_, grid) in m.layerGIDs {
+            for r in 0..<m.rows {
+                for c in 0..<m.cols {
+                    let gid = grid[r][c] & 0x0FFF_FFFF
+                    guard ranges.contains(where: { $0.contains(gid) }) else { continue }
+                    let key = "\(r),\(c)"
+                    if seen.insert(key).inserted {
+                        berryPositions.append(m.tileCenter(col: c, row: r))
+                    }
+                }
+            }
+        }
+        print("🫐 Found \(berryPositions.count) berry tile(s) on the map")
+    }
+
+    /// Contact-style pickup: as soon as the player overlaps a berry tile, eat it.
+    private func checkBerryProximity() {
+        guard !berryPositions.isEmpty, let p = player else { return }
+        let r2 = berryEatRadius * berryEatRadius
+        for pos in berryPositions {
+            let dx = p.position.x - pos.x
+            let dy = p.position.y - pos.y
+            if dx * dx + dy * dy <= r2 {
+                eatBerry(at: pos)
+                break  // one per frame is plenty
+            }
+        }
+    }
+
+    private func eatBerry(at worldPos: CGPoint) {
+        // Remove the tile visually and from the proximity list. Only hide sprites
+        // whose gid belongs to a berry tileset so the Ground layer underneath
+        // (grass, dirt, etc.) keeps rendering through the now-empty cell.
+        hideBerryTile(at: worldPos)
+        berryPositions.removeAll { abs($0.x - worldPos.x) < 2 && abs($0.y - worldPos.y) < 2 }
+
+        // First berry starts the 60s eat window. Subsequent berries do NOT
+        // extend it — the window started on bite #1 (per design).
+        let wasNone = (growth == 0 && growthEatRemaining == 0 && growthGiantRemaining == 0)
+        if wasNone {
+            growthEatRemaining = growthEatWindowDuration
+        }
+
+        // Cap growth at maxGrowth but still consume / hide the tile.
+        if growth < maxGrowth {
+            growth += 1
+            applyGrowthScaleAnimated()
+            showPickupText("+ BERRY", at: worldPos)
+            if growth == 1 {
+                showHintBanner("BERRIES MAKE YOU\nA GIANT! ENEMIES\nWILL FLEE")
+            }
+        } else {
+            showPickupText("+ BERRY", at: worldPos)
+        }
+        HapticsManager.shared.lightImpact()
+    }
+
+    private func tickGrowth(dt: TimeInterval) {
+        if growthEatRemaining > 0 {
+            growthEatRemaining -= dt
+            if growthEatRemaining <= 0 {
+                growthEatRemaining = 0
+                // Eat window over — start the giant-only phase.
+                growthGiantRemaining = growthGiantDuration
+            }
+        } else if growthGiantRemaining > 0 {
+            growthGiantRemaining -= dt
+            if growthGiantRemaining <= 0 {
+                growthGiantRemaining = 0
+                shrinkToNormal()
+            }
+        }
+    }
+
+    private func shrinkToNormal() {
+        guard growth > 0 else { return }
+        growth = 0
+        applyGrowthScaleAnimated()
+        showHintBanner("BACK TO NORMAL")
+    }
+
+    /// Re-applies the visual scale to the player based on current `growth`, preserving
+    /// the player's left/right facing sign. PlayerNode.applyFlip keeps the magnitude.
+    private func applyGrowthScaleAnimated() {
+        guard let p = player else { return }
+        let target = growthScale
+        let signX: CGFloat = p.xScale < 0 ? -1 : 1
+        let scaleX = SKAction.scaleX(to: target * signX, duration: 0.18)
+        let scaleY = SKAction.scaleY(to: target, duration: 0.18)
+        p.removeAction(forKey: "growthScale")
+        p.run(.group([scaleX, scaleY]), withKey: "growthScale")
+    }
+
+    /// Hide only the berry sprite at a given world position, leaving any tile
+    /// painted on a different layer (Ground, etc.) at the same cell visible.
+    private func hideBerryTile(at worldPos: CGPoint) {
+        guard let m = map, !berryGidRanges.isEmpty else { return }
+        for (_, layerNode) in m.layerNodes {
+            for child in layerNode.children {
+                guard abs(child.position.x - worldPos.x) < 2,
+                      abs(child.position.y - worldPos.y) < 2,
+                      let gid = child.userData?["gid"] as? Int,
+                      berryGidRanges.contains(where: { $0.contains(gid) }) else { continue }
+                child.isHidden = true
+            }
+        }
+    }
+
     private func hideChestTile(at worldPos: CGPoint) {
         guard let m = map else { return }
         for (_, layerNode) in m.layerNodes {
@@ -2549,8 +2688,10 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     private func collectFlashlight() {
         guard let pos = nearbyFlashlightPosition else { return }
         UserDefaults.standard.set(true, forKey: flashlightFoundKey)
-        hideChestTile(at: pos)
-        flashlightPositions.removeAll { abs($0.x - pos.x) < 2 && abs($0.y - pos.y) < 2 }
+        // Hide the entire flashlight layer — any decorative sibling tiles
+        // (multi-tile flashlight art) disappear together with the pickup.
+        map?.layerNodes["flashlight"]?.isHidden = true
+        flashlightPositions.removeAll()
         nearbyFlashlightPosition = nil
         showPickupText("+ FLASHLIGHT", at: pos)
         showHintBanner("FLASHLIGHT FOUND!\nLIGHTS YOUR WAY\nAT NIGHT")
@@ -3448,6 +3589,8 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
             updateCamera()
             trackVisitedCell()
             checkBoardProximity()
+            checkBerryProximity()
+            tickGrowth(dt: dt)
             tickBuildMode()
             tickWeather(dt: dt)
         }
@@ -3745,6 +3888,13 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
             }
         }
 
+        if isGiant {
+            // Player is a berry-fueled giant — every dog/wolf turns tail.
+            for dog in dogs where !dog.isFleeing {
+                dog.startFleeing(awayFrom: player.position)
+                dogsTouchingPlayer.remove(ObjectIdentifier(dog))
+            }
+        }
         for dog in dogs {
             let biting = dogsTouchingPlayer.contains(ObjectIdentifier(dog))
             dog.update(dt: dt,
@@ -3752,6 +3902,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
                        playerInTree: player.isInTree,
                        isBiting: biting)
         }
+        if isGiant { panicEnemiesAwayFromGiant() }
         for dog in dogs where !dog.isFleeing && dog.biscuitTarget == nil && !player.isInTree {
             if checkStuckAndFlee(node: dog, dt: dt) {
                 dog.startFleeing(awayFrom: player.position)
@@ -3766,6 +3917,44 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
                 return false
             }
             return true
+        }
+    }
+
+    /// While the player is a berry-fueled giant, any dog/wolf within `panicRadius`
+    /// is shoved away from the player at `panicSpeed` (well above the player's
+    /// 85 unit/s move speed) so a collision is physically impossible. Velocity is
+    /// overridden each frame so this beats the dog's own steering logic.
+    private func panicEnemiesAwayFromGiant() {
+        let panicRadius: CGFloat = 110
+        let panicSpeed: CGFloat = 220
+        let px = player.position.x
+        let py = player.position.y
+        for dog in dogs {
+            let dx = dog.position.x - px
+            let dy = dog.position.y - py
+            let d  = hypot(dx, dy)
+            guard d < panicRadius else { continue }
+            let dist = max(d, 0.001)
+            dog.physicsBody?.velocity = CGVector(dx: dx / dist * panicSpeed,
+                                                 dy: dy / dist * panicSpeed)
+            dog.xScale = dx >= 0 ? 1 : -1
+            dogsTouchingPlayer.remove(ObjectIdentifier(dog))
+        }
+    }
+
+    private func panicBulliesAwayFromGiant() {
+        let panicRadius: CGFloat = 110
+        let panicSpeed: CGFloat = 220
+        let px = player.position.x
+        let py = player.position.y
+        for bully in bullies {
+            let dx = bully.position.x - px
+            let dy = bully.position.y - py
+            let d  = hypot(dx, dy)
+            guard d < panicRadius else { continue }
+            let dist = max(d, 0.001)
+            bully.physicsBody?.velocity = CGVector(dx: dx / dist * panicSpeed,
+                                                   dy: dy / dist * panicSpeed)
         }
     }
 
@@ -3919,11 +4108,17 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
             spawnBully()
         }
 
+        if isGiant {
+            for bully in bullies where !bully.isFleeingFromBag {
+                bully.startFleeing(awayFrom: player.position)
+            }
+        }
         for bully in bullies {
             bully.update(dt: dt,
                          playerPosition: player.position,
                          playerInTree: player.isInTree)
         }
+        if isGiant { panicBulliesAwayFromGiant() }
         for bully in bullies where !bully.isFleeingFromBag && !bully.isEngaged && !player.isInTree {
             if checkStuckAndFlee(node: bully, dt: dt) {
                 bully.startFleeing(awayFrom: player.position)
@@ -4056,6 +4251,8 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
               damageCooldown == 0,
               !dogsTouchingPlayer.isEmpty,
               let p = player, !p.isInTree else { return }
+        // Berry-fueled giants are too scary to bite.
+        if isGiant { return }
         bite()
     }
 
