@@ -483,6 +483,8 @@ final class CornholeMiniGameScene: SKScene {
         let flightFrames = 2.0 * vzInitial / gravityPerFrame  // ≈ 100 frames
         let idealSwipe   = size.height * 0.38
         powerScale = distToHole / (flightFrames * idealSwipe)
+        // Player-tunable: gentler flicks count when the multiplier is > 1.
+        powerScale *= ThrowSensitivityManager.shared.multiplier
 
         // Crow intercept corridor: 60% of the way from throw line to board's lower edge
         crowY = throwLineY + (boardY - boardHalfH - throwLineY) * 0.60

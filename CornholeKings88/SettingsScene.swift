@@ -7,6 +7,23 @@ final class SettingsScene: SKScene {
     private var ribbonBottomY: CGFloat = 0   // scene-Y of bottom edge of the top ribbon
     private var confirmLabel: SKLabelNode?
 
+    // Throw-force slider state
+    private var sliderTrack: SKSpriteNode?
+    private var sliderFill: SKSpriteNode?
+    private var sliderThumb: SKShapeNode?
+    private var sliderValueLabel: SKLabelNode?
+    private var sliderMinX: CGFloat = 0
+    private var sliderMaxX: CGFloat = 0
+    private var sliderTrackY: CGFloat = 0
+    private var isDraggingSlider = false
+
+    // Style constants (Bit-Wood Brawler)
+    private let dsPrimary = SKColor(red: 0.102, green: 0.039, blue: 0.016, alpha: 1) // #1a0a04
+    private let dsGold    = SKColor(red: 0.941, green: 0.753, blue: 0.376, alpha: 1) // #f0c060
+    private let dsGoldDim = SKColor(red: 0.78, green: 0.57, blue: 0.16, alpha: 1)
+    private let dsCream   = SKColor(red: 1.0, green: 0.89, blue: 0.69, alpha: 1)
+    private let dsMuted   = SKColor(white: 0.50, alpha: 1)
+
     // MARK: - didMove
     override func didMove(to view: SKView) {
         anchorPoint = CGPoint(x: 0.5, y: 0.5)
@@ -16,8 +33,7 @@ final class SettingsScene: SKScene {
         backgroundColor = SKColor(red: 0.02, green: 0.04, blue: 0.02, alpha: 1)
 
         setupTopStrip()
-        setupPlaque()
-        setupOptions()
+        setupContent()
         setupFooter()
         setupEmbers()
         addCrtOverlay()
@@ -25,9 +41,6 @@ final class SettingsScene: SKScene {
 
     // MARK: - Top ribbon (DS standard: #1a0a04 + 2px gold border, safe-area aware)
     private func setupTopStrip() {
-        let dsPrimary = SKColor(red: 0.102, green: 0.039, blue: 0.016, alpha: 1) // #1a0a04
-        let dsGold    = SKColor(red: 0.941, green: 0.753, blue: 0.376, alpha: 1) // #f0c060
-
         let topInset  = view?.safeAreaInsets.top ?? 0
         let topH: CGFloat = 48
         let totalTopH = topH + topInset
@@ -46,18 +59,17 @@ final class SettingsScene: SKScene {
 
         let contentY = H / 2 - topInset - topH / 2
         let back = SKSpriteNode(imageNamed: "closeIcon")
-        back.size             = CGSize(width: 22, height: 22)
+        back.size = CGSize(width: 22, height: 22)
         back.texture?.filteringMode = .nearest
         back.position  = CGPoint(x: W / 2 - 22, y: contentY)
         back.zPosition = 12
         back.name      = "back"
         addChild(back)
 
-        let font = "PressStart2P-Regular"
-        let title = SKLabelNode(fontNamed: font)
+        let title = SKLabelNode(fontNamed: "PressStart2P-Regular")
         title.text = "SETTINGS"
-        title.fontSize = 8
-        title.fontColor = SKColor(red: 0.941, green: 0.753, blue: 0.376, alpha: 1)
+        title.fontSize = 10
+        title.fontColor = dsGold
         title.horizontalAlignmentMode = .center
         title.verticalAlignmentMode   = .center
         title.position  = CGPoint(x: 0, y: contentY)
@@ -65,122 +77,253 @@ final class SettingsScene: SKScene {
         addChild(title)
     }
 
-    // MARK: - Wooden plaque header
-    private func setupPlaque() {
-        let font = "PressStart2P-Regular"
+    // MARK: - Sections + cards
+    private func setupContent() {
+        let cardW = min(W * 0.86, 320)
+        // Start a comfortable gap below the ribbon.
+        var y = ribbonBottomY - 22
 
-        let plaqueW = min(W * 0.72, 240)
-        let plaqueH: CGFloat = 52
-        let plaqueY = ribbonBottomY - 16 - plaqueH / 2
+        // GAMEPLAY section
+        y = addSectionHeader("GAMEPLAY", atTopY: y, width: cardW)
+        y = addThrowForceCard(topY: y, width: cardW)
+        y = addCard(label: "BASEBALL AI",
+                    sub: "tune tom & jen difficulty",
+                    action: "TUNE",
+                    name: "tuneBaseball",
+                    topY: y, width: cardW, height: 60)
 
-        let plaque = SKSpriteNode(texture: makePlaqueTexture(size: CGSize(width: plaqueW, height: plaqueH)),
-                                  size: CGSize(width: plaqueW, height: plaqueH))
-        plaque.position = CGPoint(x: 0, y: plaqueY)
-        plaque.zPosition = 10
-        addChild(plaque)
+        // TUTORIALS section
+        y -= 14
+        y = addSectionHeader("TUTORIALS", atTopY: y, width: cardW)
+        y = addCard(label: "REPLAY TUTORIALS",
+                    sub: "show intro again next play",
+                    action: "RESET",
+                    name: "resetTutorials",
+                    topY: y, width: cardW, height: 60)
+    }
 
-        let rv: CGFloat = plaqueH / 2 - 6
-        let rh: CGFloat = plaqueW / 2 - 6
-        for (dx, dy) in [(-rh, rv), (rh, rv), (-rh, -rv), (rh, -rv)] {
-            addRivet(at: CGPoint(x: dx, y: plaqueY + dy), radius: 3.5, z: 15)
-        }
-
-        let titleFS = min(13, plaqueW / 14)
-        let lbl = SKLabelNode(fontNamed: font)
-        lbl.text = "OPTIONS"
-        lbl.fontSize = titleFS
-        lbl.fontColor = SKColor(red: 0.78, green: 0.57, blue: 0.16, alpha: 1)
-        lbl.horizontalAlignmentMode = .center
-        lbl.verticalAlignmentMode = .center
-        lbl.position = CGPoint(x: 0, y: plaqueY)
-        lbl.zPosition = 11
+    /// Draws a left-aligned, dim-gold section header above the cards.
+    /// Returns the Y below it (top edge for the next card).
+    @discardableResult
+    private func addSectionHeader(_ text: String, atTopY topY: CGFloat, width: CGFloat) -> CGFloat {
+        let lbl = SKLabelNode(fontNamed: "PressStart2P-Regular")
+        lbl.text = text
+        lbl.fontSize = 8
+        lbl.fontColor = dsGoldDim
+        lbl.horizontalAlignmentMode = .left
+        lbl.verticalAlignmentMode   = .top
+        lbl.position  = CGPoint(x: -width / 2, y: topY)
+        lbl.zPosition = 20
         addChild(lbl)
+
+        // Thin gold underline running the card width.
+        let underY = topY - 12
+        let line = SKSpriteNode(color: dsGoldDim.withAlphaComponent(0.55),
+                                size: CGSize(width: width, height: 1))
+        line.position  = CGPoint(x: 0, y: underY)
+        line.zPosition = 20
+        addChild(line)
+
+        return underY - 12  // gap before first card
     }
 
-    // MARK: - Option cards
-    private func setupOptions() {
-        let plaqueH: CGFloat = 52
-        let topContentY = ribbonBottomY - 16 - plaqueH - 20
-
-        let cardW = min(W * 0.84, 300)
-        let cardH: CGFloat = 60
-
-        let cardY = topContentY - cardH / 2
-        drawCard(label: "TUTORIALS",
-                 sub: "show again on next play",
-                 action: "RESET",
-                 name: "resetTutorials",
-                 at: CGPoint(x: 0, y: cardY), width: cardW, height: cardH)
-
-        drawCard(label: "BASEBALL AI",
-                 sub: "tune tom & jen difficulty",
-                 action: "TUNE",
-                 name: "tuneBaseball",
-                 at: CGPoint(x: 0, y: cardY - cardH - 16), width: cardW, height: cardH)
-    }
-
-    private func drawCard(label: String, sub: String, action: String, name: String,
-                          at center: CGPoint, width: CGFloat, height: CGFloat) {
-        let font = "PressStart2P-Regular"
+    /// Generic action card — label + sub-text + right-side action word.
+    /// `topY` is the top edge; returns the next available `topY` below the card.
+    @discardableResult
+    private func addCard(label: String, sub: String, action: String, name: String,
+                         topY: CGFloat, width: CGFloat, height: CGFloat) -> CGFloat {
+        let center = CGPoint(x: 0, y: topY - height / 2)
 
         let tex = makeCardTexture(size: CGSize(width: width, height: height))
         let card = SKSpriteNode(texture: tex, size: CGSize(width: width, height: height))
-        card.position = center
+        card.position  = center
         card.zPosition = 20
-        card.name = name
+        card.name      = name
         addChild(card)
 
         addRivet(at: CGPoint(x: center.x - width / 2 + 9, y: center.y + height / 2 - 9), radius: 2.5, z: 21)
         addRivet(at: CGPoint(x: center.x - width / 2 + 9, y: center.y - height / 2 + 9), radius: 2.5, z: 21)
 
-        let lbl = SKLabelNode(fontNamed: font)
+        let lbl = SKLabelNode(fontNamed: "PressStart2P-Regular")
         lbl.text = label
         lbl.fontSize = min(8, width / 32)
-        lbl.fontColor = SKColor(red: 1.0, green: 0.89, blue: 0.69, alpha: 1)
+        lbl.fontColor = dsCream
         lbl.horizontalAlignmentMode = .left
-        lbl.verticalAlignmentMode = .center
-        lbl.position = CGPoint(x: center.x - width / 2 + 22, y: center.y + height * 0.18)
+        lbl.verticalAlignmentMode   = .center
+        lbl.position  = CGPoint(x: center.x - width / 2 + 22, y: center.y + height * 0.18)
         lbl.zPosition = 21
         lbl.name = name
         addChild(lbl)
 
-        let subLbl = SKLabelNode(fontNamed: font)
+        let subLbl = SKLabelNode(fontNamed: "PressStart2P-Regular")
         subLbl.text = sub
         subLbl.fontSize = min(5, width / 52)
-        subLbl.fontColor = SKColor(white: 0.45, alpha: 1)
+        subLbl.fontColor = dsMuted
         subLbl.horizontalAlignmentMode = .left
-        subLbl.verticalAlignmentMode = .center
-        subLbl.position = CGPoint(x: center.x - width / 2 + 22, y: center.y - height * 0.18)
+        subLbl.verticalAlignmentMode   = .center
+        subLbl.position  = CGPoint(x: center.x - width / 2 + 22, y: center.y - height * 0.18)
         subLbl.zPosition = 21
         subLbl.name = name
         addChild(subLbl)
 
-        let actionLbl = SKLabelNode(fontNamed: font)
+        let actionLbl = SKLabelNode(fontNamed: "PressStart2P-Regular")
         actionLbl.text = action
         actionLbl.fontSize = min(9, width / 28)
-        actionLbl.fontColor = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 1)
+        actionLbl.fontColor = dsGold
         actionLbl.horizontalAlignmentMode = .right
-        actionLbl.verticalAlignmentMode = .center
-        actionLbl.position = CGPoint(x: center.x + width / 2 - 22, y: center.y)
+        actionLbl.verticalAlignmentMode   = .center
+        actionLbl.position  = CGPoint(x: center.x + width / 2 - 22, y: center.y)
         actionLbl.zPosition = 21
         actionLbl.name = name
         addChild(actionLbl)
-        // Only the tutorials card drives the shared "DONE!" confirmation flash.
+
         if name == "resetTutorials" { confirmLabel = actionLbl }
+
+        return center.y - height / 2 - 14
+    }
+
+    /// Throw-force slider card — wider/taller than the action cards.
+    /// `topY` is the top edge; returns the next available `topY` below the card.
+    @discardableResult
+    private func addThrowForceCard(topY: CGFloat, width: CGFloat) -> CGFloat {
+        let height: CGFloat = 96
+        let center = CGPoint(x: 0, y: topY - height / 2)
+
+        let tex = makeCardTexture(size: CGSize(width: width, height: height))
+        let card = SKSpriteNode(texture: tex, size: CGSize(width: width, height: height))
+        card.position  = center
+        card.zPosition = 20
+        card.name      = "throwForceCard"
+        addChild(card)
+
+        addRivet(at: CGPoint(x: center.x - width / 2 + 9, y: center.y + height / 2 - 9), radius: 2.5, z: 21)
+        addRivet(at: CGPoint(x: center.x - width / 2 + 9, y: center.y - height / 2 + 9), radius: 2.5, z: 21)
+        addRivet(at: CGPoint(x: center.x + width / 2 - 9, y: center.y + height / 2 - 9), radius: 2.5, z: 21)
+        addRivet(at: CGPoint(x: center.x + width / 2 - 9, y: center.y - height / 2 + 9), radius: 2.5, z: 21)
+
+        // Header row: title + live value tag (EASY/NORMAL/HARD)
+        let titleY = center.y + height * 0.30
+        let title = SKLabelNode(fontNamed: "PressStart2P-Regular")
+        title.text = "THROW FORCE"
+        title.fontSize = min(8, width / 32)
+        title.fontColor = dsCream
+        title.horizontalAlignmentMode = .left
+        title.verticalAlignmentMode   = .center
+        title.position  = CGPoint(x: center.x - width / 2 + 22, y: titleY)
+        title.zPosition = 21
+        addChild(title)
+
+        let value = SKLabelNode(fontNamed: "PressStart2P-Regular")
+        value.fontSize = min(9, width / 28)
+        value.fontColor = dsGold
+        value.horizontalAlignmentMode = .right
+        value.verticalAlignmentMode   = .center
+        value.position  = CGPoint(x: center.x + width / 2 - 22, y: titleY)
+        value.zPosition = 21
+        value.text = ThrowSensitivityManager.shared.label
+        addChild(value)
+        sliderValueLabel = value
+
+        // Sub-text
+        let sub = SKLabelNode(fontNamed: "PressStart2P-Regular")
+        sub.text = "swipe sensitivity for throws"
+        sub.fontSize = min(5, width / 52)
+        sub.fontColor = dsMuted
+        sub.horizontalAlignmentMode = .left
+        sub.verticalAlignmentMode   = .center
+        sub.position  = CGPoint(x: center.x - width / 2 + 22, y: titleY - 14)
+        sub.zPosition = 21
+        addChild(sub)
+
+        // Track (dark recessed channel)
+        let trackInset: CGFloat = 28
+        let trackW = width - trackInset * 2
+        sliderMinX = center.x - trackW / 2
+        sliderMaxX = center.x + trackW / 2
+        sliderTrackY = center.y - height * 0.18
+
+        let track = SKSpriteNode(texture: makeTrackTexture(size: CGSize(width: trackW, height: 8)),
+                                 size: CGSize(width: trackW, height: 8))
+        track.position  = CGPoint(x: center.x, y: sliderTrackY)
+        track.zPosition = 21
+        track.name      = "throwSliderTrack"
+        addChild(track)
+        sliderTrack = track
+
+        // Gold fill from left up to the thumb.
+        let fill = SKSpriteNode(color: dsGoldDim, size: CGSize(width: 1, height: 4))
+        fill.anchorPoint = CGPoint(x: 0, y: 0.5)
+        fill.position    = CGPoint(x: sliderMinX, y: sliderTrackY)
+        fill.zPosition   = 22
+        addChild(fill)
+        sliderFill = fill
+
+        // Tick marks for HARD / NORMAL / EASY positions.
+        for frac in [0.0, 0.5, 1.0] {
+            let tick = SKSpriteNode(color: dsGoldDim.withAlphaComponent(0.8),
+                                    size: CGSize(width: 2, height: 12))
+            tick.position  = CGPoint(x: sliderMinX + CGFloat(frac) * trackW, y: sliderTrackY)
+            tick.zPosition = 22
+            addChild(tick)
+        }
+
+        // End labels
+        let leftLbl = SKLabelNode(fontNamed: "PressStart2P-Regular")
+        leftLbl.text = "HARD"
+        leftLbl.fontSize = 5
+        leftLbl.fontColor = dsMuted
+        leftLbl.horizontalAlignmentMode = .center
+        leftLbl.verticalAlignmentMode   = .top
+        leftLbl.position  = CGPoint(x: sliderMinX, y: sliderTrackY - 12)
+        leftLbl.zPosition = 22
+        addChild(leftLbl)
+
+        let midLbl = SKLabelNode(fontNamed: "PressStart2P-Regular")
+        midLbl.text = "NORMAL"
+        midLbl.fontSize = 5
+        midLbl.fontColor = dsMuted
+        midLbl.horizontalAlignmentMode = .center
+        midLbl.verticalAlignmentMode   = .top
+        midLbl.position  = CGPoint(x: center.x, y: sliderTrackY - 12)
+        midLbl.zPosition = 22
+        addChild(midLbl)
+
+        let rightLbl = SKLabelNode(fontNamed: "PressStart2P-Regular")
+        rightLbl.text = "EASY"
+        rightLbl.fontSize = 5
+        rightLbl.fontColor = dsMuted
+        rightLbl.horizontalAlignmentMode = .center
+        rightLbl.verticalAlignmentMode   = .top
+        rightLbl.position  = CGPoint(x: sliderMaxX, y: sliderTrackY - 12)
+        rightLbl.zPosition = 22
+        addChild(rightLbl)
+
+        // Thumb (gold rounded square)
+        let thumb = SKShapeNode(rectOf: CGSize(width: 16, height: 18), cornerRadius: 3)
+        thumb.fillColor   = dsGold
+        thumb.strokeColor = SKColor(white: 0.12, alpha: 1)
+        thumb.lineWidth   = 1.5
+        thumb.zPosition   = 24
+        thumb.name        = "throwSliderThumb"
+        addChild(thumb)
+        sliderThumb = thumb
+
+        positionSlider(toNormalized: ThrowSensitivityManager.shared.normalized)
+
+        return center.y - height / 2 - 14
     }
 
     // MARK: - Footer
     private func setupFooter() {
-        let font = "PressStart2P-Regular"
         let y = -H / 2 + 18
 
-        let copy = SKLabelNode(fontNamed: font)
+        let copy = SKLabelNode(fontNamed: "PressStart2P-Regular")
         copy.text = "\u{00A9} 2026 CK88"
         copy.fontSize = min(5, W / 60)
         copy.fontColor = SKColor(white: 0.40, alpha: 1)
         copy.horizontalAlignmentMode = .left
         copy.verticalAlignmentMode = .center
-        copy.position = CGPoint(x: -W / 2 + 12, y: y)
+        copy.position  = CGPoint(x: -W / 2 + 12, y: y)
         copy.zPosition = 10
         addChild(copy)
     }
@@ -238,6 +381,14 @@ final class SettingsScene: SKScene {
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         guard let touch = touches.first else { return }
         let loc = touch.location(in: self)
+
+        // Slider drag — anywhere along the track (including thumb) starts a drag.
+        if isOnSliderTrack(loc) {
+            isDraggingSlider = true
+            updateSlider(toX: loc.x)
+            return
+        }
+
         let hit = nodes(at: loc).first(where: { $0.name != nil })
         switch hit?.name {
         case "back":
@@ -250,6 +401,42 @@ final class SettingsScene: SKScene {
         default:
             break
         }
+    }
+
+    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
+        guard isDraggingSlider, let touch = touches.first else { return }
+        updateSlider(toX: touch.location(in: self).x)
+    }
+
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+        isDraggingSlider = false
+    }
+
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
+        isDraggingSlider = false
+    }
+
+    private func isOnSliderTrack(_ loc: CGPoint) -> Bool {
+        guard sliderTrack != nil else { return false }
+        // Generous vertical hit area so the player can grab the thumb easily.
+        let dy = abs(loc.y - sliderTrackY)
+        let withinX = loc.x >= sliderMinX - 16 && loc.x <= sliderMaxX + 16
+        return dy < 22 && withinX
+    }
+
+    private func updateSlider(toX rawX: CGFloat) {
+        let clamped = max(sliderMinX, min(sliderMaxX, rawX))
+        let norm = (clamped - sliderMinX) / (sliderMaxX - sliderMinX)
+        ThrowSensitivityManager.shared.normalized = norm
+        positionSlider(toNormalized: norm)
+    }
+
+    private func positionSlider(toNormalized norm: CGFloat) {
+        let x = sliderMinX + norm * (sliderMaxX - sliderMinX)
+        sliderThumb?.position = CGPoint(x: x, y: sliderTrackY)
+        let fillW = max(1, x - sliderMinX)
+        sliderFill?.size = CGSize(width: fillW, height: 4)
+        sliderValueLabel?.text = ThrowSensitivityManager.shared.label
     }
 
     private func openBaseballTuning() {
@@ -270,11 +457,13 @@ final class SettingsScene: SKScene {
     private func flashConfirm() {
         guard let lbl = confirmLabel else { return }
         let green = SKColor(red: 0.40, green: 0.85, blue: 0.40, alpha: 1)
-        let gold  = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 1)
         lbl.run(.sequence([
             .run { lbl.text = "DONE!"; lbl.fontColor = green },
             .wait(forDuration: 1.0),
-            .run { lbl.text = "RESET"; lbl.fontColor = gold },
+            .run { [weak self] in
+                lbl.text = "RESET"
+                lbl.fontColor = self?.dsGold ?? .yellow
+            },
         ]))
     }
 
@@ -288,43 +477,6 @@ final class SettingsScene: SKScene {
         r.position = pos
         r.zPosition = z
         addChild(r)
-    }
-
-    private func makePlaqueTexture(size: CGSize) -> SKTexture {
-        let fmt = UIGraphicsImageRendererFormat(); fmt.scale = 1
-        let img = UIGraphicsImageRenderer(size: size, format: fmt).image { ctx in
-            let c = ctx.cgContext
-            let path = UIBezierPath(roundedRect: CGRect(origin: .zero, size: size), cornerRadius: 4)
-            c.addPath(path.cgPath); c.clip()
-
-            let space = CGColorSpaceCreateDeviceRGB()
-            let woodColors = [
-                UIColor(red: 0.48, green: 0.31, blue: 0.18, alpha: 1).cgColor,
-                UIColor(red: 0.36, green: 0.20, blue: 0.09, alpha: 1).cgColor,
-                UIColor(red: 0.24, green: 0.12, blue: 0.03, alpha: 1).cgColor,
-            ] as CFArray
-            let grad = CGGradient(colorsSpace: space, colors: woodColors, locations: [0, 0.6, 1.0])!
-            c.drawLinearGradient(grad, start: .zero, end: CGPoint(x: 0, y: size.height), options: [])
-
-            c.setFillColor(UIColor(white: 0, alpha: 0.18).cgColor)
-            var x: CGFloat = 12
-            while x < size.width {
-                c.fill(CGRect(x: x, y: 0, width: 2, height: size.height))
-                x += 14
-            }
-
-            c.setFillColor(UIColor(white: 1, alpha: 0.10).cgColor)
-            c.fill(CGRect(x: 0, y: 0, width: size.width, height: 1))
-
-            c.setFillColor(UIColor(white: 0, alpha: 0.40).cgColor)
-            c.fill(CGRect(x: 0, y: size.height - 5, width: size.width, height: 5))
-
-            c.setStrokeColor(UIColor(red: 0.16, green: 0.09, blue: 0.03, alpha: 1).cgColor)
-            c.setLineWidth(3)
-            let border = UIBezierPath(roundedRect: CGRect(x: 1.5, y: 1.5, width: size.width - 3, height: size.height - 3), cornerRadius: 4)
-            c.addPath(border.cgPath); c.strokePath()
-        }
-        let t = SKTexture(image: img); t.filteringMode = .nearest; return t
     }
 
     private func makeCardTexture(size: CGSize) -> SKTexture {
@@ -356,6 +508,24 @@ final class SettingsScene: SKScene {
             c.setLineWidth(2)
             let border = UIBezierPath(roundedRect: CGRect(x: 1, y: 1, width: size.width - 2, height: size.height - 2), cornerRadius: 5)
             c.addPath(border.cgPath); c.strokePath()
+        }
+        let t = SKTexture(image: img); t.filteringMode = .nearest; return t
+    }
+
+    private func makeTrackTexture(size: CGSize) -> SKTexture {
+        let fmt = UIGraphicsImageRendererFormat(); fmt.scale = 1
+        let img = UIGraphicsImageRenderer(size: size, format: fmt).image { ctx in
+            let c = ctx.cgContext
+            let path = UIBezierPath(roundedRect: CGRect(origin: .zero, size: size), cornerRadius: 3)
+            c.addPath(path.cgPath); c.clip()
+            c.setFillColor(UIColor(white: 0.06, alpha: 1).cgColor)
+            c.fill(CGRect(origin: .zero, size: size))
+            // Subtle top inner-shadow
+            c.setFillColor(UIColor(white: 0, alpha: 0.55).cgColor)
+            c.fill(CGRect(x: 0, y: 0, width: size.width, height: 1))
+            c.setStrokeColor(UIColor(white: 0.16, alpha: 1).cgColor)
+            c.setLineWidth(1)
+            c.stroke(CGRect(x: 0.5, y: 0.5, width: size.width - 1, height: size.height - 1))
         }
         let t = SKTexture(image: img); t.filteringMode = .nearest; return t
     }

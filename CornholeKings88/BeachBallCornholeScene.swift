@@ -251,6 +251,7 @@ final class BeachBallCornholeScene: SKScene {
         let flightFrames = 2.0 * vzInitial / gravity
         let idealSwipe   = H * 0.38
         powerScale = distToHole / (flightFrames * idealSwipe)
+        powerScale *= ThrowSensitivityManager.shared.multiplier
 
         targetRange = boardHalfW * 1.20   // slightly wider than the board
         targetSpeed = W * 0.68            // world units per second

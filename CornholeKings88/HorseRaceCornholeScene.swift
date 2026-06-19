@@ -371,6 +371,7 @@ final class HorseRaceCornholeScene: SKScene {
         let flightFrames = 2.0 * vzInitial / gravityPerFrame   // ≈ 60
         let idealSwipe   = H * 0.34
         powerScale = distToMid / (flightFrames * idealSwipe)
+        powerScale *= ThrowSensitivityManager.shared.multiplier
 
         // Throw-line indicator oscillation
         targetRange = boardHalfW * 1.30

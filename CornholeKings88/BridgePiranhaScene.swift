@@ -943,9 +943,11 @@ final class BridgePiranhaScene: SKScene {
         guard let start = touchStart else { return }
         touchStart = nil
 
-        // Require an upward swipe of at least 15 pts (dy > 0 = up in SpriteKit coords)
+        // Require an upward swipe of at least ~15 pts (dy > 0 = up in SpriteKit coords).
+        // Scaled by throw sensitivity: Easy → smaller threshold (gentler flick counts).
         let dy = end.y - start.y
-        guard dy > 15 else { return }
+        let minSwipe: CGFloat = 15.0 / ThrowSensitivityManager.shared.multiplier
+        guard dy > minSwipe else { return }
 
         throwBag()
     }
