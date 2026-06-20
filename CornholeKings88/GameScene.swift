@@ -176,6 +176,14 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     /// Fallen-chest sprites keyed by landing position ("<intX>,<intY>"),
     /// so openChest can remove them when the chest is opened.
     private var fallenChestNodes: [String: SKSpriteNode] = [:]
+    /// High-area positions ("<intX>,<intY>") that have already been knocked
+    /// down with the lance. Persisted so the mountain tile stays gone across
+    /// app launches and the player can't re-knock the same chest.
+    private let knockedHighKeysKey = "knockedHighKeys_v1"
+    private var knockedHighKeys: Set<String> {
+        get { Set(UserDefaults.standard.stringArray(forKey: knockedHighKeysKey) ?? []) }
+        set { UserDefaults.standard.set(Array(newValue), forKey: knockedHighKeysKey) }
+    }
 
     // Axe pickup — any non-zero tile on an "ax" / "axe" layer. One-time pickup; persisted via `axeEarnedKey`.
     private var axPositions: [CGPoint] = []
@@ -1384,6 +1392,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         guard !chestRanges.isEmpty else { return }
 
         var seen = Set<String>()
+        let knocked = knockedHighKeys
         for (layerName, grid) in m.layerGIDs {
             // The axe pickup is drawn with a chest tile on its own "ax" layer —
             // it's handled by extractAxPositions, never as a treasure chest.
@@ -1397,6 +1406,13 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
                     guard !seen.contains(key) else { continue }
                     seen.insert(key)
                     let pos = m.tileCenter(col: c, row: r)
+                    let posKey = "\(Int(pos.x)),\(Int(pos.y))"
+                    if knocked.contains(posKey) {
+                        // Already knocked off this mountain ledge in a prior
+                        // session — keep the tile hidden and skip detection.
+                        hideChestTile(at: pos)
+                        continue
+                    }
                     if isOnHighArea(row: r, col: c, in: m) {
                         highChestPositions.append(pos)
                     } else {
@@ -1588,6 +1604,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         highAxKeys.removeAll()
         // Skip if the player already owns the axe — the pickup tile should disappear.
         let earned = UserDefaults.standard.bool(forKey: axeEarnedKey)
+        let knocked = knockedHighKeys
         var seen = Set<String>()
         for (layerName, grid) in m.layerGIDs {
             let lname = layerName.lowercased()
@@ -1600,8 +1617,15 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
                     guard !seen.contains(key) else { continue }
                     seen.insert(key)
                     let pos = m.tileCenter(col: c, row: r)
+                    let posKey = "\(Int(pos.x)),\(Int(pos.y))"
                     if earned {
                         // Already collected — hide the tile permanently.
+                        hideChestTile(at: pos)
+                    } else if knocked.contains(posKey) {
+                        // Knocked off the mountain in a prior session but not
+                        // collected. Hide the ledge tile so it can't be re-knocked;
+                        // the player can still find the fallen axe on the ground
+                        // once we re-add it via a future load if needed.
                         hideChestTile(at: pos)
                     } else if isOnHighArea(row: r, col: c, in: m) {
                         // On a high area — must be knocked down with the lance
@@ -1629,6 +1653,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
             .map(\.gidRange)
         guard !ranges.isEmpty else { return }
         let collected = collectedTorchKeys
+        let knocked = knockedHighKeys
         var seen = Set<String>()
         for (_, grid) in m.layerGIDs {
             for r in 0..<m.rows {
@@ -1640,8 +1665,9 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
                     seen.insert(key)
                     let pos = m.tileCenter(col: c, row: r)
                     let posKey = "\(Int(pos.x)),\(Int(pos.y))"
-                    if collected.contains(posKey) {
-                        // Already picked up on a previous run — hide and skip.
+                    if collected.contains(posKey) || knocked.contains(posKey) {
+                        // Already picked up or knocked off on a previous run —
+                        // hide and skip so it can't be re-knocked.
                         hideChestTile(at: pos)
                         continue
                     }
@@ -2196,6 +2222,14 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         guard let chestPos = nearbyHighChestPosition else { return }
         nearbyHighChestPosition = nil
         highChestPositions.removeAll { abs($0.x - chestPos.x) < 1 && abs($0.y - chestPos.y) < 1 }
+        // Persist so the mountain tile stays gone after relaunch and can't be
+        // re-knocked. Axe/torch identity stays with the in-flight chest via
+        // highAxKeys/highTorchKeys (set when extracted this session); their own
+        // collection flags (axeEarnedKey, collectedTorchKeys) handle persistence
+        // once the player picks the fallen item up.
+        var keys = knockedHighKeys
+        keys.insert("\(Int(chestPos.x)),\(Int(chestPos.y))")
+        knockedHighKeys = keys
 
         // Face the ledge and swing.
         let dir = CGVector(dx: chestPos.x - player.position.x,
