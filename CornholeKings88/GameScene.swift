@@ -199,6 +199,9 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     private let berryEatRadius: CGFloat = 14
     private let growthEatWindowDuration: TimeInterval = 60.0
     private let growthGiantDuration: TimeInterval = 60.0
+    /// While `isGiant`, a tree is stomped only when the player actually walks
+    /// onto its trunk tile — roughly one tile-half of overlap.
+    private let giantSmashRadius: CGFloat = 6
     private var growthEatRemaining: TimeInterval = 0
     private var growthGiantRemaining: TimeInterval = 0
     private var isGiant: Bool { growth > 0 }
@@ -1079,8 +1082,11 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     /// Scans every map layer for tree tiles and stores one world-space center per tile.
     private func extractTreePositions(from m: TMXMap) {
         treePositions.removeAll()
+        // Any tileset whose lowercased basename contains "tree" but NOT "apple"
+        // (apple trees have their own list for the Spirit cornhole trigger).
+        // This drives tree climbing, rain shelter, and giant-stomp smashing.
         let treeRanges = m.tilesetRanges
-            .filter { $0.name.contains("big_oak_tree") }
+            .filter { $0.name.contains("tree") && !$0.name.contains("apple") }
             .map(\.gidRange)
         guard !treeRanges.isEmpty else {
             print("🌳 No tree tilesets found on the map")
@@ -2648,6 +2654,92 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         }
     }
 
+    /// While the player is a giant, stomp any tree the player wanders within
+    /// `giantSmashRadius` of. Hides the cluster, marks it chopped (so it stays
+    /// gone for the rest of the session), and spawns a wood/leaf burst.
+    private func checkGiantTreeSmash() {
+        guard let p = player, let m = map else { return }
+        let r2 = giantSmashRadius * giantSmashRadius
+        var hit: CGPoint? = nil
+        for pos in treePositions {
+            let dx = p.position.x - pos.x
+            let dy = p.position.y - pos.y
+            if dx * dx + dy * dy <= r2 { hit = pos; break }
+        }
+        if hit == nil {
+            for pos in appleTreePositions {
+                let dx = p.position.x - pos.x
+                let dy = p.position.y - pos.y
+                if dx * dx + dy * dy <= r2 { hit = pos; break }
+            }
+        }
+        guard let pos = hit else { return }
+
+        let removed = hideTreeTiles(near: pos, in: m)
+        let key = "\(Int(pos.x)),\(Int(pos.y))"
+        choppedTreeKeys.insert(key)
+        saveChoppedTrees()
+
+        let tw = m.tileSize.width
+        let th = m.tileSize.height
+        let eps = max(tw, th) / 2 + 1
+        func nearAnyRemoved(_ q: CGPoint) -> Bool {
+            for c in removed where abs(q.x - c.x) < eps && abs(q.y - c.y) < eps { return true }
+            return false
+        }
+        treePositions.removeAll { nearAnyRemoved($0) }
+        appleTreePositions.removeAll { nearAnyRemoved($0) }
+        nearbyTreePosition = nil
+        nearbyAppleTreePosition = nil
+
+        // Center the burst on the cluster so the canopy and trunk both
+        // contribute pieces, not just the tile the player overlapped.
+        let burstCenter = removed.isEmpty ? pos : CGPoint(
+            x: removed.reduce(0) { $0 + $1.x } / CGFloat(removed.count),
+            y: removed.reduce(0) { $0 + $1.y } / CGFloat(removed.count))
+        spawnTreeSmashBurst(at: burstCenter)
+        run(.playSoundFileNamed("hit.mp3", waitForCompletion: false))
+        HapticsManager.shared.mediumImpact()
+    }
+
+    /// Throws a handful of wood chunks and green leaf flecks outward from
+    /// `worldPos`, then fades them out. Pieces are added to `map.mapNode` so
+    /// they scroll with the world.
+    private func spawnTreeSmashBurst(at worldPos: CGPoint) {
+        guard let m = map else { return }
+        let wood = SKColor(red: 0.42, green: 0.26, blue: 0.13, alpha: 1.0)
+        let woodDark = SKColor(red: 0.28, green: 0.16, blue: 0.07, alpha: 1.0)
+        let leaf = SKColor(red: 0.20, green: 0.55, blue: 0.20, alpha: 1.0)
+        let leafDark = SKColor(red: 0.12, green: 0.38, blue: 0.15, alpha: 1.0)
+
+        for i in 0..<14 {
+            let isWood = i < 8
+            let size = isWood
+                ? CGSize(width: CGFloat.random(in: 4...6), height: CGFloat.random(in: 2...4))
+                : CGSize(width: 3, height: 3)
+            let color = isWood
+                ? (Bool.random() ? wood : woodDark)
+                : (Bool.random() ? leaf : leafDark)
+            let piece = SKSpriteNode(color: color, size: size)
+            piece.texture?.filteringMode = .nearest
+            piece.position = worldPos
+            piece.zPosition = 9000
+            piece.zRotation = CGFloat.random(in: 0...(.pi * 2))
+            m.mapNode.addChild(piece)
+
+            let angle = CGFloat.random(in: 0...(.pi * 2))
+            let dist = CGFloat.random(in: 18...38)
+            let dx = cos(angle) * dist
+            let dy = sin(angle) * dist
+            let dur = TimeInterval.random(in: 0.45...0.7)
+            let fly = SKAction.moveBy(x: dx, y: dy, duration: dur)
+            fly.timingMode = .easeOut
+            let spin = SKAction.rotate(byAngle: CGFloat.random(in: -3...3), duration: dur)
+            let fade = SKAction.fadeOut(withDuration: dur)
+            piece.run(.sequence([.group([fly, spin, fade]), .removeFromParent()]))
+        }
+    }
+
     private func shrinkToNormal() {
         guard growth > 0 else { return }
         growth = 0
@@ -3601,6 +3693,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
             checkBoardProximity()
             checkBerryProximity()
             tickGrowth(dt: dt)
+            if isGiant { checkGiantTreeSmash() }
             tickBuildMode()
             tickWeather(dt: dt)
         }
