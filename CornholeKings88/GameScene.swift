@@ -920,6 +920,11 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         m.layerNodes["ImaginationFX"]?.isHidden = true
         m.layerNodes["Baseball"]?.zPosition = 500
         m.layerNodes["Baseball"]?.isHidden = true
+        // Flashlight pickup tile — hide outright if the player already has any
+        // light source (the flashlight unlock or a torch in inventory). Done
+        // here (alongside the other always-hidden overlay layers) so the sprite
+        // never even renders for one frame on cold launch.
+        if hasLight { m.layerNodes["flashlight"]?.isHidden = true }
 
         gameWorld.addChild(m.mapNode)
 
@@ -1508,8 +1513,9 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     private func extractFlashlightPositions(from m: TMXMap) {
         flashlightPositions.removeAll()
         guard let grid = m.layerGIDs["flashlight"] else { return }
-        // Already-collected → hide the whole layer in one step and skip detection.
-        if hasFlashlight {
+        // Already-collected OR carrying a torch → hide the whole layer and skip
+        // detection (the player already has a light source).
+        if hasLight {
             m.layerNodes["flashlight"]?.isHidden = true
             return
         }
@@ -2322,6 +2328,10 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         }
         nearbyTorchPosition = nil
         inventory.collect(.torch, count: 1)
+        // Carrying a torch counts as having a light source — hide the redundant
+        // flashlight pickup tile so it doesn't sit on the map until next launch.
+        map?.layerNodes["flashlight"]?.isHidden = true
+        flashlightPositions.removeAll()
         showPickupText("+ TORCH", at: pos)
     }
 
