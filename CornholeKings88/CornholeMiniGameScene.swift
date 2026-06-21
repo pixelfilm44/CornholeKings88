@@ -336,9 +336,11 @@ final class CornholeMiniGameScene: SKScene {
     // Set when the AI's turn begins; consumed by aiThrow().
     private var pendingAIStartX: CGFloat = 0
 
-    // Crow — occasionally flies through the bag-flight corridor below the board
+    // Flying obstacle — occasionally flies through the bag-flight corridor below the board
+    private enum FlyingObstacleType { case duck, baby }
     private var crowNode: SKNode?
     private var crowFlyingRight = true
+    private var currentObstacleType: FlyingObstacleType = .duck
 
     // Dragon — Barnum's cavern only. Rises from the chasm and breathes flame across
     // the bag-flight corridor, igniting any airborne bag into a fire bag.
@@ -436,7 +438,7 @@ final class CornholeMiniGameScene: SKScene {
         let sounds = ["hit.mp3",      "hole_score.wav", "round_end.wav",
                       "rain_start.wav", "gopher_pop.wav", "gopher_steal.wav",
                       "game_win.wav",  "game_lose.wav",  "storm.mp3",
-                      "cornhole.wav", "quack.wav",
+                      "cornhole.wav", "quack.wav", "crying.wav",
                       "dragon_roar.wav",   // Barnum's dragon — asset optional; skipped if absent
                       "fart.wav"]   // Tom's toot — asset optional; skipped if absent
         sounds.forEach { warmUpSound($0) }
@@ -1708,8 +1710,6 @@ final class CornholeMiniGameScene: SKScene {
 
         clearGopher()
 
-        crowNode?.removeFromParent()
-        crowNode = nil
         removeAction(forKey: "crowSchedule")
 
         removeAction(forKey: "dragonSchedule")
@@ -4177,19 +4177,27 @@ final class CornholeMiniGameScene: SKScene {
     private func spawnCrow() {
         guard crowNode == nil, gameState != .gameOver else { scheduleCrow(); return }
         crowFlyingRight = true
+        currentObstacleType = Bool.random() ? .duck : .baby
         let margin: CGFloat = 168 * distanceScale * 0.5 + 20
         let startX: CGFloat = -size.width / 2 - margin
         let endX:   CGFloat =  size.width / 2 + margin
 
-        let crow = makeCrowSprite(facingRight: crowFlyingRight)
+        let crow: SKNode
+        switch currentObstacleType {
+        case .duck:
+            crow = makeDuckNode(facingRight: crowFlyingRight)
+        case .baby:
+            crow = makeBalloonBabyNode(facingRight: crowFlyingRight)
+        }
         crow.position  = CGPoint(x: startX, y: crowY)
         crow.zPosition = 16
-        crow.xScale   *= distanceScale  // preserves facing-direction flip from makeCrowSprite
+        crow.xScale   *= distanceScale
         crow.yScale   *= distanceScale
         gameWorldNode.addChild(crow)
         crowNode = crow
 
-        let flyDuration = TimeInterval(abs(endX - startX) / 175.0)
+        let speed: CGFloat = currentObstacleType == .baby ? 120.0 : 175.0
+        let flyDuration = TimeInterval(abs(endX - startX) / speed)
         crow.run(SKAction.sequence([
             SKAction.moveTo(x: endX, duration: flyDuration),
             SKAction.removeFromParent(),
@@ -4200,36 +4208,204 @@ final class CornholeMiniGameScene: SKScene {
         ]), withKey: "crowFly")
     }
 
-    private static let crowFlyFrames: [SKTexture] = {
-        let sheet = SKTexture(imageNamed: "Duck_01")
-        sheet.filteringMode = .nearest
-        // Sheet is 256×640 — 8 cols × 20 rows of 32×32. Use the SECOND row from the top
-        // (6 mallard flap frames, columns 0..5). Art faces right.
-        let cols = 6
-        let sheetCols: CGFloat = 8
-        let sheetRows: CGFloat = 20
-        let fw: CGFloat = 1.0 / sheetCols
-        let fh: CGFloat = 1.0 / sheetRows
-        // SKTexture rect uses bottom-up coords; row index 1 from the top = row (rows-2) from the bottom.
-        let y: CGFloat = (sheetRows - 2.0) / sheetRows
+    // MARK: CPU-drawn flying duck (8-bit pixelated)
+
+    private static func pixelate(_ source: UIImage, to pixelSize: CGSize) -> SKTexture {
+        let fmt = UIGraphicsImageRendererFormat()
+        fmt.scale = 1
+        let small = UIGraphicsImageRenderer(size: pixelSize, format: fmt).image { ctx in
+            ctx.cgContext.interpolationQuality = .none
+            source.draw(in: CGRect(origin: .zero, size: pixelSize))
+        }
+        let tex = SKTexture(image: small)
+        tex.filteringMode = .nearest
+        return tex
+    }
+
+    private static let duckFlyFrames: [SKTexture] = {
+        let sz: CGFloat = 64
+        let pixel = CGSize(width: 20, height: 20)
         var frames: [SKTexture] = []
-        for i in 0..<cols {
-            let rect = CGRect(x: CGFloat(i) * fw, y: y, width: fw, height: fh)
-            let t = SKTexture(rect: rect, in: sheet)
-            t.filteringMode = .nearest
-            frames.append(t)
+        let wingAngles: [CGFloat] = [-0.55, -0.30, 0.0, 0.30, 0.55, 0.30, 0.0, -0.30]
+        for angle in wingAngles {
+            let renderer = UIGraphicsImageRenderer(size: CGSize(width: sz, height: sz))
+            let img = renderer.image { ctx in
+                let c = ctx.cgContext
+                let cx = sz * 0.50, cy = sz * 0.50
+
+                c.setFillColor(UIColor(red: 0.55, green: 0.38, blue: 0.22, alpha: 1).cgColor)
+                c.fillEllipse(in: CGRect(x: cx - 16, y: cy - 8, width: 32, height: 18))
+
+                let headX = cx + 14, headY = cy - 10
+                c.setFillColor(UIColor(red: 0.10, green: 0.55, blue: 0.28, alpha: 1).cgColor)
+                c.fillEllipse(in: CGRect(x: headX - 7, y: headY - 7, width: 14, height: 14))
+
+                c.setFillColor(UIColor.white.cgColor)
+                c.fillEllipse(in: CGRect(x: headX - 8, y: headY + 4, width: 10, height: 4))
+
+                c.setFillColor(UIColor.black.cgColor)
+                c.fillEllipse(in: CGRect(x: headX + 2, y: headY - 3, width: 3, height: 3))
+
+                c.setFillColor(UIColor(red: 0.92, green: 0.78, blue: 0.20, alpha: 1).cgColor)
+                c.fill(CGRect(x: headX + 6, y: headY - 2, width: 7, height: 4))
+
+                c.setFillColor(UIColor(red: 0.35, green: 0.25, blue: 0.15, alpha: 1).cgColor)
+                c.saveGState()
+                c.translateBy(x: cx - 16, y: cy + 2)
+                c.rotate(by: 0.15)
+                c.fill(CGRect(x: -10, y: -3, width: 12, height: 5))
+                c.restoreGState()
+
+                c.saveGState()
+                c.translateBy(x: cx - 2, y: cy - 4)
+                c.rotate(by: angle)
+                c.setFillColor(UIColor(red: 0.42, green: 0.38, blue: 0.35, alpha: 1).cgColor)
+                c.fillEllipse(in: CGRect(x: -18, y: -14, width: 22, height: 10))
+                c.setFillColor(UIColor(red: 0.55, green: 0.45, blue: 0.35, alpha: 1).cgColor)
+                c.fillEllipse(in: CGRect(x: -12, y: -10, width: 16, height: 8))
+                c.setFillColor(UIColor(red: 0.15, green: 0.25, blue: 0.70, alpha: 1).cgColor)
+                c.fill(CGRect(x: -14, y: -6, width: 10, height: 3))
+                c.restoreGState()
+
+                c.setFillColor(UIColor.orange.cgColor)
+                c.fill(CGRect(x: cx - 4, y: cy + 8, width: 3, height: 6))
+                c.fill(CGRect(x: cx + 2, y: cy + 9, width: 3, height: 5))
+            }
+            frames.append(pixelate(img, to: pixel))
         }
         return frames
     }()
 
-    private func makeCrowSprite(facingRight: Bool) -> SKSpriteNode {
-        let frames = CornholeMiniGameScene.crowFlyFrames
+    private func makeDuckNode(facingRight: Bool) -> SKSpriteNode {
+        let frames = CornholeMiniGameScene.duckFlyFrames
         let sprite = SKSpriteNode(texture: frames[0], size: CGSize(width: 168, height: 168))
-        // Duck sheet art faces left; flip xScale when flying right.
-        if facingRight { sprite.xScale = -1 }
+        if !facingRight { sprite.xScale = -1 }
         sprite.run(SKAction.repeatForever(
             SKAction.animate(with: frames, timePerFrame: 0.08, resize: false, restore: false)
         ))
+        return sprite
+    }
+
+    // MARK: CPU-drawn balloon baby (8-bit pixelated)
+
+    private static let babyFrames: [SKTexture] = {
+        let sz: CGFloat = 80
+        let pixel = CGSize(width: 24, height: 24)
+        var frames: [SKTexture] = []
+        let legKickAngles: [CGFloat] = [0.35, 0.15, -0.20, -0.45, -0.20, 0.15]
+        for (i, kick) in legKickAngles.enumerated() {
+            let renderer = UIGraphicsImageRenderer(size: CGSize(width: sz, height: sz))
+            let img = renderer.image { ctx in
+                let c = ctx.cgContext
+                let cx = sz * 0.50
+                let babyBaseY = sz * 0.58
+
+                // Balloon string
+                c.setStrokeColor(UIColor(red: 0.15, green: 0.15, blue: 0.15, alpha: 1).cgColor)
+                c.setLineWidth(1.5)
+                let stringTop: CGFloat = 4
+                let stringBot = babyBaseY - 18
+                c.move(to: CGPoint(x: cx + 2, y: stringTop + 14))
+                c.addQuadCurve(to: CGPoint(x: cx - 1, y: stringBot),
+                               control: CGPoint(x: cx + 6, y: (stringTop + stringBot) * 0.5))
+                c.strokePath()
+
+                // Balloon
+                let balloonCY: CGFloat = stringTop + 6
+                c.setFillColor(UIColor(red: 0.88, green: 0.12, blue: 0.12, alpha: 1).cgColor)
+                c.fillEllipse(in: CGRect(x: cx - 11, y: balloonCY - 10, width: 22, height: 26))
+                c.setFillColor(UIColor(red: 0.72, green: 0.08, blue: 0.08, alpha: 1).cgColor)
+                c.fillEllipse(in: CGRect(x: cx - 2, y: balloonCY + 15, width: 4, height: 3))
+                c.setFillColor(UIColor(white: 1, alpha: 0.45).cgColor)
+                c.fillEllipse(in: CGRect(x: cx - 5, y: balloonCY - 6, width: 7, height: 9))
+
+                let skin = UIColor(red: 0.90, green: 0.72, blue: 0.55, alpha: 1)
+
+                // Legs — drawn first so they sit behind the torso; longer, thicker, wider kick
+                c.setFillColor(skin.cgColor)
+                c.saveGState()
+                c.translateBy(x: cx - 5, y: babyBaseY + 5)
+                c.rotate(by: kick + 0.3)
+                c.fillEllipse(in: CGRect(x: -3, y: 0, width: 6, height: 14))
+                // Foot
+                c.setFillColor(skin.withAlphaComponent(0.85).cgColor)
+                c.fillEllipse(in: CGRect(x: -3, y: 12, width: 7, height: 5))
+                c.restoreGState()
+
+                c.setFillColor(skin.cgColor)
+                c.saveGState()
+                c.translateBy(x: cx + 5, y: babyBaseY + 5)
+                c.rotate(by: -kick - 0.3)
+                c.fillEllipse(in: CGRect(x: -3, y: 0, width: 6, height: 14))
+                c.setFillColor(skin.withAlphaComponent(0.85).cgColor)
+                c.fillEllipse(in: CGRect(x: -3, y: 12, width: 7, height: 5))
+                c.restoreGState()
+
+                // Torso
+                c.setFillColor(skin.cgColor)
+                c.fillEllipse(in: CGRect(x: cx - 8, y: babyBaseY - 10, width: 16, height: 16))
+
+                // Diaper
+                c.setFillColor(UIColor.white.cgColor)
+                c.fillEllipse(in: CGRect(x: cx - 8, y: babyBaseY + 1, width: 16, height: 9))
+
+                // Free arm — sticks out far to the side, waving
+                c.setFillColor(skin.cgColor)
+                c.saveGState()
+                c.translateBy(x: cx - 6, y: babyBaseY - 5)
+                let armWave: CGFloat = (i % 2 == 0) ? 0.7 : 1.1
+                c.rotate(by: armWave)
+                c.fillEllipse(in: CGRect(x: -4, y: -14, width: 6, height: 16))
+                // Hand
+                c.fillEllipse(in: CGRect(x: -5, y: -17, width: 7, height: 6))
+                c.restoreGState()
+
+                // Head
+                c.setFillColor(skin.cgColor)
+                let headY = babyBaseY - 22
+                c.fillEllipse(in: CGRect(x: cx - 9, y: headY, width: 18, height: 16))
+
+                // Hair tuft
+                c.setFillColor(UIColor(red: 0.50, green: 0.32, blue: 0.18, alpha: 1).cgColor)
+                c.fillEllipse(in: CGRect(x: cx - 4, y: headY - 3, width: 11, height: 7))
+
+                // Eyes — spread wide so both survive pixelation
+                c.setFillColor(UIColor.black.cgColor)
+                c.fillEllipse(in: CGRect(x: cx - 8, y: headY + 4, width: 5, height: 5))
+                c.fillEllipse(in: CGRect(x: cx + 4, y: headY + 4, width: 5, height: 5))
+                c.setFillColor(UIColor.white.cgColor)
+                c.fillEllipse(in: CGRect(x: cx - 7, y: headY + 4, width: 2, height: 2))
+                c.fillEllipse(in: CGRect(x: cx + 5, y: headY + 4, width: 2, height: 2))
+
+                // Open mouth
+                c.setFillColor(UIColor(red: 0.85, green: 0.30, blue: 0.30, alpha: 1).cgColor)
+                c.fillEllipse(in: CGRect(x: cx - 3, y: headY + 11, width: 7, height: 4))
+
+                // Raised arm holding string — drawn last so it's on top
+                c.setFillColor(skin.cgColor)
+                c.saveGState()
+                c.translateBy(x: cx + 5, y: babyBaseY - 8)
+                c.rotate(by: -0.7)
+                c.fillEllipse(in: CGRect(x: 0, y: -14, width: 6, height: 16))
+                c.fillEllipse(in: CGRect(x: -1, y: -17, width: 7, height: 6))
+                c.restoreGState()
+            }
+            frames.append(pixelate(img, to: pixel))
+        }
+        return frames
+    }()
+
+    private func makeBalloonBabyNode(facingRight: Bool) -> SKSpriteNode {
+        let frames = CornholeMiniGameScene.babyFrames
+        let sprite = SKSpriteNode(texture: frames[0], size: CGSize(width: 168, height: 168))
+        if !facingRight { sprite.xScale = -1 }
+        sprite.run(SKAction.repeatForever(
+            SKAction.animate(with: frames, timePerFrame: 0.12, resize: false, restore: false)
+        ))
+        sprite.run(SKAction.repeatForever(SKAction.sequence([
+            SKAction.moveBy(x: 0, y: 6, duration: 0.8),
+            SKAction.moveBy(x: 0, y: -6, duration: 0.8),
+        ])), withKey: "babyBob")
         return sprite
     }
 
@@ -4267,16 +4443,31 @@ final class CornholeMiniGameScene: SKScene {
         bag.vx = 0; bag.vy = 0; bag.vz = 0
 
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
-        run(SKAction.playSoundFileNamed("quack.wav", waitForCompletion: false))
 
-        // Rapid panic flap
+        let hitSound: String
+        let calloutText: String
+        let calloutColor: SKColor
+
+        switch currentObstacleType {
+        case .duck:
+            hitSound = "quack.wav"
+            calloutText = "SQUAWK!"
+            calloutColor = SKColor(red: 1.0, green: 0.85, blue: 0.20, alpha: 1)
+        case .baby:
+            hitSound = "crying.wav"
+            calloutText = "WAAAH!"
+            calloutColor = SKColor(red: 1.0, green: 0.55, blue: 0.55, alpha: 1)
+        }
+        run(SKAction.playSoundFileNamed(hitSound, waitForCompletion: false))
+
+        // Rapid panic flap / flail
         (crow as? SKSpriteNode)?.removeAllActions()
         (crow as? SKSpriteNode)?.run(SKAction.repeatForever(SKAction.sequence([
             SKAction.scaleY(to: 0.25, duration: 0.06),
             SKAction.scaleY(to: 1.00, duration: 0.06),
         ])))
 
-        // Crow bolts upward and off-screen in the direction it was flying
+        // Obstacle bolts upward and off-screen in the direction it was flying
         let escapeX: CGFloat = crowFlyingRight ? 190 : -190
         crow.run(SKAction.sequence([
             SKAction.moveBy(x: escapeX * 0.25, y: 55, duration: 0.20),
@@ -4285,10 +4476,9 @@ final class CornholeMiniGameScene: SKScene {
             SKAction.run { [weak self] in self?.scheduleCrow() },
         ]))
 
-        // "SQUAWK!" callout
-        let squawk = makeLabel(text: "SQUAWK!",
+        let squawk = makeLabel(text: calloutText,
                                size: max(7, size.width * 0.048),
-                               color: SKColor(red: 1.0, green: 0.85, blue: 0.20, alpha: 1))
+                               color: calloutColor)
         squawk.position  = CGPoint(x: crow.position.x, y: crow.position.y + 20)
         squawk.zPosition = 300
         squawk.alpha     = 0
@@ -4301,10 +4491,9 @@ final class CornholeMiniGameScene: SKScene {
         ]))
     }
 
-    /// Floating "+3 DUCK!" label for the CathyX duck-hit bonus. Rises beside the
-    /// existing "SQUAWK!" callout and fades; purely visual.
     private func showDuckBonusBanner(at point: CGPoint) {
-        let lbl = makeLabel(text: "+3 DUCK!",
+        let bonusText = currentObstacleType == .baby ? "+3 BABY!" : "+3 DUCK!"
+        let lbl = makeLabel(text: bonusText,
                             size: max(8, size.width * 0.052),
                             color: SKColor(red: 1.0, green: 0.85, blue: 0.20, alpha: 1))
         lbl.position  = CGPoint(x: point.x, y: point.y - 18)

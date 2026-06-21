@@ -187,7 +187,7 @@ final class LoadingScene: SKScene {
             "game_win.wav", "game_lose.wav", "round_end.wav", "strike_call.wav",
             "out_caught.wav", "phase_change.wav", "rain_start.wav",
             "dog_bite.wav", "gopher_pop.wav", "gopher_steal.wav",
-            "hit.mp3", "storm.mp3",
+            "hit.mp3", "storm.mp3", "crying.wav",
         ]
         for filename in filenames {
             let name = (filename as NSString).deletingPathExtension
