@@ -17,12 +17,8 @@ final class InventoryHUDNode: SKNode {
         slotNodes.forEach { $0.removeFromParent() }
         slotNodes.removeAll()
 
-        let occupied = ItemType.allCases.compactMap { type -> (ItemType, Int)? in
-            guard let n = counts[type], n > 0 else { return nil }
-            return (type, n)
-        }
-        let visible = Array(occupied.prefix(maxVisible))
-        guard !visible.isEmpty else { return }
+        let shown: [ItemType] = [.coin, .bag]
+        let visible: [(ItemType, Int)] = shown.map { ($0, counts[$0] ?? 0) }
 
         let totalW = CGFloat(visible.count) * slotWidth
                    + CGFloat(visible.count - 1) * slotSpacing
@@ -49,27 +45,36 @@ final class InventoryHUDNode: SKNode {
         bg.zPosition = 0
         node.addChild(bg)
 
-        // Item colour square (icon)
-        let icon = SKSpriteNode(color: type.color, size: CGSize(width: 12, height: 12))
-        icon.position = CGPoint(x: -slotWidth / 2 + 11, y: 0)
+        // Icon — circle for coin, square for bag
+        let iconPos = CGPoint(x: -slotWidth / 2 + 11, y: 0)
+        let icon: SKNode
+        if type == .coin {
+            let coin = SKShapeNode(circleOfRadius: 6)
+            coin.fillColor = type.color
+            coin.strokeColor = SKColor(red: 0.55, green: 0.40, blue: 0.05, alpha: 1.0)
+            coin.lineWidth = 1
+            icon = coin
+        } else {
+            icon = SKSpriteNode(color: type.color, size: CGSize(width: 12, height: 12))
+        }
+        icon.position = iconPos
         icon.zPosition = 1
         node.addChild(icon)
 
         // Highlight pixel on icon
         let hl = SKSpriteNode(color: SKColor(white: 1.0, alpha: 0.5),
                               size: CGSize(width: 4, height: 4))
-        hl.position = CGPoint(x: icon.position.x - 4, y: icon.position.y + 4)
+        hl.position = CGPoint(x: iconPos.x - 4, y: iconPos.y + 4)
         hl.zPosition = 2
         node.addChild(hl)
 
-        // "×N" label
         let label = SKLabelNode(fontNamed: "PressStart2P-Regular")
         label.text = "×\(count)"
         label.fontSize = 8
         label.fontColor = SKColor(white: 0.90, alpha: 1.0)
         label.verticalAlignmentMode = .center
         label.horizontalAlignmentMode = .left
-        label.position = CGPoint(x: icon.position.x + 10, y: 0)
+        label.position = CGPoint(x: iconPos.x + 10, y: 0)
         label.zPosition = 1
         node.addChild(label)
 
