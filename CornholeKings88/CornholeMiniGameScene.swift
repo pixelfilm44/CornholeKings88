@@ -3964,12 +3964,15 @@ final class CornholeMiniGameScene: SKScene {
     /// since the round is already in progress.
     private func presentTutorial(autoTriggered: Bool) {
         let steps: [TutorialStep] = [
-            .card(title: "CORNHOLE",
-                  body:  "FIRST PLAYER TO 11 POINTS WINS THE MATCH."),
-            .card(title: "AIMING",
-                  body:  "DRAG FROM THE BAG TO AIM. LONGER DRAGS THROW HARDER. RELEASE TO TOSS."),
-            .card(title: "SCORING",
-                  body:  "BAG IN THE HOLE = 3 POINTS. BAG ON THE BOARD = 1 POINT. CANCELLATION RULES APPLY EACH ROUND."),
+            .hint(at: CGPoint(x: 0, y: boardY + boardHalfH * 0.30),
+                  title: "AIM FOR THE HOLE",
+                  body:  "HOLE = 3 PTS. BOARD = 1 PT. FIRST TO \(winScore) WINS."),
+            .hint(at: CGPoint(x: 0, y: throwLineY),
+                  title: "SWIPE UP TO THROW",
+                  body:  "SWIPE UP FROM THE RED BAG TO TOSS. LONGER SWIPE = MORE POWER. TIME IT WITH THE BAG'S SLIDE."),
+            .hint(at: CGPoint(x: 0, y: size.height * 0.08),
+                  title: "SCORING",
+                  body:  "EACH ROUND, ONLY THE LEADER SCORES THE DIFFERENCE. WATCH THE BOARD — KNOCK RIVAL BAGS OFF!"),
         ]
         let overlay = TutorialOverlay(steps: steps, sceneSize: size) { [weak self] in
             guard let self = self else { return }

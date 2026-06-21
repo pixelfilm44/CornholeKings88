@@ -2279,13 +2279,19 @@ final class CornholeBaseballScene: SKScene {
     /// auto-trigger (first play) we start the batting half after completion;
     /// on replay (HUD `?` button) we just resume — the game is already running.
     private func presentTutorial(autoTriggered: Bool) {
+        let H = size.height
+        let batY = H * 0.28
+        let pitcherY = -H * 0.28
         let steps: [TutorialStep] = [
-            .card(title: "BEANBAG BASEBALL",
-                  body:  "BAT AND PITCH AGAINST THE BOT. HIGHEST AVERAGE HIT DISTANCE AFTER 3 INNINGS WINS."),
-            .card(title: "BATTING",
-                  body:  "HOLD ANYWHERE TO CHARGE YOUR SWING. RELEASE WHEN THE PITCH CROSSES THE STRIKE ZONE. 3 STRIKES OR A CAUGHT BALL IS AN OUT - A HIT RESETS YOUR STRIKES. BAT TILL 3 OUTS."),
-            .card(title: "PITCHING & FIELDING",
-                  body:  "WHEN PITCHING, SWIPE UP TO THROW. WHEN FIELDING, TAP A FIELDER TO SPRINT THEM AT THE BAG."),
+            .hint(at: CGPoint(x: 4, y: batY + 4),
+                  title: "BATTING",
+                  body:  "HOLD ANYWHERE TO CHARGE. RELEASE WHEN THE PITCH CROSSES THIS ZONE. 3 STRIKES = 1 OUT. BAT TILL 3 OUTS."),
+            .hint(at: CGPoint(x: 0, y: pitcherY),
+                  title: "PITCHING",
+                  body:  "SWIPE UP FROM HERE TO THROW YOUR PITCH. AIM FOR THE STRIKE ZONE AT THE TOP."),
+            .hint(at: CGPoint(x: 0, y: pitcherY - 80),
+                  title: "FIELDING",
+                  body:  "TAP A FIELDER TO SPRINT THEM AT THE BAG. CATCH IT TO GET AN OUT. BEST AVG HIT DISTANCE WINS."),
         ]
         let overlay = TutorialOverlay(steps: steps, sceneSize: size) { [weak self] in
             guard let self = self else { return }

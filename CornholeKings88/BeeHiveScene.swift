@@ -1006,13 +1006,21 @@ final class BeeHiveScene: SKScene {
     // MARK: - First-time tutorial
 
     private func presentTutorial(autoTriggered: Bool) {
+        let H = size.height
+        let hiveY = H * 0.28
+        let playerY = -H * 0.30
+        let topInset = self.view?.safeAreaInsets.top ?? 0
+        let heartsY = H / 2 - topInset - 22
         let steps: [TutorialStep] = [
-            .card(title: "BEEHIVE BATTLE",
-                  body:  "BEES SWARM DOWN FROM THE HIVE. HIT 10 BEES TO WIN AND EARN HONEY BAGS."),
-            .card(title: "THROWING",
-                  body:  "SWIPE UP TOWARD A BEE TO TOSS A BAG. THE FASTER THE SWIPE, THE HARDER THE THROW."),
-            .card(title: "STAY ALIVE",
-                  body:  "BEES THAT REACH YOU DEAL A STING — LOSE ALL YOUR HEARTS AND THE GAME IS OVER."),
+            .hint(at: CGPoint(x: 0, y: playerY),
+                  title: "SWIPE UP TO THROW",
+                  body:  "SWIPE UP FROM HERE TOWARD A BEE TO TOSS A BAG. FASTER SWIPE = HARDER THROW."),
+            .hint(at: CGPoint(x: 0, y: hiveY),
+                  title: "HIT THE BEES",
+                  body:  "BEES SWARM DOWN FROM THE HIVE. HIT 10 TO WIN AND EARN HONEY BAGS."),
+            .hint(at: CGPoint(x: 0, y: heartsY),
+                  title: "PROTECT YOUR HEARTS",
+                  body:  "BEES THAT REACH YOU STING — EACH COSTS A HEART. LOSE THEM ALL AND IT'S GAME OVER."),
         ]
         let overlay = TutorialOverlay(steps: steps, sceneSize: size) { [weak self] in
             guard let self = self else { return }

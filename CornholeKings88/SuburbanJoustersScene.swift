@@ -1588,13 +1588,18 @@ final class SuburbanJoustersScene: SKScene {
     // MARK: - Tutorial
 
     private func presentTutorial(autoTriggered: Bool) {
+        let W = size.width
+        let H = size.height
         let steps: [TutorialStep] = [
-            .card(title: "SUBURBAN JOUSTERS",
-                  body: "Backyard joust. Crash the rival\nand survive their charge."),
-            .card(title: "LEFT THUMB",
-                  body: "Tap to pedal — speed builds.\nDrag sideways to slide shield."),
-            .card(title: "RIGHT THUMB",
-                  body: "Drag to sweep your lance.\nLine the tip on the rival's hole\nat MPH 30+ to dismount."),
+            .hint(at: CGPoint(x: -W * 0.25, y: -H * 0.15),
+                  title: "LEFT SIDE: PEDAL",
+                  body:  "TAP THE LEFT HALF FAST TO PEDAL — SPEED BUILDS WITH EACH TAP. DRAG LEFT OR RIGHT TO SLIDE YOUR SHIELD."),
+            .hint(at: CGPoint(x: W * 0.25, y: -H * 0.15),
+                  title: "RIGHT SIDE: LANCE",
+                  body:  "DRAG ON THE RIGHT HALF TO SWEEP YOUR LANCE. AIM THE TIP AT THE RIVAL'S SHIELD HOLE."),
+            .hint(at: CGPoint(x: 0, y: H * 0.10),
+                  title: "HIT AT SPEED",
+                  body:  "REACH 30+ MPH AND LINE UP YOUR LANCE TIP ON THEIR HOLE TO DISMOUNT. FIRST TO DROP 3 LIVES LOSES!"),
         ]
         if !autoTriggered { isPausedGame = true }
         let overlay = TutorialOverlay(steps: steps, sceneSize: size) { [weak self] in

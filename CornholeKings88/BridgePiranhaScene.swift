@@ -386,13 +386,21 @@ final class BridgePiranhaScene: SKScene {
     // MARK: - Tutorial
 
     private func presentTutorial(autoTriggered: Bool) {
+        let W = size.width
+        let H = size.height
+        let bankH = H * 0.17
+        let throwY = -H / 2 + bankH * 0.50
+        let riverMidY = CGFloat(0)
         let steps: [TutorialStep] = [
-            .card(title: "PIRANHA BRIDGE",
-                  body:  "DROP BAGS ONTO THE PILINGS TO BUILD A BRIDGE ACROSS THE RIVER. BUILD ALL PLANKS TO ESCAPE."),
-            .card(title: "AIMING",
-                  body:  "DRAG FROM THE BOTTOM TO AIM. DISTANCE SETS POWER. RELEASE TO THROW."),
-            .card(title: "PIRANHA TROUBLE",
-                  body:  "PIRANHAS WILL SNATCH BAGS THAT MISS. YOU HAVE A LIMITED NUMBER OF BAGS — MAKE EACH ONE COUNT."),
+            .hint(at: CGPoint(x: 0, y: throwY),
+                  title: "SWIPE UP TO THROW",
+                  body:  "SWIPE UP FROM THE YELLOW BAG TO TOSS. LONGER SWIPE = MORE POWER. AIM FOR THE PILINGS."),
+            .hint(at: CGPoint(x: 0, y: riverMidY),
+                  title: "HIT THE PILINGS",
+                  body:  "LAND BAGS ON THE WOODEN PILINGS TO BUILD PLANKS. COMPLETE ALL PLANKS TO CROSS THE RIVER."),
+            .hint(at: CGPoint(x: -W * 0.35, y: riverMidY),
+                  title: "WATCH FOR PIRANHAS",
+                  body:  "PIRANHAS SWIM IN AND SNATCH MISSED BAGS. YOU HAVE LIMITED BAGS — MAKE EACH THROW COUNT!"),
         ]
         let overlay = TutorialOverlay(steps: steps, sceneSize: size) {
             if autoTriggered {

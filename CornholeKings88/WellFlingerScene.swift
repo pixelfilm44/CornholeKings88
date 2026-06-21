@@ -6,7 +6,7 @@ import UIKit
 // The bag is already falling down a stone well. Tap to drop rocks that the bag
 // bounces off, steering it past stones (which knock it sideways) and spider
 // webs (which catch and stop it). A yellow beam rises from the cornhole hole at
-// the bottom. 3 tries per game. Hole = 3 pts, board = 1 pt, miss/stuck = 0 pts.
+// the bottom. Get the bag in the hole to win. In world mode, a cornhole earns a gold bag.
 
 final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
 
@@ -77,10 +77,8 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
     private var currentBagIsFire = false
     /// Pre-turn bag-type picker overlay.
     private var bagPicker: SKNode?
-    private var score    = 0
     private var hasScoredThisTurn = false
-    private let winThreshold = 3
-    private var highScore = UserDefaults.standard.integer(forKey: "wellFlinger_high_v1")
+    private var madeCornhole = false
 
     // Stuck detection — if the bag stops making downward progress (wedged
     // between a rock and the wall) for longer than this many seconds while
@@ -94,18 +92,12 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
     private var lastUpdate:    TimeInterval = 0
 
     // HUD
-    private var scoreLbl: SKLabelNode!
     private var bagsLbl:  SKLabelNode!
-    private var highLbl:  SKLabelNode!
     private var toastLbl: SKLabelNode!
     private var toastBg:  SKSpriteNode!
 
     // End-game panel
     private var endPanel: SKNode?
-
-    // Between-throws panel — shown after every throw (except the last) so the
-    // player can choose to continue or exit without waiting out an auto-advance.
-    private var betweenPanel: SKNode?
 
     // Setup guard
     private var hasSetup = false
@@ -174,12 +166,12 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
         }
 
         let steps: [TutorialStep] = [
-            .card(title: "WELL DROPPER",
-                  body: "The bag is falling down the well. TAP anywhere to drop a rock — the bag will bounce off it! TAP a rock again to remove it."),
-            .card(title: "WATCH OUT",
-                  body: "Stones knock the bag sideways. SPIDER WEBS catch the bag and end the turn."),
-            .card(title: "AIM FOR THE LIGHT",
-                  body: "Use rocks to redirect the bag toward the yellow beam. Hole = 3 pts, board = 1 pt. You have 3 bags!"),
+            .card(title: "TAP TO PLACE ROCKS",
+                  body:  "THE BAG FALLS DOWN THE WELL. TAP ANYWHERE INSIDE TO DROP A ROCK — THE BAG BOUNCES OFF IT! TAP A ROCK AGAIN TO REMOVE IT."),
+            .card(title: "DODGE THE WEBS",
+                  body:  "SPIDER WEBS CATCH THE BAG AND END YOUR TURN. USE ROCKS TO STEER AROUND THEM."),
+            .card(title: "AIM FOR THE BEAM",
+                  body:  "FOLLOW THE YELLOW BEAM DOWN TO THE HOLE. GET THE BAG IN THE HOLE TO WIN!"),
         ]
         let overlay = TutorialOverlay(steps: steps, sceneSize: size) { [weak self] in
             guard let self else { return }
@@ -566,28 +558,13 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
         closeBtn.name      = "closeButton"
         camNode.addChild(closeBtn)
 
-        scoreLbl = SKLabelNode(fontNamed: font)
-        scoreLbl.text = "0000"; scoreLbl.fontSize = 13; scoreLbl.fontColor = dsGold
-        scoreLbl.horizontalAlignmentMode = .left; scoreLbl.verticalAlignmentMode = .center
-        scoreLbl.position = CGPoint(x: -W / 2 + 80, y: topBarY)
-        scoreLbl.zPosition = 502
-        camNode.addChild(scoreLbl)
-
         bagsLbl = SKLabelNode(fontNamed: font)
-        bagsLbl.text = "3/3"; bagsLbl.fontSize = 13
-        bagsLbl.fontColor = SKColor(red: 0.90, green: 0.42, blue: 0.42, alpha: 1)
+        bagsLbl.text = "BAGS  \(bagsLeft)"; bagsLbl.fontSize = 13
+        bagsLbl.fontColor = dsGold
         bagsLbl.horizontalAlignmentMode = .center; bagsLbl.verticalAlignmentMode = .center
         bagsLbl.position = CGPoint(x: 0, y: topBarY)
         bagsLbl.zPosition = 502
         camNode.addChild(bagsLbl)
-
-        highLbl = SKLabelNode(fontNamed: font)
-        highLbl.text = String(format: "%04d", highScore); highLbl.fontSize = 13
-        highLbl.fontColor = SKColor(red: 0.2, green: 0.9, blue: 0.4, alpha: 1)
-        highLbl.horizontalAlignmentMode = .right; highLbl.verticalAlignmentMode = .center
-        highLbl.position = CGPoint(x: W / 2 - 44, y: topBarY)
-        highLbl.zPosition = 502
-        camNode.addChild(highLbl)
 
         // Toast
         toastBg = SKSpriteNode(color: dsGold, size: CGSize(width: W * 0.7, height: 28))
@@ -604,13 +581,11 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
     }
 
     private func updateHUD() {
-        scoreLbl.text = String(format: "%04d", score)
         if availableFireBags > 0 {
-            bagsLbl.text = "\(bagsLeftRegular) + \(bagsLeftFire)🔥"
+            bagsLbl.text = "BAGS  \(bagsLeftRegular) + \(bagsLeftFire)🔥"
         } else {
-            bagsLbl.text = "\(bagsLeftRegular)/\(availableBags)"
+            bagsLbl.text = "BAGS  \(bagsLeft)"
         }
-        highLbl.text  = String(format: "%04d", highScore)
     }
 
     private func showToast(_ msg: String) {
@@ -733,24 +708,26 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
         guard turnState != .ended else { return }
         turnState = .ended
         if currentBagIsFire { fireBagsUsed += 1 } else { bagsUsed += 1 }
-        score += pts
-        if score > highScore {
-            highScore = score
-            UserDefaults.standard.set(highScore, forKey: "wellFlinger_high_v1")
-        }
         updateHUD()
         showToast(msg)
 
-        // Settle the bag visually for a moment, then either show the
-        // between-throws prompt (continue / exit) or the final game-over panel.
+        if pts == 3 {
+            madeCornhole = true
+            run(.sequence([
+                .wait(forDuration: 1.0),
+                .run { [weak self] in self?.showGameOver() },
+            ]))
+            return
+        }
+
         run(.sequence([
-            .wait(forDuration: 1.0),
+            .wait(forDuration: 1.2),
             .run { [weak self] in
                 guard let self else { return }
                 if self.bagsLeft <= 0 {
                     self.showGameOver()
                 } else {
-                    self.presentBetweenThrowsPanel(lastMsg: msg, lastPts: pts)
+                    self.beginNextTurn()
                 }
             },
         ]))
@@ -758,12 +735,10 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
 
     private func showGameOver() {
         turnState = .ended
-        let won = score >= winThreshold
 
-        // Reward: 3 fire bags on a win (world / story context only).
-        if awardsRewards && won { fireBagsEarned = 3 }
+        if awardsRewards && madeCornhole { fireBagsEarned = 3 }
         var rewards: [GameResultModal.Reward] = []
-        if awardsRewards && won {
+        if awardsRewards && madeCornhole {
             rewards.append(GameResultModal.Reward(item: .fireBag, count: 3))
         }
         if awardsRewards && goldenBagsEarned > 0 {
@@ -772,10 +747,10 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
 
         let panel = GameResultModal.make(
             sceneSize: CGSize(width: W, height: H),
-            won: won,
-            title: won ? "WELL DONE!" : "GAME OVER",
-            subtitle: "SCORE  \(score)",
-            detail: won ? "NICE AIM" : "NEED \(winThreshold) PTS TO WIN",
+            won: madeCornhole,
+            title: madeCornhole ? "CORNHOLE!" : "GAME OVER",
+            subtitle: madeCornhole ? "NICE AIM!" : "OUT OF BAGS",
+            detail: madeCornhole ? nil : "GET THE BAG IN THE HOLE TO WIN",
             rewards: rewards,
             buttons: [GameResultModal.Button(label: "PLAY AGAIN", name: "again", style: .primary),
                       GameResultModal.Button(label: "QUIT", name: "quitGame", style: .danger)])
@@ -786,10 +761,9 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
     private func resetForReplay() {
         endPanel?.removeFromParent()
         endPanel = nil
-        dismissBetweenThrowsPanel()
         bagsLeftRegular = max(availableBags, 0)
         bagsLeftFire    = max(availableFireBags, 0)
-        score    = 0
+        madeCornhole = false
 
         // Clear any rocks the player placed and re-randomize the obstacle layout.
         clearPlacedRocks()
@@ -877,7 +851,7 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
             playSound("hit.mp3")
             sinkIntoHole()
             if awardsRewards { goldenBagsEarned += 1 }
-            endTurn(pts: 3, msg: awardsRewards ? "CORNHOLE! +3  +1 GOLD BAG" : "CORNHOLE! +3")
+            endTurn(pts: 3, msg: awardsRewards ? "CORNHOLE! +1 GOLD BAG" : "CORNHOLE!")
             return
         }
         if cats & Self.webCat != 0 {
@@ -935,9 +909,9 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
                 self.hasScoredThisTurn = true
                 switch target {
                 case .board:
-                    self.endTurn(pts: 1, msg: "ON THE BOARD +1")
+                    self.endTurn(pts: 0, msg: "ON THE BOARD — NOT IN THE HOLE!")
                 case .ground:
-                    self.endTurn(pts: 0, msg: "MISS")
+                    self.endTurn(pts: 0, msg: "MISS!")
                 }
             },
         ]))
@@ -1042,24 +1016,6 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
             for n in camNode.nodes(at: locCam) {
                 if n.name == "pickRegular" { dismissBagPicker(pickFire: false); return }
                 if n.name == "pickFire"    { dismissBagPicker(pickFire: true);  return }
-            }
-            return
-        }
-
-        // Between-throws prompt consumes input until the player chooses.
-        if betweenPanel != nil {
-            let locCam = t.location(in: camNode)
-            for n in camNode.nodes(at: locCam) {
-                if n.name == "throwAgain" {
-                    dismissBetweenThrowsPanel()
-                    beginNextTurn()
-                    return
-                }
-                if n.name == "exitWell" {
-                    dismissBetweenThrowsPanel()
-                    dismissScene()
-                    return
-                }
             }
             return
         }
@@ -1269,97 +1225,6 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
     /// Shown after every throw that isn't the last bag. Lets the player choose
     /// to keep going or bail out of the well without waiting for the next bag
     /// to auto-load.
-    private func presentBetweenThrowsPanel(lastMsg: String, lastPts: Int) {
-        betweenPanel?.removeFromParent()
-        let font = "PressStart2P-Regular"
-        let panel = SKNode()
-        panel.zPosition = 700
-
-        let dim = SKSpriteNode(color: SKColor(white: 0, alpha: 0.55),
-                               size: CGSize(width: W, height: H))
-        dim.zPosition = 0
-        panel.addChild(dim)
-
-        let panelW: CGFloat = min(W * 0.85, 340)
-        let panelH: CGFloat = 200
-        let bg = SKSpriteNode(color: SKColor(red: 0.102, green: 0.039, blue: 0.016, alpha: 1),
-                              size: CGSize(width: panelW, height: panelH))
-        bg.zPosition = 1
-        panel.addChild(bg)
-
-        let border = SKShapeNode(rectOf: CGSize(width: panelW, height: panelH))
-        border.strokeColor = SKColor(red: 0.941, green: 0.753, blue: 0.376, alpha: 1)
-        border.lineWidth = 2
-        border.fillColor = .clear
-        border.zPosition = 2
-        panel.addChild(border)
-
-        let gold = SKColor(red: 0.941, green: 0.753, blue: 0.376, alpha: 1)
-
-        let title = SKLabelNode(fontNamed: font)
-        title.text = lastMsg
-        title.fontSize = 12
-        title.fontColor = (lastPts > 0) ? gold : SKColor(white: 0.85, alpha: 1)
-        title.position = CGPoint(x: 0, y: panelH / 2 - 30)
-        title.zPosition = 3
-        panel.addChild(title)
-
-        let score = SKLabelNode(fontNamed: font)
-        score.text = "SCORE  \(self.score)   BAGS LEFT  \(bagsLeft)"
-        score.fontSize = 9
-        score.fontColor = .white
-        score.position = CGPoint(x: 0, y: panelH / 2 - 56)
-        score.zPosition = 3
-        panel.addChild(score)
-
-        func makeBtn(name: String, label: String, fill: SKColor, x: CGFloat) -> SKNode {
-            let btnW: CGFloat = (panelW - 48) / 2
-            let btnH: CGFloat = 44
-            let btn = SKSpriteNode(color: fill, size: CGSize(width: btnW, height: btnH))
-            btn.position = CGPoint(x: x, y: -panelH / 2 + 38)
-            btn.zPosition = 3
-            btn.name = name
-
-            let bd = SKShapeNode(rectOf: CGSize(width: btnW, height: btnH))
-            bd.strokeColor = gold
-            bd.lineWidth = 2
-            bd.fillColor = .clear
-            bd.zPosition = 1
-            bd.name = name
-            btn.addChild(bd)
-
-            let lbl = SKLabelNode(fontNamed: font)
-            lbl.text = label
-            lbl.fontSize = 10
-            lbl.fontColor = .white
-            lbl.verticalAlignmentMode = .center
-            lbl.position = .zero
-            lbl.zPosition = 2
-            lbl.name = name
-            btn.addChild(lbl)
-            return btn
-        }
-
-        let again = makeBtn(name: "throwAgain",
-                            label: "THROW AGAIN",
-                            fill: SKColor(red: 0.20, green: 0.55, blue: 0.20, alpha: 1),
-                            x: -(panelW - 48) / 4 - 8)
-        let exitBtn = makeBtn(name: "exitWell",
-                              label: "EXIT",
-                              fill: SKColor(red: 0.55, green: 0.20, blue: 0.20, alpha: 1),
-                              x:  (panelW - 48) / 4 + 8)
-        panel.addChild(again)
-        panel.addChild(exitBtn)
-
-        camNode.addChild(panel)
-        betweenPanel = panel
-    }
-
-    private func dismissBetweenThrowsPanel() {
-        betweenPanel?.removeFromParent()
-        betweenPanel = nil
-    }
-
     private func showConfirmQuit() {
         guard !confirmingQuit else { return }
         confirmingQuit = true
@@ -1375,7 +1240,7 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
     }
 
     private func dismissScene() {
-        onComplete?(score >= winThreshold)
+        onComplete?(madeCornhole)
         if let view = self.view, let prev = previousScene {
             SceneTransition.iris(in: view, to: prev)
         }

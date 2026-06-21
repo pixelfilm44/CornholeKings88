@@ -163,13 +163,21 @@ final class BeachBallCornholeScene: SKScene {
     }
 
     private func presentTutorial(autoTriggered: Bool) {
+        let H = size.height
+        let throwY = -H * 0.30
+        let boardY = H * 0.08
+        let topInset = self.view?.safeAreaInsets.top ?? 0
+        let timerY = H / 2 - topInset - 24
         let steps: [TutorialStep] = [
-            .card(title: "BEACH BALL",
-                  body:  "TWO-MINUTE BLITZ. MOST CORNHOLES WHEN THE TIMER HITS ZERO WINS."),
-            .card(title: "THROW WHEN READY",
-                  body:  "SWIPE TOWARD THE BOARD TO THROW. THE COOLDOWN BAR FILLS BEFORE EACH NEW THROW."),
-            .card(title: "DRIFTING BOARD",
-                  body:  "THE BOARD FLOATS LEFT AND RIGHT IN THE POOL. ONLY CORNHOLES COUNT — BANK SHOTS DON'T SCORE."),
+            .hint(at: CGPoint(x: 0, y: throwY),
+                  title: "SWIPE UP TO THROW",
+                  body:  "SWIPE UP FROM HERE TOWARD THE BOARD. WAIT FOR THE COOLDOWN BAR TO FILL BETWEEN THROWS."),
+            .hint(at: CGPoint(x: 0, y: boardY),
+                  title: "AIM FOR THE HOLE",
+                  body:  "THE BOARD DRIFTS LEFT AND RIGHT. ONLY CORNHOLES SCORE — BOUNCES OFF THE BOARD DON'T COUNT."),
+            .hint(at: CGPoint(x: 0, y: timerY),
+                  title: "BEAT THE CLOCK",
+                  body:  "TWO-MINUTE BLITZ! MOST CORNHOLES WHEN THE TIMER HITS ZERO WINS. THROW FAST!"),
         ]
         let overlay = TutorialOverlay(steps: steps, sceneSize: size) { [weak self] in
             guard let self = self else { return }

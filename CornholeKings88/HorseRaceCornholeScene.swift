@@ -262,13 +262,21 @@ final class HorseRaceCornholeScene: SKScene {
 
     private func presentTutorial(autoTriggered: Bool) {
         tutorialUp = true
+        let H = size.height
+        let throwY = -H * 0.42
+        let boardY = -H * 0.05
+        let topInset = self.view?.safeAreaInsets.top ?? 0
+        let laneY = H / 2 - topInset - 48 - 2 - 42
         let steps: [TutorialStep] = [
-            .card(title: "HORSE RACE",
-                  body:  "RACE YOUR RED HORSE TO THE FINISH. FIRST TO 12 SPACES WINS."),
-            .card(title: "PICK YOUR HOLE",
-                  body:  "BIG CLOSE HOLE = +1 SPACE.  MIDDLE = +2.  SMALL FAR HOLE = +3."),
-            .card(title: "SWIPE THE RED BAG",
-                  body:  "SWIPE UP FROM THE MOVING RED BAG TO THROW. AS SOON AS IT LANDS YOU CAN THROW AGAIN — SO CAN BLUE."),
+            .hint(at: CGPoint(x: 0, y: throwY),
+                  title: "SWIPE UP TO THROW",
+                  body:  "SWIPE UP FROM THE MOVING RED BAG TO TOSS. THROW AGAIN AS SOON AS YOUR BAG LANDS!"),
+            .hint(at: CGPoint(x: 0, y: boardY),
+                  title: "PICK YOUR HOLE",
+                  body:  "BIG CLOSE HOLE = +1 SPACE. MIDDLE = +2. SMALL FAR HOLE = +3. RISK VS REWARD!"),
+            .hint(at: CGPoint(x: 0, y: laneY),
+                  title: "RACE TO THE FINISH",
+                  body:  "YOUR RED HORSE MOVES WITH EACH SCORE. FIRST TO 12 SPACES WINS THE RACE!"),
         ]
         let overlay = TutorialOverlay(steps: steps, sceneSize: size) { [weak self] in
             guard let self = self else { return }
