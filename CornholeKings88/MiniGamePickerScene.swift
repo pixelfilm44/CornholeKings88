@@ -731,6 +731,7 @@ final class MiniGamePickerScene: SKScene {
             s.availableMagicBags  = inv.counts[.magicBag,  default: 0]
             s.availableFireBags   = inv.counts[.fireBag,   default: 0]
             s.availableGoldenBags = inv.counts[.goldenBag, default: 0]
+            s.availableCannonballBags = inv.counts[.cannonballBag, default: 0]
             s.onComplete = { _ in }
             push(to: s)
 

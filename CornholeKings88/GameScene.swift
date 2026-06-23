@@ -3001,12 +3001,14 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         mini.availableMagicBags  = inventory.counts[.magicBag,  default: 0]
         mini.availableFireBags   = inventory.counts[.fireBag,   default: 0]
         mini.availableGoldenBags = inventory.counts[.goldenBag, default: 0]
+        mini.availableCannonballBags = inventory.counts[.cannonballBag, default: 0]
         mini.onComplete = { [weak self, weak mini] won in
             if let used = mini?.honeyBagsUsed,  used > 0 { self?.inventory.consume(.honeyBag,  count: used) }
             if let used = mini?.bombBagsUsed,   used > 0 { self?.inventory.consume(.bombBag,   count: used) }
             if let used = mini?.magicBagsUsed,  used > 0 { self?.inventory.consume(.magicBag,  count: used) }
             if let used = mini?.fireBagsUsed,   used > 0 { self?.inventory.consume(.fireBag,   count: used) }
             if let used = mini?.goldenBagsUsed, used > 0 { self?.inventory.consume(.goldenBag, count: used) }
+            if let used = mini?.cannonballBagsUsed, used > 0 { self?.inventory.consume(.cannonballBag, count: used) }
             if let earned = mini?.bombBagsEarned,  earned > 0 { self?.inventory.collect(.bombBag,  count: earned) }
             if let earned = mini?.magicBagsEarned, earned > 0 { self?.inventory.collect(.magicBag, count: earned) }
             if let earned = mini?.fireBagsEarned,  earned > 0 { self?.inventory.collect(.fireBag,  count: earned) }
@@ -3641,6 +3643,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         case .fireBag:    return "FIRE BAG: burns all\nother bags in play!"
         case .honeyBag:   return "HONEY BAG: sticks!\nNo wind, no knocks."
         case .goldenBag:  return "GOLDEN BAG: 2 pts\non board, 6 in hole!"
+        case .cannonballBag: return "CANNONBALL: punches\na hole in the board!"
         case .dogBiscuit: return "DOG BISCUIT: tap its\nslot to lure dogs!"
         // floatingBag and goldenLance already get bespoke award banners.
         default:          return nil
@@ -3792,6 +3795,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
             buyBeanbags:  { [weak self] in self?.purchaseBeanbags() ?? false },
             buyPowerJuice:{ [weak self] in self?.purchasePowerJuice() ?? false },
             buyGauntlet:  { [weak self] in self?.purchaseGauntlet() ?? false },
+            buyCannonball:{ [weak self] in self?.purchaseCannonball() ?? false },
             close:        { [weak self] in self?.closeStore() },
             gauntletOwned:{ StoreManager.gauntletOwned }
         )
@@ -3827,6 +3831,14 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         guard coins >= 30 else { return false }
         inventory.consume(.coin, count: 30)
         StoreManager.gauntletOwned = true
+        return true
+    }
+
+    private func purchaseCannonball() -> Bool {
+        let coins = inventory.counts[.coin, default: 0]
+        guard coins >= 20 else { return false }
+        inventory.consume(.coin, count: 20)
+        inventory.collect(.cannonballBag, count: 1)
         return true
     }
 
@@ -4350,6 +4362,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         mini.availableMagicBags  = inventory.counts[.magicBag,  default: 0]
         mini.availableFireBags   = inventory.counts[.fireBag,   default: 0]
         mini.availableGoldenBags = inventory.counts[.goldenBag, default: 0]
+        mini.availableCannonballBags = inventory.counts[.cannonballBag, default: 0]
         mini.onComplete = { [weak self, weak mini] playerWon in
             guard let self else { return }
             if let used = mini?.honeyBagsUsed,  used > 0 { self.inventory.consume(.honeyBag,  count: used) }
@@ -4357,6 +4370,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
             if let used = mini?.magicBagsUsed,  used > 0 { self.inventory.consume(.magicBag,  count: used) }
             if let used = mini?.fireBagsUsed,   used > 0 { self.inventory.consume(.fireBag,   count: used) }
             if let used = mini?.goldenBagsUsed, used > 0 { self.inventory.consume(.goldenBag, count: used) }
+            if let used = mini?.cannonballBagsUsed, used > 0 { self.inventory.consume(.cannonballBag, count: used) }
 
             if playerWon {
                 self.inventory.collect(.coin, count: 10)

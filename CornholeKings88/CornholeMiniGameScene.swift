@@ -56,6 +56,16 @@ final class CornholeMiniGameScene: SKScene {
     /// Golden bags earned this match (awarded mid-game on a 4x cornhole streak); read by host after onComplete.
     private(set) var goldenBagsEarned: Int = 0
 
+    var availableCannonballBags: Int = 0
+    private(set) var cannonballBagsUsed: Int = 0
+    private var cannonballBagSelected = false
+
+    /// Extra holes punched by cannonball bags this round. Each entry stores the
+    /// world-space center and radius. Cleared at the start of every round.
+    private var cannonballHoles: [(center: CGPoint, radius: CGFloat)] = []
+    /// Visual nodes for cannonball-punched holes, keyed to remove on round reset.
+    private var cannonballHoleNodes: [SKNode] = []
+
     // MARK: - Types
 
     enum BagOwner { case player, ai }
@@ -95,6 +105,11 @@ final class CornholeMiniGameScene: SKScene {
         /// Set when an off-board bag drops into Barnum's chasm — it falls into the dark and
         /// is removed from collisions/scoring. Prevents the plummet animation re-triggering.
         var isFallingInChasm = false
+        /// Cannonball bags appear as a black sphere with yellow glow. They cannot be stolen by
+        /// gophers, pass through flying obstacles, and punch a 3-pt hole in the board on landing.
+        var isCannonball = false
+        /// Prevents the cannonball hole-punch from firing more than once.
+        var hasCannonballed = false
         /// Set while a cave-match bat has snatched the bag and is carrying it to a drop point.
         /// While true, physics and deform are skipped — the bat action drives position.
         var isCarriedByBat = false
@@ -123,7 +138,7 @@ final class CornholeMiniGameScene: SKScene {
 
         init(owner: BagOwner, startX: CGFloat, startY: CGFloat,
              isHoney: Bool = false, isBomb: Bool = false, isMagic: Bool = false,
-             isFire: Bool = false, isGolden: Bool = false) {
+             isFire: Bool = false, isGolden: Bool = false, isCannonball: Bool = false) {
             self.owner    = owner
             self.bx = startX; self.by = startY; self.bz = 3
             self.vx = 0; self.vy = 0; self.vz = 0
@@ -132,10 +147,13 @@ final class CornholeMiniGameScene: SKScene {
             self.isMagic  = isMagic
             self.isFire   = isFire
             self.isGolden = isGolden
+            self.isCannonball = isCannonball
 
             let goldenColor = SKColor(red: 1.00, green: 0.84, blue: 0.00, alpha: 1)
             let playerColor: SKColor
-            if isGolden {
+            if isCannonball {
+                playerColor = SKColor(red: 0.08, green: 0.08, blue: 0.10, alpha: 1)
+            } else if isGolden {
                 playerColor = goldenColor
             } else if isBomb {
                 playerColor = SKColor(red: 0.08, green: 0.06, blue: 0.06, alpha: 1)
@@ -150,7 +168,9 @@ final class CornholeMiniGameScene: SKScene {
                 playerColor = SKColor(red: 0.90, green: 0.25, blue: 0.25, alpha: 1)
             }
             let aiColor: SKColor
-            if isGolden {
+            if isCannonball {
+                aiColor = SKColor(red: 0.08, green: 0.08, blue: 0.10, alpha: 1)
+            } else if isGolden {
                 aiColor = goldenColor
             } else if isBomb {
                 aiColor = SKColor(red: 0.12, green: 0.04, blue: 0.18, alpha: 1)
@@ -167,7 +187,7 @@ final class CornholeMiniGameScene: SKScene {
             bagTex.filteringMode = .nearest
             node = SKSpriteNode(texture: bagTex, size: CGSize(width: 50, height: 50))
             node.color            = owner == .player ? playerColor : aiColor
-            node.colorBlendFactor = (isBomb || isMagic || isFire || isGolden) ? 0.88 : 0.65
+            node.colorBlendFactor = (isBomb || isMagic || isFire || isGolden || isCannonball) ? 0.88 : 0.65
             node.zPosition        = 20
             // Tier 3: smooth out the 3×3 drape warp into a curved bend rather than
             // flat facets. Costs nothing until a warpGeometry is actually attached.
@@ -232,6 +252,24 @@ final class CornholeMiniGameScene: SKScene {
                     SKAction.colorize(with: SKColor(red: 1.0, green: 1.0, blue: 0.6, alpha: 1),
                                       colorBlendFactor: 0.50, duration: 0.30),
                     SKAction.colorize(withColorBlendFactor: 0.88, duration: 0.30),
+                ])))
+            }
+
+            // Cannonball: make the sprite circular and add a yellow glow
+            if isCannonball {
+                node.texture = nil
+                let sphere = SKShapeNode(circleOfRadius: 20)
+                sphere.fillColor   = SKColor(red: 0.08, green: 0.08, blue: 0.10, alpha: 1)
+                sphere.strokeColor = SKColor(red: 0.95, green: 0.82, blue: 0.20, alpha: 0.85)
+                sphere.lineWidth   = 2
+                sphere.glowWidth   = 6
+                sphere.zPosition   = 1
+                node.addChild(sphere)
+                node.color = .clear
+                node.colorBlendFactor = 0
+                node.run(SKAction.repeatForever(SKAction.sequence([
+                    SKAction.fadeAlpha(to: 0.80, duration: 0.40),
+                    SKAction.fadeAlpha(to: 1.00, duration: 0.40),
                 ])))
             }
 
@@ -1249,7 +1287,8 @@ final class CornholeMiniGameScene: SKScene {
          (type: .bombBag,   count: availableBombBags),
          (type: .magicBag,  count: availableMagicBags),
          (type: .fireBag,   count: availableFireBags),
-         (type: .goldenBag, count: availableGoldenBags)]
+         (type: .goldenBag, count: availableGoldenBags),
+         (type: .cannonballBag, count: availableCannonballBags)]
             .filter { $0.count > 0 }
     }
 
@@ -1260,6 +1299,7 @@ final class CornholeMiniGameScene: SKScene {
         case .magicBag:  return magicBagSelected
         case .fireBag:   return fireBagSelected
         case .goldenBag: return goldenBagSelected
+        case .cannonballBag: return cannonballBagSelected
         default:         return false
         }
     }
@@ -1331,6 +1371,7 @@ final class CornholeMiniGameScene: SKScene {
             magicBagSelected  = false
             fireBagSelected   = false
             goldenBagSelected = false
+            cannonballBagSelected = false
             closeSatchelPanel()
             btn.isHidden = true
             return
@@ -1353,6 +1394,8 @@ final class CornholeMiniGameScene: SKScene {
             dot?.color = SKColor(red: 0.95, green: 0.30, blue: 0.05, alpha: 1.0)  // orange-red
         } else if goldenBagSelected {
             dot?.color = SKColor(red: 1.00, green: 0.84, blue: 0.00, alpha: 1.0)  // bright gold
+        } else if cannonballBagSelected {
+            dot?.color = SKColor(red: 0.20, green: 0.20, blue: 0.22, alpha: 1.0)  // dark steel
         } else {
             dot?.color = .clear
         }
@@ -1540,6 +1583,7 @@ final class CornholeMiniGameScene: SKScene {
             (.magicBag,  availableMagicBags),
             (.fireBag,   availableFireBags),
             (.goldenBag, availableGoldenBags),
+            (.cannonballBag, availableCannonballBags),
         ]
         for item in allItems {
             let isSelected = isItemSelected(item.type)
@@ -1559,6 +1603,9 @@ final class CornholeMiniGameScene: SKScene {
             case .goldenBag:
                 checkColor = SKColor(red: 1.00, green: 0.84, blue: 0.00, alpha: 1)
                 selBg      = SKColor(red: 0.28, green: 0.22, blue: 0.01, alpha: 0.90)
+            case .cannonballBag:
+                checkColor = SKColor(red: 0.30, green: 0.30, blue: 0.34, alpha: 1)
+                selBg      = SKColor(red: 0.12, green: 0.12, blue: 0.14, alpha: 0.90)
             default:
                 checkColor = SKColor(red: 0.95, green: 0.72, blue: 0.10, alpha: 1)
                 selBg      = SKColor(red: 0.28, green: 0.18, blue: 0.04, alpha: 0.90)
@@ -1587,10 +1634,11 @@ final class CornholeMiniGameScene: SKScene {
                 honeyBagSelected = false
                 availableHoneyBags += 1
             } else if availableHoneyBags > 0 {
-                if bombBagSelected   { bombBagSelected   = false; availableBombBags   += 1 }
-                if magicBagSelected  { magicBagSelected  = false; availableMagicBags  += 1 }
-                if fireBagSelected   { fireBagSelected   = false; availableFireBags   += 1 }
-                if goldenBagSelected { goldenBagSelected = false; availableGoldenBags += 1 }
+                if bombBagSelected        { bombBagSelected        = false; availableBombBags        += 1 }
+                if magicBagSelected       { magicBagSelected       = false; availableMagicBags       += 1 }
+                if fireBagSelected        { fireBagSelected        = false; availableFireBags        += 1 }
+                if goldenBagSelected      { goldenBagSelected      = false; availableGoldenBags      += 1 }
+                if cannonballBagSelected  { cannonballBagSelected  = false; availableCannonballBags  += 1 }
                 honeyBagSelected = true
                 availableHoneyBags -= 1
             }
@@ -1599,10 +1647,11 @@ final class CornholeMiniGameScene: SKScene {
                 bombBagSelected = false
                 availableBombBags += 1
             } else if availableBombBags > 0 {
-                if honeyBagSelected  { honeyBagSelected  = false; availableHoneyBags  += 1 }
-                if magicBagSelected  { magicBagSelected  = false; availableMagicBags  += 1 }
-                if fireBagSelected   { fireBagSelected   = false; availableFireBags   += 1 }
-                if goldenBagSelected { goldenBagSelected = false; availableGoldenBags += 1 }
+                if honeyBagSelected       { honeyBagSelected       = false; availableHoneyBags       += 1 }
+                if magicBagSelected       { magicBagSelected       = false; availableMagicBags       += 1 }
+                if fireBagSelected        { fireBagSelected        = false; availableFireBags        += 1 }
+                if goldenBagSelected      { goldenBagSelected      = false; availableGoldenBags      += 1 }
+                if cannonballBagSelected  { cannonballBagSelected  = false; availableCannonballBags  += 1 }
                 bombBagSelected = true
                 availableBombBags -= 1
             }
@@ -1611,10 +1660,11 @@ final class CornholeMiniGameScene: SKScene {
                 magicBagSelected = false
                 availableMagicBags += 1
             } else if availableMagicBags > 0 {
-                if honeyBagSelected  { honeyBagSelected  = false; availableHoneyBags  += 1 }
-                if bombBagSelected   { bombBagSelected   = false; availableBombBags   += 1 }
-                if fireBagSelected   { fireBagSelected   = false; availableFireBags   += 1 }
-                if goldenBagSelected { goldenBagSelected = false; availableGoldenBags += 1 }
+                if honeyBagSelected       { honeyBagSelected       = false; availableHoneyBags       += 1 }
+                if bombBagSelected        { bombBagSelected        = false; availableBombBags        += 1 }
+                if fireBagSelected        { fireBagSelected        = false; availableFireBags        += 1 }
+                if goldenBagSelected      { goldenBagSelected      = false; availableGoldenBags      += 1 }
+                if cannonballBagSelected  { cannonballBagSelected  = false; availableCannonballBags  += 1 }
                 magicBagSelected = true
                 availableMagicBags -= 1
             }
@@ -1623,10 +1673,11 @@ final class CornholeMiniGameScene: SKScene {
                 fireBagSelected = false
                 availableFireBags += 1
             } else if availableFireBags > 0 {
-                if honeyBagSelected  { honeyBagSelected  = false; availableHoneyBags  += 1 }
-                if bombBagSelected   { bombBagSelected   = false; availableBombBags   += 1 }
-                if magicBagSelected  { magicBagSelected  = false; availableMagicBags  += 1 }
-                if goldenBagSelected { goldenBagSelected = false; availableGoldenBags += 1 }
+                if honeyBagSelected       { honeyBagSelected       = false; availableHoneyBags       += 1 }
+                if bombBagSelected        { bombBagSelected        = false; availableBombBags        += 1 }
+                if magicBagSelected       { magicBagSelected       = false; availableMagicBags       += 1 }
+                if goldenBagSelected      { goldenBagSelected      = false; availableGoldenBags      += 1 }
+                if cannonballBagSelected  { cannonballBagSelected  = false; availableCannonballBags  += 1 }
                 fireBagSelected = true
                 availableFireBags -= 1
             }
@@ -1635,12 +1686,26 @@ final class CornholeMiniGameScene: SKScene {
                 goldenBagSelected = false
                 availableGoldenBags += 1
             } else if availableGoldenBags > 0 {
-                if honeyBagSelected { honeyBagSelected = false; availableHoneyBags += 1 }
-                if bombBagSelected  { bombBagSelected  = false; availableBombBags  += 1 }
-                if magicBagSelected { magicBagSelected = false; availableMagicBags += 1 }
-                if fireBagSelected  { fireBagSelected  = false; availableFireBags  += 1 }
+                if honeyBagSelected       { honeyBagSelected       = false; availableHoneyBags       += 1 }
+                if bombBagSelected        { bombBagSelected        = false; availableBombBags        += 1 }
+                if magicBagSelected       { magicBagSelected       = false; availableMagicBags       += 1 }
+                if fireBagSelected        { fireBagSelected        = false; availableFireBags        += 1 }
+                if cannonballBagSelected  { cannonballBagSelected  = false; availableCannonballBags  += 1 }
                 goldenBagSelected = true
                 availableGoldenBags -= 1
+            }
+        case .cannonballBag:
+            if cannonballBagSelected {
+                cannonballBagSelected = false
+                availableCannonballBags += 1
+            } else if availableCannonballBags > 0 {
+                if honeyBagSelected       { honeyBagSelected       = false; availableHoneyBags       += 1 }
+                if bombBagSelected        { bombBagSelected        = false; availableBombBags        += 1 }
+                if magicBagSelected       { magicBagSelected       = false; availableMagicBags       += 1 }
+                if fireBagSelected        { fireBagSelected        = false; availableFireBags        += 1 }
+                if goldenBagSelected      { goldenBagSelected      = false; availableGoldenBags      += 1 }
+                cannonballBagSelected = true
+                availableCannonballBags -= 1
             }
         default:
             break
@@ -1693,12 +1758,16 @@ final class CornholeMiniGameScene: SKScene {
         bombBagSelected     = false
         magicBagSelected    = false
         fireBagSelected     = false
+        cannonballBagSelected = false
         boardOnFire         = false
         holeFire            = false
         fireBoardOverlay?.removeFromParent()
         fireBoardOverlay    = nil
         gameWorldNode.childNode(withName: "fireBoardLabel")?.removeFromParent()
         gameWorldNode.childNode(withName: "fireBoardEmitter")?.removeFromParent()
+        for node in cannonballHoleNodes { node.removeFromParent() }
+        cannonballHoleNodes.removeAll()
+        cannonballHoles.removeAll()
         updateSatchelButton()
         refreshSatchelPanelRows()
 
@@ -1966,6 +2035,9 @@ final class CornholeMiniGameScene: SKScene {
                 // Honey bags are sticky — they don't move when other bags hit them
                 guard !a.isHoney && !b.isHoney else { continue }
 
+                // Cannonball bags pass through everything
+                guard !a.isCannonball && !b.isCannonball else { continue }
+
                 // Ignore if one bag is flying well above the other
                 guard abs(a.bz - b.bz) < bagRadius else { continue }
 
@@ -2183,6 +2255,21 @@ final class CornholeMiniGameScene: SKScene {
                     if holeFire && !bag.isFire && !bag.isDestroyed {
                         destroyBag(bag)
                     }
+                } else if !bag.hasScored && checkCannonballHoleCapture(bag) {
+                    bag.hasScored  = true
+                    bag.isGrounded = true
+                    bag.vx = 0; bag.vy = 0; bag.vz = 0; bag.rotV = 0
+                    UINotificationFeedbackGenerator().notificationOccurred(.success)
+                    run(SKAction.playSoundFileNamed("hole_score.wav", waitForCompletion: false))
+                    showHoleEffect(at: CGPoint(x: bag.bx, y: bag.by))
+                    bag.node.run(SKAction.sequence([
+                        SKAction.group([
+                            SKAction.scale(to: 0.3, duration: 0.20),
+                            SKAction.fadeOut(withDuration: 0.20),
+                        ]),
+                        SKAction.hide(),
+                    ]))
+                    bag.shadow.run(SKAction.fadeOut(withDuration: 0.15))
                 } else if bag.isBomb && !bag.hasBombed && bag.isGrounded && checkIsOnBoard(bag) {
                     // Bomb rests on board surface: destroy opponent bags on the board
                     bag.hasBombed = true
@@ -2191,6 +2278,9 @@ final class CornholeMiniGameScene: SKScene {
                     // Fire bag rests on board: burn all other board bags this round
                     bag.hasTriggeredFire = true
                     triggerFireBoard(at: CGPoint(x: bag.bx, y: bag.by), by: bag.owner)
+                } else if bag.isCannonball && !bag.hasCannonballed && bag.isGrounded && checkIsOnBoard(bag) {
+                    bag.hasCannonballed = true
+                    triggerCannonballHole(bag)
                 }
             } else if isCaveMatch && bag.by <= caveChasmTopY && bag.by >= caveChasmBottomY {
                 // Missed into Barnum's chasm — the bag plummets into the darkness (0 pts).
@@ -2246,6 +2336,7 @@ final class CornholeMiniGameScene: SKScene {
     private func updateBagDeform(_ bag: MiniGameBag, dt: CGFloat) {
         guard !bag.hasScored, !bag.isDestroyed, !bag.hasAppliedGroundScale else { return }
         if bag.isCarriedByBat { return }
+        if bag.isCannonball { return }
 
         // Tier 2: while airborne and moving, hold a gentle tall-and-narrow stretch
         // (deform < 0) that reads as the bag leaning into its arc; it relaxes to 0 as
@@ -2582,6 +2673,83 @@ final class CornholeMiniGameScene: SKScene {
         ]))
     }
 
+    // MARK: - Cannonball Hole
+
+    private func triggerCannonballHole(_ bag: MiniGameBag) {
+        let holePos = CGPoint(x: bag.bx, y: bag.by)
+        let newHoleRadius = holeRadius * 0.85
+
+        cannonballHoles.append((center: holePos, radius: newHoleRadius))
+
+        if bag.owner == .player { playerScore += 3 }
+        else                    { aiScore     += 3 }
+        updateScoreLabels()
+
+        UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
+        run(SKAction.playSoundFileNamed("hit.mp3", waitForCompletion: false))
+
+        // Sink the cannonball bag into the hole it created
+        bag.hasScored  = true
+        bag.isGrounded = true
+        bag.vx = 0; bag.vy = 0; bag.vz = 0; bag.rotV = 0
+        bag.node.run(SKAction.sequence([
+            SKAction.group([
+                SKAction.scale(to: 0.3, duration: 0.20),
+                SKAction.fadeOut(withDuration: 0.20),
+            ]),
+            SKAction.hide(),
+        ]))
+        bag.shadow.run(SKAction.fadeOut(withDuration: 0.15))
+
+        // Draw the new hole on the board
+        guard let board = boardContainerNode else { return }
+        let holeRelX = holePos.x
+        let holeRelY = holePos.y - boardY
+        let holeTex = makePixelCircleTexture(
+            radius:    newHoleRadius,
+            fill:      UIColor(red: 0.06, green: 0.04, blue: 0.02, alpha: 1),
+            border:    UIColor(red: 0.25, green: 0.13, blue: 0.04, alpha: 1),
+            pixelSize: 3)
+        let holeNode = SKSpriteNode(texture: holeTex,
+                                     size: CGSize(width: newHoleRadius * 2, height: newHoleRadius * 2))
+        holeNode.position  = CGPoint(x: holeRelX, y: holeRelY)
+        holeNode.zPosition = 2
+        holeNode.name      = "cannonballHole"
+        board.addChild(holeNode)
+        cannonballHoleNodes.append(holeNode)
+
+        // Impact flash
+        holeNode.alpha = 0
+        holeNode.setScale(1.6)
+        holeNode.run(SKAction.group([
+            SKAction.fadeIn(withDuration: 0.15),
+            SKAction.scale(to: 1.0, duration: 0.15),
+        ]))
+
+        // "+3 CANNONBALL!" label
+        let label = makeLabel(text: "+3 CANNONBALL!",
+                              size: max(7, size.width * 0.045),
+                              color: SKColor(red: 0.95, green: 0.82, blue: 0.20, alpha: 1))
+        label.position  = CGPoint(x: bag.bx, y: bag.by + 20)
+        label.zPosition = 300
+        label.alpha     = 0
+        gameWorldNode.addChild(label)
+        label.run(SKAction.sequence([
+            SKAction.fadeIn(withDuration: 0.08),
+            SKAction.moveBy(x: 0, y: 35, duration: 0.8),
+            SKAction.fadeOut(withDuration: 0.25),
+            SKAction.removeFromParent(),
+        ]))
+    }
+
+    private func checkCannonballHoleCapture(_ bag: MiniGameBag) -> Bool {
+        for hole in cannonballHoles {
+            let dist = hypot(bag.bx - hole.center.x, bag.by - hole.center.y)
+            if dist <= hole.radius { return true }
+        }
+        return false
+    }
+
     /// Semi-transparent fire overlay drawn over the board while it's ablaze.
     private func showFireBoardOverlay() {
         guard fireBoardOverlay == nil else { return }
@@ -2676,6 +2844,7 @@ final class CornholeMiniGameScene: SKScene {
         let useMagic  = owner == .player && magicBagSelected
         let useFire   = owner == .player && fireBagSelected
         let useGolden = owner == .player && goldenBagSelected
+        let useCannonball = owner == .player && cannonballBagSelected
         if useHoney {
             honeyBagsUsed += 1
             honeyBagSelected = false
@@ -2701,9 +2870,14 @@ final class CornholeMiniGameScene: SKScene {
             goldenBagSelected = false
             updateSatchelButton(); refreshSatchelPanelRows()
         }
+        if useCannonball {
+            cannonballBagsUsed += 1
+            cannonballBagSelected = false
+            updateSatchelButton(); refreshSatchelPanelRows()
+        }
         let bag = MiniGameBag(owner: owner, startX: startX, startY: throwLineY,
                               isHoney: useHoney, isBomb: useBomb, isMagic: useMagic,
-                              isFire: useFire, isGolden: useGolden)
+                              isFire: useFire, isGolden: useGolden, isCannonball: useCannonball)
         bag.vx = vx
         bag.vy = vy
         bag.vz = vzInitial
@@ -2735,7 +2909,7 @@ final class CornholeMiniGameScene: SKScene {
         // Cave match: ~10% of the time, when the dragon isn't out, a bat swoops in,
         // grabs the bag mid-air, and drops it on the board (mostly) or in the hole.
         if isCaveMatch && dragonNode == nil && batNode == nil
-            && !useFire && !useMagic && !useBomb && !useGolden && !useHoney
+            && !useFire && !useMagic && !useBomb && !useGolden && !useHoney && !useCannonball
             && Double.random(in: 0..<1) < 0.10 {
             scheduleBatSnatch(for: bag)
         }
@@ -3287,7 +3461,9 @@ final class CornholeMiniGameScene: SKScene {
     private func updateTurnIndicator() {
         switch gameState {
         case .playerTurn:
-            if goldenBagSelected {
+            if cannonballBagSelected {
+                turnIndicator?.color = SKColor(red: 0.08, green: 0.08, blue: 0.10, alpha: 1)  // dark steel — cannonball armed
+            } else if goldenBagSelected {
                 turnIndicator?.color = SKColor(red: 1.00, green: 0.84, blue: 0.00, alpha: 1)  // gold — golden bag armed
             } else if magicBagSelected {
                 turnIndicator?.color = SKColor(red: 0.30, green: 1.00, blue: 0.10, alpha: 1)  // fluorescent green — magic bag armed
@@ -3300,15 +3476,18 @@ final class CornholeMiniGameScene: SKScene {
             }
             applyGoldenIndicatorMarker(goldenBagSelected)
             applyMagicIndicatorMarker(magicBagSelected)
+            applyCannonballIndicatorMarker(cannonballBagSelected)
             turnIndicator?.isHidden = false
         case .aiTurn:
             turnIndicator?.color = SKColor(red: 0.30, green: 0.50, blue: 0.90, alpha: 1)
             applyGoldenIndicatorMarker(false)
             applyMagicIndicatorMarker(false)
+            applyCannonballIndicatorMarker(false)
             turnIndicator?.isHidden = selectedOpponent == .spirit
         default:
             applyGoldenIndicatorMarker(false)
             applyMagicIndicatorMarker(false)
+            applyCannonballIndicatorMarker(false)
             turnIndicator?.isHidden = true
         }
     }
@@ -3371,6 +3550,38 @@ final class CornholeMiniGameScene: SKScene {
         } else {
             existing?.removeFromParent()
             indicator.removeAction(forKey: "goldenShimmer")
+            indicator.colorBlendFactor = 0.65
+        }
+    }
+
+    /// Transforms the throw-line preview bag into a cannonball sphere when armed,
+    /// restoring the normal bag texture when disarmed.
+    private func applyCannonballIndicatorMarker(_ show: Bool) {
+        guard let indicator = turnIndicator else { return }
+        let existing = indicator.childNode(withName: "cannonballSphereMarker")
+        if show {
+            if existing == nil {
+                let sphere = SKShapeNode(circleOfRadius: 20)
+                sphere.name        = "cannonballSphereMarker"
+                sphere.fillColor   = SKColor(red: 0.08, green: 0.08, blue: 0.10, alpha: 1)
+                sphere.strokeColor = SKColor(red: 0.95, green: 0.82, blue: 0.20, alpha: 0.85)
+                sphere.lineWidth   = 2
+                sphere.glowWidth   = 6
+                sphere.position    = .zero
+                sphere.zPosition   = 1
+                indicator.addChild(sphere)
+            }
+            indicator.colorBlendFactor = 1.0
+            indicator.color = SKColor(red: 0.08, green: 0.08, blue: 0.10, alpha: 1)
+            indicator.removeAction(forKey: "cannonballPulse")
+            indicator.run(SKAction.repeatForever(SKAction.sequence([
+                SKAction.fadeAlpha(to: 0.80, duration: 0.40),
+                SKAction.fadeAlpha(to: 1.00, duration: 0.40),
+            ])), withKey: "cannonballPulse")
+        } else {
+            existing?.removeFromParent()
+            indicator.removeAction(forKey: "cannonballPulse")
+            indicator.alpha = 1.0
             indicator.colorBlendFactor = 0.65
         }
     }
@@ -4050,6 +4261,8 @@ final class CornholeMiniGameScene: SKScene {
         clearGopher()
         // No gophers in the cave — the bag flies over a bottomless chasm.
         guard !isCaveMatch else { return }
+        // Cannonball bags cannot be stolen — skip the gopher entirely.
+        if owner == .player && cannonballBagSelected { return }
         guard Double.random(in: 0..<1) < gopherSpawnChance else { return }
 
         // Spawn near the front edge of the board so the gopher has a runway —
@@ -4442,8 +4655,10 @@ final class CornholeMiniGameScene: SKScene {
             showDuckBonusBanner(at: crow.position)
         }
 
-        // Bag stops horizontally; gravity pulls it straight down next frame
-        bag.vx = 0; bag.vy = 0; bag.vz = 0
+        // Cannonball bags maintain trajectory — they knock the obstacle away and keep flying.
+        if !bag.isCannonball {
+            bag.vx = 0; bag.vy = 0; bag.vz = 0
+        }
 
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
 

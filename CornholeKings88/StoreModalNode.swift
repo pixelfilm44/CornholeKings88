@@ -11,6 +11,7 @@ final class StoreModalNode: SKNode {
         let buyBeanbags: () -> Bool   // returns true on success
         let buyPowerJuice: () -> Bool
         let buyGauntlet:  () -> Bool
+        let buyCannonball: () -> Bool
         let close:        () -> Void
         let gauntletOwned: () -> Bool
     }
@@ -44,7 +45,7 @@ final class StoreModalNode: SKNode {
 
         // Panel
         let panelW: CGFloat = min(W - 32, 340)
-        let panelH: CGFloat = min(H - 96, 360)
+        let panelH: CGFloat = min(H - 96, 432)
         let panel = SKShapeNode(rect: CGRect(x: -panelW/2, y: -panelH/2, width: panelW, height: panelH),
                                 cornerRadius: 8)
         panel.fillColor   = SKColor(red: 0.10, green: 0.04, blue: 0.02, alpha: 0.98)
@@ -101,6 +102,14 @@ final class StoreModalNode: SKNode {
                                     width: cardW, height: cardH)
         gauntletCard.position = CGPoint(x: 0, y: topY - cardH*2.5 - spacing*2)
         addChild(gauntletCard); cards.append(gauntletCard)
+
+        let cannonCard = makeCard(title: "CANNONBALL",
+                                   subtitle: "sphere / punches holes",
+                                   price: 20,
+                                   buttonName: "buyCannonball",
+                                   width: cardW, height: cardH)
+        cannonCard.position = CGPoint(x: 0, y: topY - cardH*3.5 - spacing*3)
+        addChild(cannonCard); cards.append(cannonCard)
 
         // Close button — generous tap target so the X is easy to hit.
         let closeBtn = SKShapeNode(rect: CGRect(x: -22, y: -22, width: 44, height: 44),
@@ -198,9 +207,10 @@ final class StoreModalNode: SKNode {
         let gauntletOwned = callbacks.gauntletOwned()
 
         let items: [(String, Int, Bool)] = [
-            ("buyBags",     10, true),
-            ("buyJuice",    10, true),
-            ("buyGauntlet", 30, !gauntletOwned),
+            ("buyBags",       10, true),
+            ("buyJuice",      10, true),
+            ("buyGauntlet",   30, !gauntletOwned),
+            ("buyCannonball", 20, true),
         ]
         for (name, price, available) in items {
             guard let btn = childButton(named: name) else { continue }
@@ -247,6 +257,10 @@ final class StoreModalNode: SKNode {
                     return
                 case "buyGauntlet":
                     if callbacks.buyGauntlet() { flash(buttonNamed: "buyGauntlet") }
+                    refreshCardStates()
+                    return
+                case "buyCannonball":
+                    if callbacks.buyCannonball() { flash(buttonNamed: "buyCannonball") }
                     refreshCardStates()
                     return
                 default:

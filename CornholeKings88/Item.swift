@@ -33,6 +33,10 @@ enum ItemType: String, CaseIterable {
     case flashlight
     /// Knocked off a mountain with the Golden Lance. Cosmetic count for now.
     case torch
+    /// Bought from the store (20 coins each). Appears as a black sphere with a yellow glow.
+    /// Cannot be stolen by the gopher. Passes through ducks/babies without stopping.
+    /// Creates a 3-pt hole in the board where it lands; opponents can also score in the new hole that round.
+    case cannonballBag
 
     var color: SKColor {
         switch self {
@@ -50,6 +54,7 @@ enum ItemType: String, CaseIterable {
         case .wood:       return SKColor(red: 0.55, green: 0.36, blue: 0.18, alpha: 1.0)
         case .flashlight: return SKColor(red: 1.00, green: 0.92, blue: 0.55, alpha: 1.0)
         case .torch:      return SKColor(red: 1.00, green: 0.55, blue: 0.15, alpha: 1.0)
+        case .cannonballBag: return SKColor(red: 0.10, green: 0.10, blue: 0.10, alpha: 1.0)
         }
     }
 
@@ -69,6 +74,7 @@ enum ItemType: String, CaseIterable {
         case .wood:       return "WOOD"
         case .flashlight: return "FLASHLIGHT"
         case .torch:      return "TORCH"
+        case .cannonballBag: return "CANNONBALL"
         }
     }
 
@@ -88,6 +94,7 @@ enum ItemType: String, CaseIterable {
         case .wood:       return "W"
         case .flashlight: return "✦"
         case .torch:      return "T"
+        case .cannonballBag: return "◉"
         }
     }
 }
