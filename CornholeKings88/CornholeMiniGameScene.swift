@@ -2091,11 +2091,11 @@ final class CornholeMiniGameScene: SKScene {
                 } else {
                     // Small bounce then slide — rain makes the surface very slippery.
                     // CathyX's graveboard ignores the rain slip — bone-dry no matter the weather.
-                    // Long-distance variant: friction (1-f) is tripled (half-slide × 1.5×).
+                    // Long-distance variant: friction (1-f) is scaled up (less slide).
                     let slippery = rainActive && !isCathyMatch
                     let baseFriction: CGFloat = slippery ? 0.968 : 0.92
                     let boardFriction: CGFloat = distanceScale < 1.0
-                        ? 1.0 - (1.0 - baseFriction) * 3.0
+                        ? 1.0 - (1.0 - baseFriction) * 3.6
                         : baseFriction
                     if abs(bag.vz) > 0.5 {
                         bag.vz = abs(bag.vz) * 0.18
