@@ -6,16 +6,16 @@ import SpriteKit
 /// `BaseballAISettings`. Changes persist immediately.
 final class BaseballTuningScene: SKScene {
 
-    // Bit-Wood Brawler palette
-    private let dsPrimary = SKColor(red: 0x1a/255.0, green: 0x0a/255.0, blue: 0x04/255.0, alpha: 1)
-    private let dsGold    = SKColor(red: 0xf0/255.0, green: 0xc0/255.0, blue: 0x60/255.0, alpha: 1)
-    private let dsIron    = SKColor(red: 0x59/255.0, green: 0x59/255.0, blue: 0x59/255.0, alpha: 1)
+    // Parchment palette
+    private let dsPrimary = Parchment.paper
+    private let dsGold    = Parchment.deep
+    private let dsIron    = Parchment.surface
 
     private let settings = BaseballAISettings.shared
 
     override func didMove(to view: SKView) {
         anchorPoint = CGPoint(x: 0.5, y: 0.5)
-        backgroundColor = SKColor(red: 0.02, green: 0.04, blue: 0.02, alpha: 1)
+        backgroundColor = Parchment.bg
         buildUI()
     }
 
@@ -34,7 +34,7 @@ final class BaseballTuningScene: SKScene {
         bar.zPosition = 10
         addChild(bar)
 
-        let border = SKSpriteNode(color: dsGold, size: CGSize(width: W, height: 2))
+        let border = SKSpriteNode(color: Parchment.edge, size: CGSize(width: W, height: 3))
         border.position = CGPoint(x: 0, y: ribbonBottomY + 1)
         border.zPosition = 11
         addChild(border)
@@ -90,7 +90,7 @@ final class BaseballTuningScene: SKScene {
             let rowLabel = SKLabelNode(fontNamed: "PressStart2P-Regular")
             rowLabel.text = stat.label
             rowLabel.fontSize = min(9, W / 34)
-            rowLabel.fontColor = .white
+            rowLabel.fontColor = Parchment.ink
             rowLabel.verticalAlignmentMode = .center
             rowLabel.horizontalAlignmentMode = .left
             rowLabel.position = CGPoint(x: labelX, y: y)
@@ -111,7 +111,7 @@ final class BaseballTuningScene: SKScene {
         let hint = SKLabelNode(fontNamed: "PressStart2P-Regular")
         hint.text = "100% = DEFAULT DIFFICULTY"
         hint.fontSize = min(7, W / 44)
-        hint.fontColor = SKColor(white: 0.45, alpha: 1)
+        hint.fontColor = Parchment.muted
         hint.verticalAlignmentMode = .center
         hint.horizontalAlignmentMode = .center
         hint.position = CGPoint(x: 0, y: -H / 2 + 34)
@@ -147,13 +147,13 @@ final class BaseballTuningScene: SKScene {
     private func makeMiniButton(symbol: String, name: String) -> SKNode {
         let container = SKNode()
         container.name = name
-        let bg = SKSpriteNode(color: dsGold, size: CGSize(width: 26, height: 26))
+        let bg = SKSpriteNode(color: Parchment.deep, size: CGSize(width: 26, height: 26))
         bg.name = name
         bg.zPosition = 1
         let lbl = SKLabelNode(fontNamed: "PressStart2P-Regular")
         lbl.text = symbol
         lbl.fontSize = 14
-        lbl.fontColor = dsPrimary
+        lbl.fontColor = Parchment.onAmber
         lbl.verticalAlignmentMode = .center
         lbl.horizontalAlignmentMode = .center
         lbl.name = name

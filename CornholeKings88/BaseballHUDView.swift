@@ -1,4 +1,5 @@
 import SwiftUI
+import SpriteKit          // Parchment palette lives here
 internal import Combine
 
 // MARK: - ViewModel (updated by CornholeBaseballScene via delegate)
@@ -19,11 +20,11 @@ final class BaseballHUDViewModel: ObservableObject {
 struct BaseballHUDView: View {
     @ObservedObject var viewModel: BaseballHUDViewModel
 
-    private let gold      = Color(red: 0.941, green: 0.753, blue: 0.376) // #f0c060
-    private let red       = Color(red: 0.831, green: 0.267, blue: 0.118) // #d4441e
-    private let blue      = Color(red: 0.353, green: 0.612, blue: 0.831) // #5a9cd4
-    private let primary   = Color(red: 0.102, green: 0.039, blue: 0.016) // #1a0a04
-    private let ironGray  = Color(red: 0.349, green: 0.349, blue: 0.349) // #595959
+    private let gold      = Color(Parchment.deep)       // deep brown labels
+    private let red       = Color(Parchment.heartRed)   // #d4441e
+    private let blue      = Color(Parchment.timerBlue)  // #5a9cd4
+    private let primary   = Color(Parchment.paper)      // parchment bar bg
+    private let ironGray  = Color(Parchment.muted)      // muted accents
 
     var body: some View {
         VStack(spacing: 0) {
@@ -32,7 +33,7 @@ struct BaseballHUDView: View {
         }
     }
 
-    // MARK: - Top ribbon: 48pt + safe area, solid #1a0a04, 2px gold bottom border
+    // MARK: - Top ribbon: 48pt + safe area, parchment paper bg, 3px edge bottom border
 
     private var topBar: some View {
         HStack(alignment: .center, spacing: 0) {
@@ -77,10 +78,10 @@ struct BaseballHUDView: View {
                         .fixedSize()
                 }
 
-                // Count row — outs (red) and strikes (gold) for the current batter
+                // Count row — outs (red) and strikes (amber) for the current batter
                 HStack(spacing: 8) {
                     countGroup(label: "OUT", count: viewModel.outs, total: 3, color: red)
-                    countGroup(label: "STR", count: viewModel.strikes, total: 3, color: gold)
+                    countGroup(label: "STR", count: viewModel.strikes, total: 3, color: Color(Parchment.amber))
                 }
             }
 
@@ -95,8 +96,8 @@ struct BaseballHUDView: View {
                 .ignoresSafeArea(edges: .top)
                 .overlay(
                     Rectangle()
-                        .frame(height: 2)
-                        .foregroundColor(gold),
+                        .frame(height: 3)
+                        .foregroundColor(Color(Parchment.edge)),
                     alignment: .bottom
                 )
         )

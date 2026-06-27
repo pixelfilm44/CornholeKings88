@@ -197,7 +197,7 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
     /// stays frozen until the final beat fires startTurn().
     private func startCountdown() {
         countdownActive = true
-        let gold  = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 1)
+        let gold  = Parchment.deep
         let green = SKColor(red: 0.18, green: 0.90, blue: 0.40, alpha: 1)
 
         func beatLabel(text: String, color: SKColor) -> SKAction {
@@ -521,20 +521,18 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
 
     private func buildHUD() {
         let font       = "PressStart2P-Regular"
-        let dsPrimary  = SKColor(red: 0.102, green: 0.039, blue: 0.016, alpha: 1)
-        let dsGold     = SKColor(red: 0.941, green: 0.753, blue: 0.376, alpha: 1)
 
         let topInset: CGFloat = view?.safeAreaInsets.top ?? 0
         let topH:    CGFloat  = 48
         let totalTopH = topH + topInset
         let topBarY   = H / 2 - topInset - topH / 2
 
-        let topBar = SKSpriteNode(color: dsPrimary, size: CGSize(width: W, height: totalTopH))
+        let topBar = SKSpriteNode(color: Parchment.paper, size: CGSize(width: W, height: totalTopH))
         topBar.position  = CGPoint(x: 0, y: H / 2 - totalTopH / 2)
         topBar.zPosition = 500
         camNode.addChild(topBar)
 
-        let border = SKSpriteNode(color: dsGold, size: CGSize(width: W, height: 2))
+        let border = SKSpriteNode(color: Parchment.edge, size: CGSize(width: W, height: 3))
         border.position  = CGPoint(x: 0, y: H / 2 - totalTopH)
         border.zPosition = 501
         camNode.addChild(border)
@@ -560,14 +558,14 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
 
         bagsLbl = SKLabelNode(fontNamed: font)
         bagsLbl.text = "BAGS  \(bagsLeft)"; bagsLbl.fontSize = 13
-        bagsLbl.fontColor = dsGold
+        bagsLbl.fontColor = Parchment.deep
         bagsLbl.horizontalAlignmentMode = .center; bagsLbl.verticalAlignmentMode = .center
         bagsLbl.position = CGPoint(x: 0, y: topBarY)
         bagsLbl.zPosition = 502
         camNode.addChild(bagsLbl)
 
         // Toast
-        toastBg = SKSpriteNode(color: dsGold, size: CGSize(width: W * 0.7, height: 28))
+        toastBg = SKSpriteNode(color: Parchment.surface, size: CGSize(width: W * 0.7, height: 28))
         toastBg.alpha = 0
         toastBg.zPosition = 510
         camNode.addChild(toastBg)
@@ -606,13 +604,13 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
         let fmt = UIGraphicsImageRendererFormat(); fmt.scale = 1
         let img = UIGraphicsImageRenderer(size: size, format: fmt).image { ctx in
             let c = ctx.cgContext
-            c.setFillColor(UIColor(white: 0, alpha: 0.18).cgColor)
+            c.setFillColor(UIColor(white: 0, alpha: 0.10).cgColor)
             var y: CGFloat = 0
             while y < size.height { c.fill(CGRect(x: 0, y: y, width: size.width, height: 1)); y += 3 }
             let space = CGColorSpaceCreateDeviceRGB()
             let cols = [UIColor(white: 0, alpha: 0).cgColor,
-                        UIColor(white: 0, alpha: 0.15).cgColor,
-                        UIColor(white: 0, alpha: 0.60).cgColor] as CFArray
+                        UIColor(white: 0, alpha: 0.08).cgColor,
+                        UIColor(white: 0, alpha: 0.35).cgColor] as CFArray
             if let g = CGGradient(colorsSpace: space, colors: cols, locations: [0, 0.55, 1.0]) {
                 c.drawRadialGradient(g,
                     startCenter: CGPoint(x: size.width/2, y: size.height/2), startRadius: 0,
@@ -1139,14 +1137,14 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
 
         let panelW: CGFloat = min(W * 0.85, 360)
         let panelH: CGFloat = 180
-        let bg = SKSpriteNode(color: SKColor(red: 0.102, green: 0.039, blue: 0.016, alpha: 1),
+        let bg = SKSpriteNode(color: Parchment.paper,
                               size: CGSize(width: panelW, height: panelH))
         bg.zPosition = 1
         panel.addChild(bg)
 
         let border = SKShapeNode(rectOf: CGSize(width: panelW, height: panelH))
-        border.strokeColor = SKColor(red: 0.941, green: 0.753, blue: 0.376, alpha: 1)
-        border.lineWidth = 2
+        border.strokeColor = Parchment.edge
+        border.lineWidth = 3
         border.fillColor = .clear
         border.zPosition = 2
         panel.addChild(border)
@@ -1154,7 +1152,7 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
         let title = SKLabelNode(fontNamed: font)
         title.text = "CHOOSE YOUR BAG"
         title.fontSize = 14
-        title.fontColor = SKColor(red: 0.941, green: 0.753, blue: 0.376, alpha: 1)
+        title.fontColor = Parchment.deep
         title.position = CGPoint(x: 0, y: panelH / 2 - 28)
         title.zPosition = 3
         panel.addChild(title)
@@ -1188,7 +1186,7 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
             let cnt = SKLabelNode(fontNamed: font)
             cnt.text = "x\(count)"
             cnt.fontSize = 12
-            cnt.fontColor = SKColor(red: 0.941, green: 0.753, blue: 0.376, alpha: 1)
+            cnt.fontColor = Parchment.deep
             cnt.position = CGPoint(x: 0, y: -28)
             cnt.zPosition = 1
             cnt.name = name

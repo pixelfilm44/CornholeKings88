@@ -279,17 +279,17 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     /// Stage-center Y offset converted to world units (camera is scaled).
     private var stageCenterYWorld: CGFloat { stageCenterY / worldZoom }
 
-    // Chrome / HUD palette (Bit-Wood Brawler design system).
-    private let woodColor     = SKColor(red: 0.36,  green: 0.20,  blue: 0.10,  alpha: 1.0)
-    private let woodDarkColor = SKColor(red: 0.23,  green: 0.12,  blue: 0.04,  alpha: 1.0)
-    private let ironColor     = SKColor(red: 0.10,  green: 0.10,  blue: 0.10,  alpha: 1.0)
-    private let ironLight     = SKColor(red: 0.27,  green: 0.27,  blue: 0.27,  alpha: 1.0)
-    private let amberColor    = SKColor(red: 0.78,  green: 0.57,  blue: 0.16,  alpha: 1.0)
-    // Design-system constants (match DESIGN.md exactly).
-    private let dsPrimary     = SKColor(red: 0.102, green: 0.039, blue: 0.016, alpha: 1.0) // #1a0a04
-    private let dsGold        = SKColor(red: 0.941, green: 0.753, blue: 0.376, alpha: 1.0) // #f0c060
-    private let dsHeartRed    = SKColor(red: 0.831, green: 0.267, blue: 0.118, alpha: 1.0) // #d4441e
-    private let dsIronGray    = SKColor(red: 0.349, green: 0.349, blue: 0.349, alpha: 0.70) // #595959
+    // Chrome / HUD palette — parchment theme.
+    private let woodColor     = Parchment.surface
+    private let woodDarkColor = Parchment.surface2
+    private let ironColor     = Parchment.edge
+    private let ironLight     = Parchment.muted
+    private let amberColor    = Parchment.amber
+    // Design-system constants — parchment equivalents.
+    private let dsPrimary     = Parchment.paper
+    private let dsGold        = Parchment.deep
+    private let dsHeartRed    = Parchment.heartRed
+    private let dsIronGray    = Parchment.disInk
     private let crimsonColor = SKColor(red: 0.54, green: 0.13, blue: 0.13, alpha: 1.0)
     private let bronzeColor = SKColor(red: 0.48, green: 0.35, blue: 0.10, alpha: 1.0)
 
@@ -398,7 +398,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         hasSetup = true
         playerHearts = HeartsManager.shared.currentHearts
 
-        backgroundColor = ironColor
+        backgroundColor = Parchment.bg
         setupScene()
         loadMap()
         setupPlayer()
@@ -433,15 +433,15 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         bottomBar.zPosition = 5_000
         cameraNode.addChild(bottomBar)
 
-        // 2px gold border at the bottom edge of the top chrome (design system spec).
-        let topBorder = SKSpriteNode(color: dsGold,
-                                      size: CGSize(width: size.width, height: 2))
+        // 3px edge border at the bottom edge of the top chrome.
+        let topBorder = SKSpriteNode(color: Parchment.edge,
+                                      size: CGSize(width: size.width, height: 3))
         topBorder.position = CGPoint(x: 0, y: size.height / 2 - topChromeHeight)
         topBorder.zPosition = 5_001
         cameraNode.addChild(topBorder)
 
-        let bottomBorder = SKSpriteNode(color: ironColor,
-                                         size: CGSize(width: size.width, height: 2))
+        let bottomBorder = SKSpriteNode(color: Parchment.edge,
+                                         size: CGSize(width: size.width, height: 3))
         bottomBorder.position = CGPoint(x: 0, y: -size.height / 2 + bottomChromeHeight)
         bottomBorder.zPosition = 5_001
         cameraNode.addChild(bottomBorder)
@@ -2255,7 +2255,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         let ux = dir.dx / len, uy = dir.dy / len
 
         let lance = SKNode()
-        let shaft = SKSpriteNode(color: dsGold, size: CGSize(width: 16, height: 2.5))
+        let shaft = SKSpriteNode(color: SKColor(red: 1.00, green: 0.84, blue: 0.00, alpha: 1.0), size: CGSize(width: 16, height: 2.5))
         shaft.position = CGPoint(x: 8, y: 0)
         let tip = SKSpriteNode(color: SKColor(red: 1.0, green: 0.95, blue: 0.75, alpha: 1),
                                size: CGSize(width: 4, height: 4))
@@ -3351,7 +3351,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         let label = SKLabelNode(fontNamed: "PressStart2P-Regular")
         label.text = text
         label.fontSize = 6
-        label.fontColor = SKColor(red: 0.95, green: 0.90, blue: 0.35, alpha: 1.0)
+        label.fontColor = Parchment.amber
         label.horizontalAlignmentMode = .center
         label.verticalAlignmentMode = .center
         label.position = CGPoint(x: worldPos.x, y: worldPos.y + 10)
@@ -3384,13 +3384,13 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         let img = UIGraphicsImageRenderer(size: CGSize(width: w, height: h), format: fmt).image { ctx in
             let c = ctx.cgContext
             c.clear(CGRect(x: 0, y: 0, width: w, height: h))
-            c.setFillColor(UIColor(white: 0, alpha: 0.28).cgColor)
+            c.setFillColor(UIColor(white: 0, alpha: 0.10).cgColor)
             var y: CGFloat = 0
             while y < h { c.fill(CGRect(x: 0, y: y, width: w, height: 1)); y += 3 }
             let space = CGColorSpaceCreateDeviceRGB()
             let vColors = [UIColor(white: 0, alpha: 0).cgColor,
-                           UIColor(white: 0, alpha: 0.18).cgColor,
-                           UIColor(white: 0, alpha: 0.70).cgColor] as CFArray
+                           UIColor(white: 0, alpha: 0.10).cgColor,
+                           UIColor(white: 0, alpha: 0.35).cgColor] as CFArray
             let vGrad = CGGradient(colorsSpace: space, colors: vColors, locations: [0, 0.55, 1.0])!
             c.drawRadialGradient(vGrad,
                                  startCenter: CGPoint(x: w/2, y: h/2), startRadius: 0,
@@ -3676,22 +3676,22 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         banner.name = "hintBanner"
         banner.zPosition = 18_000
 
-        let bg = SKSpriteNode(color: SKColor(red: 0.05, green: 0.04, blue: 0.02, alpha: 0.93),
+        let bg = SKSpriteNode(color: Parchment.surface.withAlphaComponent(0.93),
                               size: CGSize(width: panelW, height: panelH))
         banner.addChild(bg)
 
         let border = SKShapeNode(rectOf: CGSize(width: panelW + 2, height: panelH + 2),
                                  cornerRadius: 4)
-        border.strokeColor = SKColor(red: 0.60, green: 0.42, blue: 0.15, alpha: 0.9)
+        border.strokeColor = Parchment.edge.withAlphaComponent(0.9)
         border.fillColor   = .clear
-        border.lineWidth   = 2
+        border.lineWidth   = 3
         banner.addChild(border)
 
         for (i, line) in lines.enumerated() {
             let lbl = SKLabelNode(fontNamed: "PressStart2P-Regular")
             lbl.text                  = line
             lbl.fontSize              = fs
-            lbl.fontColor             = SKColor(red: 0.92, green: 0.82, blue: 0.42, alpha: 1)
+            lbl.fontColor             = Parchment.deep
             lbl.verticalAlignmentMode = .center
             lbl.horizontalAlignmentMode = .center
             let totalH = CGFloat(lines.count - 1) * lineH
@@ -4565,27 +4565,27 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
 
         let panelW: CGFloat = min(W - 48, 280), panelH: CGFloat = 214
         let panel = SKShapeNode(rect: CGRect(x: -panelW / 2, y: -panelH / 2, width: panelW, height: panelH), cornerRadius: 10)
-        panel.fillColor   = SKColor(red: 0.10, green: 0.04, blue: 0.02, alpha: 0.97)
-        panel.strokeColor = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 0.80)
-        panel.lineWidth   = 2; ov.addChild(panel)
+        panel.fillColor   = Parchment.surface.withAlphaComponent(0.97)
+        panel.strokeColor = Parchment.edge.withAlphaComponent(0.80)
+        panel.lineWidth   = 3; ov.addChild(panel)
 
         let title = SKLabelNode(fontNamed: "PressStart2P-Regular")
         title.text = "PAUSED"; title.fontSize = 16
-        title.fontColor = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 1)
+        title.fontColor = Parchment.deep
         title.horizontalAlignmentMode = .center; title.verticalAlignmentMode = .center
         title.position = CGPoint(x: 0, y: 70); ov.addChild(title)
 
         let btnW = panelW - 40, btnH: CGFloat = 44
         for (text, name, y) in [("RESUME", "resumeBtn", CGFloat(18)), ("MAP", "mapBtn", CGFloat(-36))] {
             let bg = SKShapeNode(rect: CGRect(x: -btnW / 2, y: -btnH / 2, width: btnW, height: btnH), cornerRadius: 8)
-            bg.fillColor   = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 0.20)
-            bg.strokeColor = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 0.80)
+            bg.fillColor   = Parchment.surface2
+            bg.strokeColor = Parchment.edge.withAlphaComponent(0.80)
             bg.lineWidth   = 1.5; bg.position = CGPoint(x: 0, y: y)
             bg.name = name; ov.addChild(bg)
 
             let lbl = SKLabelNode(fontNamed: "PressStart2P-Regular")
             lbl.text = text; lbl.fontSize = 11
-            lbl.fontColor = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 1)
+            lbl.fontColor = Parchment.deep
             lbl.horizontalAlignmentMode = .center; lbl.verticalAlignmentMode = .center
             lbl.position = CGPoint(x: 0, y: -1); lbl.name = name; bg.addChild(lbl)
         }
@@ -4631,7 +4631,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         cameraNode.addChild(ov)
 
         let dim = SKShapeNode(rect: CGRect(x: -W / 2, y: -H / 2, width: W, height: H))
-        dim.fillColor = SKColor(white: 0, alpha: 0.88); dim.strokeColor = .clear
+        dim.fillColor = SKColor(white: 0, alpha: 0.60); dim.strokeColor = .clear
         ov.addChild(dim)
 
         // Grid geometry — one cell per navigable screen.
@@ -4646,14 +4646,14 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         let panelW = gridW + pad * 2
         let panelH = gridH + pad * 2 + titleBand + legendBand
         let panel = SKShapeNode(rect: CGRect(x: -panelW / 2, y: -panelH / 2, width: panelW, height: panelH), cornerRadius: 10)
-        panel.fillColor   = dsPrimary
-        panel.strokeColor = dsGold.withAlphaComponent(0.80)
-        panel.lineWidth   = 2
+        panel.fillColor   = Parchment.surface
+        panel.strokeColor = Parchment.edge.withAlphaComponent(0.80)
+        panel.lineWidth   = 3
         ov.addChild(panel)
 
         let title = SKLabelNode(fontNamed: "PressStart2P-Regular")
         title.text = "WORLD MAP"; title.fontSize = 13
-        title.fontColor = dsGold
+        title.fontColor = Parchment.deep
         title.horizontalAlignmentMode = .center; title.verticalAlignmentMode = .center
         title.position = CGPoint(x: 0, y: panelH / 2 - titleBand / 2 - 6)
         ov.addChild(title)
@@ -4671,9 +4671,9 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
                                   width: cell, height: cell).insetBy(dx: 1, dy: 1)
                 let tile = SKShapeNode(rect: rect)
                 tile.fillColor = visitedCells.contains("\(c),\(r)")
-                    ? woodColor.withAlphaComponent(0.85)
-                    : SKColor(white: 0.06, alpha: 1)
-                tile.strokeColor = SKColor(white: 0.22, alpha: 0.60)
+                    ? Parchment.surface2.withAlphaComponent(0.85)
+                    : Parchment.disabled
+                tile.strokeColor = Parchment.edge.withAlphaComponent(0.30)
                 tile.lineWidth = 1
                 gridNode.addChild(tile)
             }
@@ -4728,7 +4728,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
 
             let lbl = SKLabelNode(fontNamed: "PressStart2P-Regular")
             lbl.text = text; lbl.fontSize = 7
-            lbl.fontColor = SKColor(white: 0.78, alpha: 1)
+            lbl.fontColor = Parchment.ink
             lbl.horizontalAlignmentMode = .left; lbl.verticalAlignmentMode = .center
             lbl.position = CGPoint(x: groupX[i] + 8, y: legendY)
             ov.addChild(lbl)
@@ -4737,7 +4737,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         // Close hint below the panel.
         let hint = SKLabelNode(fontNamed: "PressStart2P-Regular")
         hint.text = "TAP TO CLOSE"; hint.fontSize = 8
-        hint.fontColor = SKColor(white: 0.55, alpha: 1)
+        hint.fontColor = Parchment.muted
         hint.horizontalAlignmentMode = .center; hint.verticalAlignmentMode = .center
         hint.position = CGPoint(x: 0, y: -panelH / 2 - 20)
         hint.run(.repeatForever(.sequence([

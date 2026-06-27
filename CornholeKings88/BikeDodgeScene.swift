@@ -325,14 +325,14 @@ final class BikeDodgeScene: SKScene {
 
     // MARK: - HUD (Bit-Wood Brawler design system)
 
-    // Design-system colors
-    private static let dsPrimaryContainer = SKColor(red: 0.102, green: 0.039, blue: 0.016, alpha: 1)  // #1a0a04
-    private static let dsSurfaceLowest    = SKColor(red: 0.063, green: 0.055, blue: 0.051, alpha: 1)  // #100e0d
-    private static let dsSecondaryGold    = SKColor(red: 0.941, green: 0.753, blue: 0.376, alpha: 1)  // #f0c060
-    private static let dsGoldDim          = SKColor(red: 0.651, green: 0.502, blue: 0.251, alpha: 1)  // #a68040
-    private static let dsHeartRed         = SKColor(red: 0.831, green: 0.267, blue: 0.118, alpha: 1)  // #d4441e
-    private static let dsTimerBlue        = SKColor(red: 0.353, green: 0.612, blue: 0.831, alpha: 1)  // #5a9cd4
-    private static let dsIronGray         = SKColor(red: 0.349, green: 0.349, blue: 0.349, alpha: 1)  // #595959
+    // Design-system colors — parchment palette
+    private static let dsPrimaryContainer = Parchment.paper
+    private static let dsSurfaceLowest    = Parchment.surface
+    private static let dsSecondaryGold    = Parchment.deep
+    private static let dsGoldDim          = Parchment.muted
+    private static let dsHeartRed         = Parchment.heartRed
+    private static let dsTimerBlue        = Parchment.timerBlue
+    private static let dsIronGray         = Parchment.surface
     private static let dsErrorContainer   = SKColor(red: 0.576, green: 0.0,   blue: 0.039, alpha: 1)  // #93000a
     private static let dsOnErrorContainer = SKColor(red: 1.0,   green: 0.855, blue: 0.839, alpha: 1)  // #ffdad6
 
@@ -342,7 +342,7 @@ final class BikeDodgeScene: SKScene {
         let panelTopY: CGFloat = H / 2 - topInset
         let hudY: CGFloat = panelTopY - panelH / 2
 
-        // Solid dark wood ribbon — #1a0a04
+        // Parchment paper ribbon
         let panelRect = CGRect(x: -W / 2, y: panelTopY - panelH, width: W, height: panelH)
         hudPanelNode = SKShapeNode(rect: panelRect)
         hudPanelNode.fillColor   = Self.dsPrimaryContainer
@@ -351,8 +351,8 @@ final class BikeDodgeScene: SKScene {
         hudPanelNode.zPosition   = 49
         addChild(hudPanelNode)
 
-        // 2px solid gold bottom border
-        let goldRule = SKSpriteNode(color: Self.dsSecondaryGold, size: CGSize(width: W, height: 2))
+        // 3px edge bottom border
+        let goldRule = SKSpriteNode(color: Parchment.edge, size: CGSize(width: W, height: 3))
         goldRule.position  = CGPoint(x: 0, y: panelTopY - panelH + 1)
         goldRule.zPosition = 50
         addChild(goldRule)
@@ -491,7 +491,7 @@ final class BikeDodgeScene: SKScene {
         for (i, h) in heartSprites.enumerated() {
             let filled = i < pr.hearts
             h.text      = filled ? "♥" : "♡"
-            h.fontColor = filled ? Self.dsHeartRed : Self.dsIronGray
+            h.fontColor = filled ? Self.dsHeartRed : Parchment.disInk
         }
     }
 
@@ -504,8 +504,8 @@ final class BikeDodgeScene: SKScene {
 
         minimapBG = SKShapeNode(rect: CGRect(x: barX - barW / 2, y: mmBottom - 2,
                                              width: barW, height: mmHeight + 4))
-        minimapBG.fillColor   = Self.dsIronGray
-        minimapBG.strokeColor = Self.dsSecondaryGold.withAlphaComponent(0.5)
+        minimapBG.fillColor   = Parchment.surface
+        minimapBG.strokeColor = Parchment.edge.withAlphaComponent(0.5)
         minimapBG.lineWidth   = 1
         minimapBG.zPosition   = 50
         addChild(minimapBG)
@@ -520,7 +520,7 @@ final class BikeDodgeScene: SKScene {
             let s: CGFloat = i == 0 ? 10 : 8
             let dot = SKShapeNode(rect: CGRect(x: -s / 2, y: -s / 2, width: s, height: s))
             dot.fillColor   = col
-            dot.strokeColor = i == 0 ? Self.dsSecondaryGold : .black
+            dot.strokeColor = i == 0 ? Parchment.edge : .black
             dot.lineWidth   = i == 0 ? 2 : 1
             dot.position    = CGPoint(x: barX, y: mmBottom)
             dot.zPosition   = 52
@@ -2075,13 +2075,13 @@ final class BikeDodgeScene: SKScene {
         let img = UIGraphicsImageRenderer(size: CGSize(width: W, height: H), format: fmt).image { ctx in
             let c = ctx.cgContext
             c.clear(CGRect(x: 0, y: 0, width: W, height: H))
-            c.setFillColor(UIColor(white: 0, alpha: 0.28).cgColor)
+            c.setFillColor(UIColor(white: 0, alpha: 0.10).cgColor)
             var y: CGFloat = 0
             while y < H { c.fill(CGRect(x: 0, y: y, width: W, height: 1)); y += 3 }
             let space = CGColorSpaceCreateDeviceRGB()
             let vColors = [UIColor(white: 0, alpha: 0).cgColor,
-                           UIColor(white: 0, alpha: 0.18).cgColor,
-                           UIColor(white: 0, alpha: 0.70).cgColor] as CFArray
+                           UIColor(white: 0, alpha: 0.10).cgColor,
+                           UIColor(white: 0, alpha: 0.35).cgColor] as CFArray
             let vGrad = CGGradient(colorsSpace: space, colors: vColors, locations: [0, 0.55, 1.0])!
             c.drawRadialGradient(vGrad,
                                  startCenter: CGPoint(x: W/2, y: H/2), startRadius: 0,
@@ -2259,15 +2259,15 @@ final class BikeDodgeScene: SKScene {
         let panelW: CGFloat = min(W - 48, 280)
         let panelH: CGFloat = 200
         let panel = SKShapeNode(rect: CGRect(x: -panelW / 2, y: -panelH / 2, width: panelW, height: panelH), cornerRadius: 10)
-        panel.fillColor   = SKColor(red: 0.10, green: 0.04, blue: 0.02, alpha: 0.97)
-        panel.strokeColor = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 0.8)
-        panel.lineWidth   = 2
+        panel.fillColor   = Parchment.surface.withAlphaComponent(0.97)
+        panel.strokeColor = Parchment.edge.withAlphaComponent(0.8)
+        panel.lineWidth   = 3
         ov.addChild(panel)
 
         let title = SKLabelNode(fontNamed: "PressStart2P-Regular")
         title.text      = "PAUSED"
         title.fontSize  = 16
-        title.fontColor = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 1)
+        title.fontColor = Parchment.deep
         title.horizontalAlignmentMode = .center
         title.verticalAlignmentMode   = .center
         title.position  = CGPoint(x: 0, y: 56)
@@ -2276,8 +2276,8 @@ final class BikeDodgeScene: SKScene {
         // Resume button
         let btnW: CGFloat = panelW - 40, btnH: CGFloat = 44
         let resumeBg = SKShapeNode(rect: CGRect(x: -btnW / 2, y: -btnH / 2, width: btnW, height: btnH), cornerRadius: 8)
-        resumeBg.fillColor   = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 0.20)
-        resumeBg.strokeColor = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 0.80)
+        resumeBg.fillColor   = Parchment.surface2
+        resumeBg.strokeColor = Parchment.edge.withAlphaComponent(0.80)
         resumeBg.lineWidth   = 1.5
         resumeBg.position    = CGPoint(x: 0, y: 6)
         resumeBg.name        = "resumeBtn"
@@ -2286,7 +2286,7 @@ final class BikeDodgeScene: SKScene {
         let resumeLbl = SKLabelNode(fontNamed: "PressStart2P-Regular")
         resumeLbl.text      = "RESUME"
         resumeLbl.fontSize  = 11
-        resumeLbl.fontColor = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 1)
+        resumeLbl.fontColor = Parchment.deep
         resumeLbl.horizontalAlignmentMode = .center
         resumeLbl.verticalAlignmentMode   = .center
         resumeLbl.position  = CGPoint(x: 0, y: -1)

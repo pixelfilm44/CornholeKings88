@@ -309,10 +309,10 @@ final class BridgePiranhaScene: SKScene {
     // MARK: - UI
 
     private func setupUI() {
-        // Bit-Wood Brawler design-system colors
-        let dsPrimary  = SKColor(red: 0.102, green: 0.039, blue: 0.016, alpha: 1) // #1a0a04
-        let dsGold     = SKColor(red: 0.941, green: 0.753, blue: 0.376, alpha: 1) // #f0c060
-        let dsIronGray = SKColor(red: 0.349, green: 0.349, blue: 0.349, alpha: 1) // #595959
+        // Parchment design-system colors
+        let dsPrimary  = Parchment.paper
+        let dsGold     = Parchment.deep
+        let dsIronGray = Parchment.surface
 
         let topInset: CGFloat = view?.safeAreaInsets.top ?? 0
         let topH: CGFloat     = 48
@@ -327,9 +327,9 @@ final class BridgePiranhaScene: SKScene {
         topBar.zPosition = 500
         addChild(topBar)
 
-        // 2px gold bottom border
-        let border = SKSpriteNode(color: dsGold,
-                                  size: CGSize(width: W, height: 2))
+        // 3px edge bottom border
+        let border = SKSpriteNode(color: Parchment.edge,
+                                  size: CGSize(width: W, height: 3))
         border.position  = CGPoint(x: 0, y: topY - topH / 2)
         border.zPosition = 501
         addChild(border)
@@ -991,26 +991,26 @@ final class BridgePiranhaScene: SKScene {
 
         let panelW: CGFloat = min(W - 48, 280), panelH: CGFloat = 200
         let panel = SKShapeNode(rect: CGRect(x: -panelW / 2, y: -panelH / 2, width: panelW, height: panelH), cornerRadius: 10)
-        panel.fillColor   = SKColor(red: 0.10, green: 0.04, blue: 0.02, alpha: 0.97)
-        panel.strokeColor = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 0.80)
-        panel.lineWidth   = 2; ov.addChild(panel)
+        panel.fillColor   = Parchment.paper.withAlphaComponent(0.97)
+        panel.strokeColor = Parchment.edge.withAlphaComponent(0.80)
+        panel.lineWidth   = 3; ov.addChild(panel)
 
         let title = SKLabelNode(fontNamed: "PressStart2P-Regular")
         title.text = "PAUSED"; title.fontSize = 16
-        title.fontColor = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 1)
+        title.fontColor = Parchment.deep
         title.horizontalAlignmentMode = .center; title.verticalAlignmentMode = .center
         title.position = CGPoint(x: 0, y: 56); ov.addChild(title)
 
         let btnW = panelW - 40, btnH: CGFloat = 44
         let resumeBg = SKShapeNode(rect: CGRect(x: -btnW / 2, y: -btnH / 2, width: btnW, height: btnH), cornerRadius: 8)
-        resumeBg.fillColor   = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 0.20)
-        resumeBg.strokeColor = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 0.80)
+        resumeBg.fillColor   = Parchment.surface.withAlphaComponent(0.30)
+        resumeBg.strokeColor = Parchment.edge.withAlphaComponent(0.80)
         resumeBg.lineWidth   = 1.5; resumeBg.position = CGPoint(x: 0, y: 6)
         resumeBg.name = "resumeBtn"; ov.addChild(resumeBg)
 
         let resumeLbl = SKLabelNode(fontNamed: "PressStart2P-Regular")
         resumeLbl.text = "RESUME"; resumeLbl.fontSize = 11
-        resumeLbl.fontColor = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 1)
+        resumeLbl.fontColor = Parchment.deep
         resumeLbl.horizontalAlignmentMode = .center; resumeLbl.verticalAlignmentMode = .center
         resumeLbl.position = CGPoint(x: 0, y: -1); resumeLbl.name = "resumeBtn"; resumeBg.addChild(resumeLbl)
 
@@ -1019,7 +1019,7 @@ final class BridgePiranhaScene: SKScene {
 
         let helpHint = SKLabelNode(fontNamed: "PressStart2P-Regular")
         helpHint.text = "TUTORIAL"; helpHint.fontSize = 7
-        helpHint.fontColor = SKColor(white: 0.6, alpha: 0.8)
+        helpHint.fontColor = Parchment.muted
         helpHint.horizontalAlignmentMode = .center; helpHint.verticalAlignmentMode = .top
         helpHint.position = CGPoint(x: 0, y: -80); ov.addChild(helpHint)
     }

@@ -1090,10 +1090,10 @@ final class CornholeMiniGameScene: SKScene {
     // MARK: - UI
 
     private func setupUI() {
-        // Bit-Wood Brawler design-system colors
-        let dsPrimary  = SKColor(red: 0.102, green: 0.039, blue: 0.016, alpha: 1) // #1a0a04
-        let dsGold     = SKColor(red: 0.941, green: 0.753, blue: 0.376, alpha: 1) // #f0c060
-        let dsIronGray = SKColor(red: 0.349, green: 0.349, blue: 0.349, alpha: 1) // #595959
+        // Parchment design-system colors
+        let dsPrimary  = Parchment.paper     // HUD bar background
+        let dsGold     = Parchment.deep      // labels & text
+        let dsIronGray = Parchment.surface   // subtle accents
 
         let topInset: CGFloat = view?.safeAreaInsets.top ?? 0
         let topH: CGFloat    = 48
@@ -1112,9 +1112,9 @@ final class CornholeMiniGameScene: SKScene {
         topBar.zPosition = 500
         addChild(topBar)
 
-        // 2px gold bottom border at the bottom edge of the visible 48pt ribbon
-        let topBorder = SKSpriteNode(color: dsGold,
-                                     size: CGSize(width: size.width, height: 2))
+        // 3px ink bottom border at the bottom edge of the visible 48pt ribbon
+        let topBorder = SKSpriteNode(color: Parchment.edge,
+                                     size: CGSize(width: size.width, height: 3))
         topBorder.position  = CGPoint(x: 0, y: topBarY - topH / 2)
         topBorder.zPosition = 501
         addChild(topBorder)
@@ -1161,9 +1161,9 @@ final class CornholeMiniGameScene: SKScene {
         botBar.zPosition = 500
         addChild(botBar)
 
-        // 2px gold top border
-        let botBorder = SKSpriteNode(color: dsGold,
-                                     size: CGSize(width: size.width, height: 2))
+        // 3px ink top border
+        let botBorder = SKSpriteNode(color: Parchment.edge,
+                                     size: CGSize(width: size.width, height: 3))
         botBorder.position  = CGPoint(x: 0, y: botBarY + bottomH / 2)
         botBorder.zPosition = 501
         addChild(botBorder)
@@ -1234,13 +1234,13 @@ final class CornholeMiniGameScene: SKScene {
         let img = UIGraphicsImageRenderer(size: CGSize(width: w, height: h), format: fmt).image { ctx in
             let c = ctx.cgContext
             c.clear(CGRect(x: 0, y: 0, width: w, height: h))
-            c.setFillColor(UIColor(white: 0, alpha: 0.28).cgColor)
+            c.setFillColor(UIColor(white: 0, alpha: 0.10).cgColor)
             var y: CGFloat = 0
             while y < h { c.fill(CGRect(x: 0, y: y, width: w, height: 1)); y += 3 }
             let space = CGColorSpaceCreateDeviceRGB()
             let vColors = [UIColor(white: 0, alpha: 0).cgColor,
-                           UIColor(white: 0, alpha: 0.18).cgColor,
-                           UIColor(white: 0, alpha: 0.70).cgColor] as CFArray
+                           UIColor(white: 0, alpha: 0.08).cgColor,
+                           UIColor(white: 0, alpha: 0.35).cgColor] as CFArray
             let vGrad = CGGradient(colorsSpace: space, colors: vColors, locations: [0, 0.55, 1.0])!
             c.drawRadialGradient(vGrad,
                                  startCenter: CGPoint(x: w/2, y: h/2), startRadius: 0,
@@ -1429,17 +1429,17 @@ final class CornholeMiniGameScene: SKScene {
         addChild(panel)
         satchelPanel = panel
 
-        // Dark backing — named so stray taps on it are swallowed
-        let bg = SKSpriteNode(color: SKColor(red: 0.06, green: 0.03, blue: 0.01, alpha: 0.97),
+        // Parchment backing — named so stray taps on it are swallowed
+        let bg = SKSpriteNode(color: Parchment.surface.withAlphaComponent(0.97),
                               size: CGSize(width: panelW, height: panelH))
         bg.name      = "satchelPanelBg"
         bg.zPosition = 0
         panel.addChild(bg)
 
-        // Gold border
+        // Edge border
         let border = SKShapeNode(rectOf: CGSize(width: panelW + 2, height: panelH + 2),
                                  cornerRadius: 3)
-        border.strokeColor = SKColor(red: 0.60, green: 0.42, blue: 0.15, alpha: 1)
+        border.strokeColor = Parchment.edge
         border.fillColor   = .clear
         border.lineWidth   = 2
         border.zPosition   = 1
@@ -1451,7 +1451,7 @@ final class CornholeMiniGameScene: SKScene {
         // Title label (left-of-centre to leave room for X)
         let title = SKLabelNode(fontNamed: "PressStart2P-Regular")
         title.fontSize                = fs * 0.68
-        title.fontColor               = SKColor(red: 0.95, green: 0.75, blue: 0.38, alpha: 1)
+        title.fontColor               = Parchment.deep
         title.text                    = "BAGS"
         title.verticalAlignmentMode   = .center
         title.horizontalAlignmentMode = .left
@@ -1466,7 +1466,7 @@ final class CornholeMiniGameScene: SKScene {
         xBtn.zPosition = 3
         panel.addChild(xBtn)
 
-        let xBg = SKSpriteNode(color: SKColor(red: 0.28, green: 0.08, blue: 0.04, alpha: 0.85),
+        let xBg = SKSpriteNode(color: Parchment.surface2.withAlphaComponent(0.85),
                                size: CGSize(width: 22, height: 22))
         xBg.zPosition = 0
         xBtn.addChild(xBg)
@@ -1476,14 +1476,14 @@ final class CornholeMiniGameScene: SKScene {
         xPath.move(to: CGPoint(x: -xi, y: -xi)); xPath.addLine(to: CGPoint(x: xi, y:  xi))
         xPath.move(to: CGPoint(x:  xi, y: -xi)); xPath.addLine(to: CGPoint(x: -xi, y: xi))
         let xShape = SKShapeNode(path: xPath)
-        xShape.strokeColor = SKColor(red: 0.95, green: 0.35, blue: 0.25, alpha: 1)
+        xShape.strokeColor = Parchment.red
         xShape.lineWidth   = 2
         xShape.lineCap     = .round
         xShape.zPosition   = 1
         xBtn.addChild(xShape)
 
         // Divider below title
-        let divider = SKSpriteNode(color: SKColor(red: 0.50, green: 0.35, blue: 0.15, alpha: 0.55),
+        let divider = SKSpriteNode(color: Parchment.muted.withAlphaComponent(0.55),
                                    size: CGSize(width: panelW - 12, height: 1))
         divider.position  = CGPoint(x: 0, y: panelH / 2 - padding - titleH)
         divider.zPosition = 2
@@ -1543,7 +1543,7 @@ final class CornholeMiniGameScene: SKScene {
             let lbl = SKLabelNode(fontNamed: "PressStart2P-Regular")
             lbl.name                    = "satchelLbl_\(item.type.rawValue)"
             lbl.fontSize                = fs * 0.60
-            lbl.fontColor               = isSelected ? SKColor(white: 1.0, alpha: 1) : SKColor(white: 0.80, alpha: 1)
+            lbl.fontColor               = isSelected ? Parchment.deep : Parchment.ink
             lbl.text                    = "\(item.type.displayName) ×\(item.count)"
             lbl.verticalAlignmentMode   = .center
             lbl.horizontalAlignmentMode = .left
@@ -1619,7 +1619,7 @@ final class CornholeMiniGameScene: SKScene {
                 check.fillColor   = isSelected ? checkColor.withAlphaComponent(0.30) : .clear
             }
             if let lbl = panel.childNode(withName: "//satchelLbl_\(key)") as? SKLabelNode {
-                lbl.fontColor = isSelected ? SKColor(white: 1.0, alpha: 1) : SKColor(white: 0.80, alpha: 1)
+                lbl.fontColor = isSelected ? Parchment.deep : Parchment.ink
                 lbl.text = "\(item.type.displayName) ×\(item.count)"
             }
         }
@@ -3603,7 +3603,7 @@ final class CornholeMiniGameScene: SKScene {
             windLabel?.fontColor = SKColor(red: 0.55, green: 0.72, blue: 0.95, alpha: 1)
         } else {
             windLabel?.text = windText
-            windLabel?.fontColor = SKColor(red: 0.941, green: 0.753, blue: 0.376, alpha: 1) // gold
+            windLabel?.fontColor = Parchment.deep  // calm wind — deep brown on parchment
         }
     }
 
@@ -4209,18 +4209,18 @@ final class CornholeMiniGameScene: SKScene {
         panel.zPosition = 3000
         panel.name      = "confirmPanel"
 
-        let bg = SKSpriteNode(color: SKColor(red: 0.07, green: 0.05, blue: 0.03, alpha: 0.97),
+        let bg = SKSpriteNode(color: Parchment.paper.withAlphaComponent(0.97),
                               size: CGSize(width: panelW, height: panelH))
         panel.addChild(bg)
 
         let border = SKShapeNode(rectOf: CGSize(width: panelW + 3, height: panelH + 3))
-        border.strokeColor = SKColor(red: 0.60, green: 0.42, blue: 0.15, alpha: 1)
+        border.strokeColor = Parchment.edge
         border.fillColor   = .clear
         border.lineWidth   = 3
         panel.addChild(border)
 
         let question = makeLabel(text: "QUIT GAME?", size: fs,
-                                 color: SKColor(white: 0.88, alpha: 1))
+                                 color: Parchment.deep)
         question.position = CGPoint(x: 0, y: panelH * 0.22)
         panel.addChild(question)
 
@@ -5626,26 +5626,26 @@ final class CornholeMiniGameScene: SKScene {
 
         let panelW: CGFloat = min(W - 48, 280), panelH: CGFloat = 200
         let panel = SKShapeNode(rect: CGRect(x: -panelW / 2, y: -panelH / 2, width: panelW, height: panelH), cornerRadius: 10)
-        panel.fillColor   = SKColor(red: 0.10, green: 0.04, blue: 0.02, alpha: 0.97)
-        panel.strokeColor = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 0.80)
-        panel.lineWidth   = 2; ov.addChild(panel)
+        panel.fillColor   = Parchment.paper.withAlphaComponent(0.97)
+        panel.strokeColor = Parchment.edge.withAlphaComponent(0.80)
+        panel.lineWidth   = 3; ov.addChild(panel)
 
         let title = SKLabelNode(fontNamed: "PressStart2P-Regular")
         title.text = "PAUSED"; title.fontSize = 16
-        title.fontColor = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 1)
+        title.fontColor = Parchment.deep
         title.horizontalAlignmentMode = .center; title.verticalAlignmentMode = .center
         title.position = CGPoint(x: 0, y: 56); ov.addChild(title)
 
         let btnW = panelW - 40, btnH: CGFloat = 44
         let resumeBg = SKShapeNode(rect: CGRect(x: -btnW / 2, y: -btnH / 2, width: btnW, height: btnH), cornerRadius: 8)
-        resumeBg.fillColor   = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 0.20)
-        resumeBg.strokeColor = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 0.80)
+        resumeBg.fillColor   = Parchment.amber.withAlphaComponent(0.20)
+        resumeBg.strokeColor = Parchment.edge.withAlphaComponent(0.80)
         resumeBg.lineWidth   = 1.5; resumeBg.position = CGPoint(x: 0, y: 6)
         resumeBg.name = "resumeBtn"; ov.addChild(resumeBg)
 
         let resumeLbl = SKLabelNode(fontNamed: "PressStart2P-Regular")
         resumeLbl.text = "RESUME"; resumeLbl.fontSize = 11
-        resumeLbl.fontColor = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 1)
+        resumeLbl.fontColor = Parchment.deep
         resumeLbl.horizontalAlignmentMode = .center; resumeLbl.verticalAlignmentMode = .center
         resumeLbl.position = CGPoint(x: 0, y: -1); resumeLbl.name = "resumeBtn"; resumeBg.addChild(resumeLbl)
 
@@ -5654,7 +5654,7 @@ final class CornholeMiniGameScene: SKScene {
 
         let helpHint = SKLabelNode(fontNamed: "PressStart2P-Regular")
         helpHint.text = "TUTORIAL"; helpHint.fontSize = 7
-        helpHint.fontColor = SKColor(white: 0.6, alpha: 0.8)
+        helpHint.fontColor = Parchment.muted
         helpHint.horizontalAlignmentMode = .center; helpHint.verticalAlignmentMode = .top
         helpHint.position = CGPoint(x: 0, y: -80); ov.addChild(helpHint)
     }

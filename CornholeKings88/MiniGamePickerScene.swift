@@ -34,18 +34,25 @@ final class MiniGamePickerScene: SKScene {
         MenuItem(label: "EXPLORE",        subLabel: "open world",    name: "explore",    isLocked: true),
     ]
 
-    // Palette
-    private let engraveHi  = SKColor(red: 0.941, green: 0.753, blue: 0.376, alpha: 1) // #f0c060
-    private let engrave    = SKColor(red: 0.784, green: 0.573, blue: 0.165, alpha: 1) // #c8922a
-    private let engraveDim = SKColor(red: 0.416, green: 0.290, blue: 0.078, alpha: 1) // #6a4a14
-    private let txtGrey    = SKColor(red: 0.722, green: 0.690, blue: 0.627, alpha: 1) // #b8b0a0
-    private let lockedTxt  = SKColor(red: 0.478, green: 0.416, blue: 0.282, alpha: 1) // #7a6b48
+    // Parchment palette
+    private let paper     = SKColor(red: 0.953, green: 0.902, blue: 0.784, alpha: 1) // #f3e6c8
+    private let surface   = SKColor(red: 0.925, green: 0.855, blue: 0.706, alpha: 1) // #ecdab4
+    private let surface2  = SKColor(red: 0.890, green: 0.812, blue: 0.639, alpha: 1) // #e3cfa3
+    private let ink       = SKColor(red: 0.290, green: 0.204, blue: 0.082, alpha: 1) // #4a3415
+    private let muted     = SKColor(red: 0.604, green: 0.494, blue: 0.306, alpha: 1) // #9a7e4e
+    private let amber     = SKColor(red: 0.784, green: 0.510, blue: 0.110, alpha: 1) // #c8821c
+    private let deep      = SKColor(red: 0.478, green: 0.243, blue: 0.047, alpha: 1) // #7a3e0c
+    private let onAmber   = SKColor(red: 0.992, green: 0.953, blue: 0.855, alpha: 1) // #fdf3da
+    private let edge      = SKColor(red: 0.290, green: 0.204, blue: 0.082, alpha: 1) // #4a3415
+    private let disabled  = SKColor(red: 0.847, green: 0.780, blue: 0.620, alpha: 1) // #d8c79e
+    private let disInk    = SKColor(red: 0.671, green: 0.584, blue: 0.408, alpha: 1) // #ab9568
+    private let dsRed     = SKColor(red: 0.765, green: 0.227, blue: 0.094, alpha: 1) // #c33a18
 
     // MARK: - didMove
     override func didMove(to view: SKView) {
         anchorPoint = CGPoint(x: 0.5, y: 0.5)
         W = size.width; H = size.height
-        backgroundColor = SKColor(red: 0.020, green: 0.012, blue: 0.008, alpha: 1) // #050302
+        backgroundColor = SKColor(red: 0.788, green: 0.706, blue: 0.522, alpha: 1) // #c9b485
 
         // Re-entry path (returning from a mini-game): wipe stale nodes/actions so input doesn't get
         // jammed by leftover state from the previous presentation, then rebuild from scratch.
@@ -61,7 +68,6 @@ final class MiniGamePickerScene: SKScene {
         setupHeader()
         setupEyebrow()
         setupCards()
-        setupEmbers()
         setupFooter()
         addCrtOverlay()
 
@@ -69,11 +75,9 @@ final class MiniGamePickerScene: SKScene {
         run(.sequence([.wait(forDuration: 0.5), .run { self.tapEnabled = true }]))
     }
 
-    // MARK: - Header (DS standard ribbon: #1a0a04 + 2px gold border, safe-area aware)
+    // MARK: - Header (parchment ribbon with dark edge border)
     private func setupHeader() {
         let font = "PressStart2P-Regular"
-        let dsPrimary = SKColor(red: 0.102, green: 0.039, blue: 0.016, alpha: 1) // #1a0a04
-        let dsGold    = SKColor(red: 0.941, green: 0.753, blue: 0.376, alpha: 1) // #f0c060
 
         let topInset  = view?.safeAreaInsets.top ?? 0
         let topH: CGFloat = 48
@@ -81,39 +85,41 @@ final class MiniGamePickerScene: SKScene {
         let topBarY   = H / 2 - totalTopH / 2
         ribbonBottomY = H / 2 - totalTopH
 
-        // Background bar (extends through notch)
-        let bar = SKSpriteNode(color: dsPrimary, size: CGSize(width: W, height: totalTopH))
+        let bar = SKSpriteNode(color: paper, size: CGSize(width: W, height: totalTopH))
         bar.position  = CGPoint(x: 0, y: topBarY)
         bar.zPosition = 10
         addChild(bar)
 
-        // 2px gold bottom border
-        let border = SKSpriteNode(color: dsGold, size: CGSize(width: W, height: 2))
+        // 3px dark edge bottom border
+        let border = SKSpriteNode(color: edge, size: CGSize(width: W, height: 3))
         border.position  = CGPoint(x: 0, y: ribbonBottomY + 1)
         border.zPosition = 11
         addChild(border)
 
         let contentY = H / 2 - topInset - topH / 2
 
+        // Zone A (left): back button
+        let backLbl = SKLabelNode(fontNamed: font)
+        backLbl.text = "◀ BACK"
+        backLbl.fontSize = min(9, W / 38)
+        backLbl.fontColor = deep
+        backLbl.horizontalAlignmentMode = .left
+        backLbl.verticalAlignmentMode   = .center
+        backLbl.position  = CGPoint(x: -W / 2 + 18, y: contentY)
+        backLbl.zPosition = 11
+        backLbl.name      = "back"
+        addChild(backLbl)
+
         // Zone B (center): title
         let title = SKLabelNode(fontNamed: font)
-        title.text = "MINI  GAMES"
-        title.fontSize = min(14, W / 26)
-        title.fontColor = engraveHi
+        title.text = "MINI GAMES"
+        title.fontSize = min(13, W / 26)
+        title.fontColor = deep
         title.horizontalAlignmentMode = .center
         title.verticalAlignmentMode   = .center
         title.position  = CGPoint(x: 0, y: contentY)
         title.zPosition = 11
         addChild(title)
-
-        // Zone C (right): close / back icon at 22×22
-        let back = SKSpriteNode(imageNamed: "closeIcon")
-        back.size             = CGSize(width: 22, height: 22)
-        back.texture?.filteringMode = .nearest
-        back.position  = CGPoint(x: W / 2 - 22, y: contentY)
-        back.zPosition = 11
-        back.name      = "back"
-        addChild(back)
     }
 
     // MARK: - Eyebrow
@@ -124,26 +130,20 @@ final class MiniGamePickerScene: SKScene {
         let lbl = SKLabelNode(fontNamed: font)
         lbl.text = "CHOOSE YOUR EVENT"
         lbl.fontSize = min(7, W / 50)
-        lbl.fontColor = engraveDim
-        lbl.horizontalAlignmentMode = .center
+        lbl.fontColor = muted
+        lbl.horizontalAlignmentMode = .left
         lbl.verticalAlignmentMode   = .center
-        lbl.position = CGPoint(x: 0, y: ey); lbl.zPosition = 10
+        lbl.position = CGPoint(x: -W / 2 + 20, y: ey); lbl.zPosition = 10
         addChild(lbl)
 
-        // Flanking gradient lines
-        let textHalfW: CGFloat = min(90, W * 0.22)
-        for sign: CGFloat in [-1, 1] {
-            let x0 = sign * (textHalfW + 8)
-            let x1 = sign * (textHalfW + 52)
-            let line = SKShapeNode()
-            let path = CGMutablePath()
-            path.move(to: CGPoint(x: x0, y: ey))
-            path.addLine(to: CGPoint(x: x1, y: ey))
-            line.path = path
-            line.strokeColor = SKColor(red: 0.416, green: 0.290, blue: 0.078, alpha: 0.6)
-            line.lineWidth = 1; line.zPosition = 10
-            addChild(line)
-        }
+        // Trailing line
+        let lineX0: CGFloat = lbl.position.x + lbl.frame.width + 12
+        let lineX1: CGFloat = W / 2 - 20
+        let line = SKSpriteNode(color: surface2, size: CGSize(width: lineX1 - lineX0, height: 2))
+        line.anchorPoint = CGPoint(x: 0, y: 0.5)
+        line.position = CGPoint(x: lineX0, y: ey)
+        line.zPosition = 10
+        addChild(line)
     }
 
     // MARK: - Cards
@@ -151,14 +151,17 @@ final class MiniGamePickerScene: SKScene {
         let font = "PressStart2P-Regular"
         let footerH: CGFloat  = 28
         let eyebrowH: CGFloat = 40
-        let sidePad: CGFloat  = 18
-        let gap: CGFloat      = 14
+        let sidePad: CGFloat  = 20
+        let gap: CGFloat      = 6
         let btnW = W - sidePad * 2
         let usableH = ribbonBottomY + H / 2 - footerH - eyebrowH - 12
-        let btnH = min(76, max(54, (usableH - CGFloat(items.count - 1) * gap) / CGFloat(items.count)))
+        let rowH = min(42, max(30, (usableH - CGFloat(items.count - 1) * gap) / CGFloat(items.count)))
 
         let topY   = ribbonBottomY - eyebrowH - 4
-        var curY   = topY - btnH / 2
+        var curY   = topY - rowH / 2
+
+        let iconSz: CGFloat = min(24, rowH - 6)
+        let textX  = -btnW / 2 + iconSz + 16
 
         for (i, item) in items.enumerated() {
             let cardY = curY
@@ -169,75 +172,53 @@ final class MiniGamePickerScene: SKScene {
             addChild(card)
             cardNodes[item.name] = card
 
-            // Drop shadow strip
-            let shadow = SKSpriteNode(color: SKColor(white: 0.04, alpha: 0.85),
-                                      size: CGSize(width: btnW - 4, height: 5))
-            shadow.position = CGPoint(x: 1, y: -btnH / 2 - 3)
-            card.addChild(shadow)
-
-            // Card background (iron plate)
-            let bgTex = makeCardTexture(CGSize(width: btnW, height: btnH), locked: item.isLocked)
-            let bg    = SKSpriteNode(texture: bgTex, size: CGSize(width: btnW, height: btnH))
-            bg.position = .zero; bg.name = item.name
-            card.addChild(bg)
-
-            // Rivets — top-left and bottom-left
-            for dySign: CGFloat in [1, -1] {
-                let rv = makeRivetNode()
-                rv.position = CGPoint(x: -btnW / 2 + 9, y: dySign * (btnH / 2 - 9))
-                card.addChild(rv)
-            }
-
-            // Icon
-            let iconSz: CGFloat = 28
+            // Icon (no background square)
             let iconTex = makeIconTexture(item.name, size: iconSz, locked: item.isLocked)
             let iconSp  = SKSpriteNode(texture: iconTex, size: CGSize(width: iconSz, height: iconSz))
-            iconSp.position = CGPoint(x: -btnW / 2 + 36, y: 1)
+            iconSp.position = CGPoint(x: -btnW / 2 + iconSz / 2, y: 0)
             iconSp.name = item.name
             card.addChild(iconSp)
 
             // Title
             let titleLbl = SKLabelNode(fontNamed: font)
             titleLbl.text = item.label
-            titleLbl.fontSize = min(11, btnW / 26)
-            titleLbl.fontColor = item.isLocked ? lockedTxt : engraveHi
+            titleLbl.fontSize = min(10, btnW / 30)
+            titleLbl.fontColor = item.isLocked ? disInk : deep
             titleLbl.horizontalAlignmentMode = .left
             titleLbl.verticalAlignmentMode   = .center
-            titleLbl.position  = CGPoint(x: -btnW / 2 + 68, y: 7)
-            titleLbl.zPosition = 1; titleLbl.name = item.name
+            titleLbl.position  = CGPoint(x: textX, y: 6)
+            titleLbl.name = item.name
             card.addChild(titleLbl)
 
             // Sub
             let subLbl = SKLabelNode(fontNamed: font)
             subLbl.text = item.subLabel
-            subLbl.fontSize = min(6, btnW / 50)
-            subLbl.fontColor = txtGrey.withAlphaComponent(item.isLocked ? 0.5 : 1.0)
+            subLbl.fontSize = min(5, btnW / 54)
+            subLbl.fontColor = item.isLocked ? disInk : muted
             subLbl.horizontalAlignmentMode = .left
             subLbl.verticalAlignmentMode   = .center
-            subLbl.position  = CGPoint(x: -btnW / 2 + 68, y: -9)
-            subLbl.zPosition = 1; subLbl.name = item.name
+            subLbl.position  = CGPoint(x: textX, y: -6)
+            subLbl.name = item.name
             card.addChild(subLbl)
 
             if item.isLocked {
-                // Lock emoji
                 let lockLbl = SKLabelNode(fontNamed: "AppleColorEmoji")
                 lockLbl.text = "🔒"
-                lockLbl.fontSize  = 14
+                lockLbl.fontSize  = 11
                 lockLbl.horizontalAlignmentMode = .right
                 lockLbl.verticalAlignmentMode   = .center
-                lockLbl.position  = CGPoint(x: btnW / 2 - 14, y: 0)
-                lockLbl.zPosition = 1; lockLbl.name = item.name
+                lockLbl.position  = CGPoint(x: btnW / 2, y: 0)
+                lockLbl.name = item.name
                 card.addChild(lockLbl)
             } else {
-                // Arrow with bob animation
                 let arrow = SKLabelNode(fontNamed: font)
                 arrow.text = "\u{25B6}"
-                arrow.fontSize = min(12, btnW / 28)
-                arrow.fontColor = engraveHi
+                arrow.fontSize = min(10, btnW / 30)
+                arrow.fontColor = amber
                 arrow.horizontalAlignmentMode = .right
                 arrow.verticalAlignmentMode   = .center
-                arrow.position  = CGPoint(x: btnW / 2 - 16, y: 0)
-                arrow.zPosition = 1; arrow.name = item.name
+                arrow.position  = CGPoint(x: btnW / 2, y: 0)
+                arrow.name = item.name
                 arrow.run(.repeatForever(.sequence([
                     .moveBy(x: 3, y: 0, duration: 0.7),
                     .moveBy(x: -3, y: 0, duration: 0.7),
@@ -245,43 +226,27 @@ final class MiniGamePickerScene: SKScene {
                 card.addChild(arrow)
             }
 
-            // Staggered entry: fade + slide up
+            // Separator line between items
+            if i < items.count - 1 {
+                let sep = SKSpriteNode(color: surface2, size: CGSize(width: btnW, height: 1))
+                sep.position = CGPoint(x: 0, y: -rowH / 2 - gap / 2)
+                sep.alpha = 0.7
+                card.addChild(sep)
+            }
+
+            // Staggered entry
             card.alpha = 0
-            card.position.y = cardY - 8
-            let delay = Double(i) * 0.07 + 0.05
+            card.position.y = cardY - 6
+            let delay = Double(i) * 0.04 + 0.05
             card.run(.sequence([
                 .wait(forDuration: delay),
                 .group([
-                    .fadeIn(withDuration: 0.35),
-                    .moveBy(x: 0, y: 8, duration: 0.35),
+                    .fadeIn(withDuration: 0.28),
+                    .moveBy(x: 0, y: 6, duration: 0.28),
                 ]),
             ]))
 
-            curY -= btnH + gap
-        }
-    }
-
-    // MARK: - Embers
-    private func setupEmbers() {
-        let positions: [(CGFloat, CGFloat, Double)] = [
-            (0.10, 0.22, 0.0), (0.82, 0.28, 0.8),
-            (0.06, 0.55, 1.4), (0.90, 0.62, 2.0),
-            (0.18, 0.80, 2.6),
-        ]
-        for (px, py, delay) in positions {
-            let e = SKShapeNode(rectOf: CGSize(width: 2, height: 2))
-            e.fillColor   = SKColor(red: 0.784, green: 0.573, blue: 0.165, alpha: 0.7)
-            e.strokeColor = .clear
-            e.position    = CGPoint(x: -W / 2 + px * W, y: H / 2 - py * H)
-            e.zPosition   = 5; e.alpha = 0
-            e.run(.repeatForever(.sequence([
-                .wait(forDuration: delay),
-                .group([
-                    .sequence([.fadeAlpha(to: 0.9, duration: 2.0), .fadeAlpha(to: 0.0, duration: 2.0)]),
-                    .sequence([.moveBy(x: 0, y: -8, duration: 2.0), .moveBy(x: 0, y: 8, duration: 2.0)]),
-                ]),
-            ])))
-            addChild(e)
+            curY -= rowH + gap
         }
     }
 
@@ -290,10 +255,16 @@ final class MiniGamePickerScene: SKScene {
         let font = "PressStart2P-Regular"
         let footerY = -H / 2 + 14
 
+        // Top border line
+        let ftBorder = SKSpriteNode(color: surface2, size: CGSize(width: W, height: 3))
+        ftBorder.position = CGPoint(x: 0, y: -H / 2 + 28)
+        ftBorder.zPosition = 10
+        addChild(ftBorder)
+
         let nodesLbl = SKLabelNode(fontNamed: font)
         nodesLbl.text = "nodes:45"
         nodesLbl.fontSize  = 6
-        nodesLbl.fontColor = SKColor(white: 0.4, alpha: 0.45)
+        nodesLbl.fontColor = muted
         nodesLbl.horizontalAlignmentMode = .right
         nodesLbl.verticalAlignmentMode   = .center
         nodesLbl.position  = CGPoint(x: W / 2 - 68, y: footerY)
@@ -303,14 +274,13 @@ final class MiniGamePickerScene: SKScene {
         let fpsLbl = SKLabelNode(fontNamed: font)
         fpsLbl.text = "60.0 fps"
         fpsLbl.fontSize  = 6
-        fpsLbl.fontColor = SKColor(white: 0.4, alpha: 0.45)
+        fpsLbl.fontColor = muted
         fpsLbl.horizontalAlignmentMode = .right
         fpsLbl.verticalAlignmentMode   = .center
         fpsLbl.position  = CGPoint(x: W / 2 - 18, y: footerY)
         fpsLbl.zPosition = 10
         addChild(fpsLbl)
 
-        // Wandering nodes counter
         nodesLbl.run(.repeatForever(.sequence([
             .wait(forDuration: 0.7),
             .run { [weak self] in
@@ -330,73 +300,17 @@ final class MiniGamePickerScene: SKScene {
         }
     }
 
-    private func makeRivetNode() -> SKShapeNode {
-        let r = SKShapeNode(circleOfRadius: 2.5)
-        r.fillColor   = SKColor(white: 0.42, alpha: 1)
-        r.strokeColor = SKColor(white: 0.20, alpha: 1)
-        r.lineWidth   = 0.5; r.zPosition = 2
-        return r
-    }
-
-    private func makeCardTexture(_ size: CGSize, locked: Bool) -> SKTexture {
-        let img = renderImage(size) { c, sz in
-            let roundedPath = UIBezierPath(roundedRect: CGRect(origin: .zero, size: sz), cornerRadius: 7)
-            c.addPath(roundedPath.cgPath); c.clip()
-
-            // Iron gradient: #5a5a5a → #383838 → #1f1f1f
-            let space = CGColorSpaceCreateDeviceRGB()
-            let ironCols = [
-                UIColor(red: 0.353, green: 0.353, blue: 0.353, alpha: 1).cgColor,
-                UIColor(red: 0.220, green: 0.220, blue: 0.220, alpha: 1).cgColor,
-                UIColor(red: 0.122, green: 0.122, blue: 0.122, alpha: 1).cgColor,
-            ] as CFArray
-            if let grad = CGGradient(colorsSpace: space, colors: ironCols, locations: [0, 0.5, 1.0]) {
-                c.drawLinearGradient(grad,
-                    start: CGPoint(x: 0, y: 0), end: CGPoint(x: 0, y: sz.height), options: [])
-            }
-
-            // Rust blob ellipses (right side)
-            let alpha: CGFloat = locked ? 0.28 : 1.0
-            c.setFillColor(UIColor(red: 0.416, green: 0.220, blue: 0.071, alpha: 0.55 * alpha).cgColor)
-            c.fillEllipse(in: CGRect(x: sz.width * 0.60, y: sz.height * 0.18,
-                                     width: sz.width * 0.60, height: sz.height * 0.84))
-            c.setFillColor(UIColor(red: 0.549, green: 0.235, blue: 0.039, alpha: 0.30 * alpha).cgColor)
-            c.fillEllipse(in: CGRect(x: sz.width * 0.50, y: sz.height * 0.32,
-                                     width: sz.width * 0.46, height: sz.height * 0.56))
-
-            // Machined horizontal grooves (every 4 px, 50% opacity)
-            c.setFillColor(UIColor(white: 0, alpha: 0.18 * 0.5).cgColor)
-            var gy: CGFloat = 3
-            while gy < sz.height { c.fill(CGRect(x: 0, y: gy, width: sz.width, height: 1)); gy += 4 }
-
-            // Top specular
-            c.setFillColor(UIColor(white: 1, alpha: 0.12).cgColor)
-            c.fill(CGRect(x: 0, y: 0, width: sz.width, height: 1))
-
-            // Bottom shadow
-            c.setFillColor(UIColor(white: 0, alpha: 0.35).cgColor)
-            c.fill(CGRect(x: 0, y: sz.height - 3, width: sz.width, height: 3))
-
-            // Border
-            c.setStrokeColor(UIColor(white: 0.07, alpha: 1).cgColor)
-            c.setLineWidth(2)
-            let borderPath = UIBezierPath(roundedRect: CGRect(x: 1, y: 1, width: sz.width - 2, height: sz.height - 2), cornerRadius: 6)
-            c.addPath(borderPath.cgPath); c.strokePath()
-        }
-        let t = SKTexture(image: img); t.filteringMode = .nearest; return t
-    }
-
     // swiftlint:disable function_body_length
     private func makeIconTexture(_ name: String, size: CGFloat, locked: Bool) -> SKTexture {
         let sz = CGSize(width: size, height: size)
         let strokeColor = locked
-            ? UIColor(red: 0.478, green: 0.416, blue: 0.282, alpha: 0.7)
-            : UIColor(red: 0.784, green: 0.573, blue: 0.165, alpha: 1)
+            ? UIColor(red: 0.671, green: 0.584, blue: 0.408, alpha: 0.7) // disInk
+            : UIColor(red: 0.784, green: 0.510, blue: 0.110, alpha: 1)   // amber
         let fillColor = strokeColor
         let accentColor = locked
-            ? UIColor(red: 0.40, green: 0.30, blue: 0.20, alpha: 0.6)
-            : UIColor(red: 0.831, green: 0.267, blue: 0.118, alpha: 1)
-        let darkColor = UIColor(red: 0.102, green: 0.039, blue: 0.016, alpha: 1)
+            ? UIColor(red: 0.671, green: 0.584, blue: 0.408, alpha: 0.6) // disInk
+            : UIColor(red: 0.765, green: 0.227, blue: 0.094, alpha: 1)   // dsRed
+        let darkColor = UIColor(red: 0.290, green: 0.204, blue: 0.082, alpha: 1) // ink
 
         let img = renderImage(sz) { c, s in
             c.setLineWidth(1.5)
@@ -648,15 +562,15 @@ final class MiniGamePickerScene: SKScene {
     private func addCrtOverlay() {
         let img = renderImage(CGSize(width: W, height: H)) { c, sz in
             c.clear(CGRect(x: 0, y: 0, width: sz.width, height: sz.height))
-            // Scanlines
-            c.setFillColor(UIColor(white: 0, alpha: 0.22).cgColor)
+            // Scanlines (lighter for parchment)
+            c.setFillColor(UIColor(white: 0, alpha: 0.10).cgColor)
             var y: CGFloat = 0
             while y < sz.height { c.fill(CGRect(x: 0, y: y, width: sz.width, height: 1)); y += 3 }
             // Radial vignette
             let space = CGColorSpaceCreateDeviceRGB()
             let vCols = [UIColor(white: 0, alpha: 0).cgColor,
-                         UIColor(white: 0, alpha: 0.18).cgColor,
-                         UIColor(white: 0, alpha: 0.65).cgColor] as CFArray
+                         UIColor(white: 0, alpha: 0.10).cgColor,
+                         UIColor(white: 0, alpha: 0.35).cgColor] as CFArray
             if let vGrad = CGGradient(colorsSpace: space, colors: vCols, locations: [0, 0.55, 1.0]) {
                 c.drawRadialGradient(vGrad,
                     startCenter: CGPoint(x: sz.width/2, y: sz.height/2), startRadius: 0,

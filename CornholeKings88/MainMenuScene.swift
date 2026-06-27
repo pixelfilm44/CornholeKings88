@@ -37,13 +37,13 @@ final class MainMenuScene: SKScene {
 
         MusicPlayer.shared.play(named: "CornholeKingsTheme")
 
-        backgroundColor = .black
+        backgroundColor = Parchment.bg
 
         setupBackground()
         setupCrtOverlay()
         setupTitle()
         setupMenuButtons()
-        setupEmbers()
+        // embers removed for parchment theme
     }
 
     // MARK: - Background
@@ -70,16 +70,15 @@ final class MainMenuScene: SKScene {
         let img = UIGraphicsImageRenderer(size: CGSize(width: W, height: H), format: fmt).image { ctx in
             let c = ctx.cgContext
             let space = CGColorSpaceCreateDeviceRGB()
+            // Warm parchment gradient (top → bottom)
             let colors = [
-                UIColor(red: 0.08, green: 0.04, blue: 0.18, alpha: 1).cgColor,
-                UIColor(red: 0.22, green: 0.08, blue: 0.08, alpha: 1).cgColor,
-                UIColor(red: 0.52, green: 0.22, blue: 0.06, alpha: 1).cgColor,
-                UIColor(red: 0.20, green: 0.10, blue: 0.04, alpha: 1).cgColor,
-                UIColor(red: 0.04, green: 0.02, blue: 0.01, alpha: 1).cgColor,
+                UIColor(red: 0.953, green: 0.902, blue: 0.784, alpha: 1).cgColor, // paper
+                UIColor(red: 0.925, green: 0.855, blue: 0.706, alpha: 1).cgColor, // surface
+                UIColor(red: 0.890, green: 0.812, blue: 0.639, alpha: 1).cgColor, // surface2
+                UIColor(red: 0.788, green: 0.706, blue: 0.522, alpha: 1).cgColor, // bg
             ] as CFArray
             let grad = CGGradient(colorsSpace: space, colors: colors,
-                                  locations: [0, 0.22, 0.46, 0.68, 1.0])!
-            // UIKit renderer has top-left origin; draw top→bottom
+                                  locations: [0, 0.35, 0.65, 1.0])!
             c.drawLinearGradient(grad,
                                  start: .zero,
                                  end: CGPoint(x: 0, y: H),
@@ -95,15 +94,15 @@ final class MainMenuScene: SKScene {
             let c = ctx.cgContext
             // Transparent base so alpha-blend compositing works correctly
             c.clear(CGRect(x: 0, y: 0, width: W, height: H))
-            // Scanlines: dark semi-transparent stripe every 3 points
-            c.setFillColor(UIColor(white: 0, alpha: 0.28).cgColor)
+            // Scanlines: light semi-transparent stripe every 3 points
+            c.setFillColor(UIColor(white: 0, alpha: 0.10).cgColor)
             var y: CGFloat = 0
             while y < H { c.fill(CGRect(x: 0, y: y, width: W, height: 1)); y += 3 }
-            // Vignette: transparent center → dark edges
+            // Vignette: transparent center → soft edges
             let space = CGColorSpaceCreateDeviceRGB()
             let vColors = [UIColor(white: 0, alpha: 0).cgColor,
-                           UIColor(white: 0, alpha: 0.18).cgColor,
-                           UIColor(white: 0, alpha: 0.70).cgColor] as CFArray
+                           UIColor(white: 0, alpha: 0.10).cgColor,
+                           UIColor(white: 0, alpha: 0.35).cgColor] as CFArray
             let vGrad = CGGradient(colorsSpace: space, colors: vColors, locations: [0, 0.55, 1.0])!
             c.drawRadialGradient(vGrad,
                                  startCenter: CGPoint(x: W/2, y: H/2), startRadius: 0,
@@ -122,8 +121,8 @@ final class MainMenuScene: SKScene {
     private func setupTitle() {
         let font = "PressStart2P-Regular"
         let titleFS: CGFloat = min(34, W / 8)
-        let titleColor = SKColor(red: 0xFE/255.0, green: 0xC7/255.0, blue: 0x27/255.0, alpha: 1) // #FEC727
-        let shadowColor = SKColor.black
+        let titleColor = Parchment.deep
+        let shadowColor = Parchment.shadow
         let topY = H / 2 - H * 0.28 + 120
 
         let texts: [(String, CGFloat)] = [
@@ -187,8 +186,8 @@ final class MainMenuScene: SKScene {
 
             // Centered title label (no sub-label)
             let titleColor: SKColor = item.isPrimary
-                ? SKColor(red: 1.0, green: 0.89, blue: 0.69, alpha: 1)
-                : SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 1)
+                ? Parchment.deep
+                : Parchment.ink
             let titleFS: CGFloat = item.isPrimary ? min(14, btnW / 18) : min(11, btnW / 23)
 
             let lbl = SKLabelNode(fontNamed: font)
@@ -206,7 +205,7 @@ final class MainMenuScene: SKScene {
             let arrow = SKLabelNode(fontNamed: font)
             arrow.text                    = "\u{25B6}"
             arrow.fontSize                = min(10, btnW / 28)
-            arrow.fontColor               = SKColor(red: 0.78, green: 0.57, blue: 0.16, alpha: 0.85)
+            arrow.fontColor               = Parchment.amber.withAlphaComponent(0.85)
             arrow.horizontalAlignmentMode = .right
             arrow.verticalAlignmentMode   = .center
             arrow.position  = CGPoint(x: btnW / 2 - 14, y: centerY)
@@ -249,8 +248,8 @@ final class MainMenuScene: SKScene {
 
     private func addRivet(at pos: CGPoint, radius: CGFloat, z: CGFloat) {
         let r = SKShapeNode(circleOfRadius: radius)
-        r.fillColor = SKColor(white: 0.42, alpha: 1)
-        r.strokeColor = SKColor(white: 0.20, alpha: 1)
+        r.fillColor = Parchment.muted
+        r.strokeColor = Parchment.edge
         r.lineWidth = 0.5
         r.position = pos
         r.zPosition = z
@@ -266,43 +265,38 @@ final class MainMenuScene: SKScene {
 
             let space = CGColorSpaceCreateDeviceRGB()
             if isPrimary {
-                // Warm wood/brown
+                // Warm parchment primary
                 let colors = [
-                    UIColor(red: 0.48, green: 0.23, blue: 0.09, alpha: 1).cgColor,
-                    UIColor(red: 0.35, green: 0.16, blue: 0.06, alpha: 1).cgColor,
-                    UIColor(red: 0.23, green: 0.10, blue: 0.03, alpha: 1).cgColor,
+                    Parchment.paper.cgColor,
+                    Parchment.surface.cgColor,
+                    Parchment.surface2.cgColor,
                 ] as CFArray
                 let grad = CGGradient(colorsSpace: space, colors: colors, locations: [0, 0.5, 1.0])!
                 c.drawLinearGradient(grad, start: .zero, end: CGPoint(x: 0, y: size.height), options: [])
-                // Warm glow accent
-                c.setFillColor(UIColor(red: 0.78, green: 0.55, blue: 0.16, alpha: 0.20).cgColor)
+                // Subtle amber glow accent
+                c.setFillColor(Parchment.amber.withAlphaComponent(0.12).cgColor)
                 c.fillEllipse(in: CGRect(x: size.width * 0.55, y: size.height * 0.25, width: size.width * 0.5, height: size.height * 0.9))
             } else {
-                // Iron
+                // Parchment surface
                 let colors = [
-                    UIColor(red: 0.35, green: 0.35, blue: 0.35, alpha: 1).cgColor,
-                    UIColor(red: 0.22, green: 0.22, blue: 0.22, alpha: 1).cgColor,
-                    UIColor(red: 0.12, green: 0.12, blue: 0.12, alpha: 1).cgColor,
+                    Parchment.surface.cgColor,
+                    Parchment.surface2.cgColor,
+                    Parchment.bg.cgColor,
                 ] as CFArray
                 let grad = CGGradient(colorsSpace: space, colors: colors, locations: [0, 0.5, 1.0])!
                 c.drawLinearGradient(grad, start: .zero, end: CGPoint(x: 0, y: size.height), options: [])
-                // Rust spots
-                c.setFillColor(UIColor(red: 0.63, green: 0.31, blue: 0.06, alpha: 0.35).cgColor)
-                c.fillEllipse(in: CGRect(x: size.width * 0.62, y: size.height * 0.30, width: size.width * 0.42, height: size.height * 0.75))
-                c.setFillColor(UIColor(red: 0.55, green: 0.24, blue: 0.04, alpha: 0.28).cgColor)
-                c.fillEllipse(in: CGRect(x: -size.width * 0.05, y: size.height * 0.45, width: size.width * 0.28, height: size.height * 0.65))
             }
 
             // Top highlight
-            c.setFillColor(UIColor(white: 1, alpha: 0.12).cgColor)
+            c.setFillColor(UIColor(white: 1, alpha: 0.20).cgColor)
             c.fill(CGRect(x: 0, y: 0, width: size.width, height: 1))
 
             // Bottom shadow
-            c.setFillColor(UIColor(white: 0, alpha: 0.35).cgColor)
+            c.setFillColor(Parchment.edge.withAlphaComponent(0.18).cgColor)
             c.fill(CGRect(x: 0, y: size.height - 3, width: size.width, height: 3))
 
             // Border
-            c.setStrokeColor(UIColor(white: 0.07, alpha: 1).cgColor)
+            c.setStrokeColor(Parchment.edge.cgColor)
             c.setLineWidth(2)
             let border = UIBezierPath(roundedRect: CGRect(x: 1, y: 1, width: size.width - 2, height: size.height - 2), cornerRadius: 5)
             c.addPath(border.cgPath); c.strokePath()

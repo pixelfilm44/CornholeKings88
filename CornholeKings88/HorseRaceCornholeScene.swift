@@ -158,8 +158,6 @@ final class HorseRaceCornholeScene: SKScene {
     private func presentOpponentPicker() {
         awaitingOpponentChoice = true
         let W = size.width, H = size.height
-        let gold = SKColor(red: 0xf0/255.0, green: 0xc0/255.0, blue: 0x60/255.0, alpha: 1)
-
         let container = SKNode()
         container.zPosition = 4000
         container.name = "horseOppPicker"
@@ -171,7 +169,7 @@ final class HorseRaceCornholeScene: SKScene {
         let title = SKLabelNode(fontNamed: "PressStart2P-Regular")
         title.text = "CHOOSE OPPONENT"
         title.fontSize = min(16, W / 18)
-        title.fontColor = gold
+        title.fontColor = Parchment.deep
         title.verticalAlignmentMode = .center
         title.position = CGPoint(x: 0, y: H * 0.22)
         container.addChild(title)
@@ -202,14 +200,11 @@ final class HorseRaceCornholeScene: SKScene {
 
     private func makeOpponentCard(title: String, subtitle: String, desc: String,
                                   name: String, accent: SKColor, size cardSize: CGSize) -> SKNode {
-        let gold = SKColor(red: 0xf0/255.0, green: 0xc0/255.0, blue: 0x60/255.0, alpha: 1)
-        let wood = SKColor(red: 0x1a/255.0, green: 0x0a/255.0, blue: 0x04/255.0, alpha: 1)
-
-        let card = SKSpriteNode(color: wood, size: cardSize)
+        let card = SKSpriteNode(color: Parchment.surface, size: cardSize)
         card.name = name
 
         let border = SKShapeNode(rectOf: cardSize)
-        border.strokeColor = gold; border.fillColor = .clear; border.lineWidth = 2
+        border.strokeColor = Parchment.edge; border.fillColor = .clear; border.lineWidth = 3
         border.name = name
         card.addChild(border)
 
@@ -225,7 +220,7 @@ final class HorseRaceCornholeScene: SKScene {
         let subLabel = SKLabelNode(fontNamed: "PressStart2P-Regular")
         subLabel.text = subtitle
         subLabel.fontSize = min(8, cardSize.width / 13)
-        subLabel.fontColor = gold
+        subLabel.fontColor = Parchment.deep
         subLabel.verticalAlignmentMode = .center
         subLabel.position = .zero
         subLabel.name = name
@@ -293,7 +288,7 @@ final class HorseRaceCornholeScene: SKScene {
 
     private func startCountdown() {
         countdownActive = true
-        let gold  = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 1)
+        let gold  = Parchment.deep
         let green = SKColor(red: 0.18, green: 0.90, blue: 0.40, alpha: 1)
 
         func beatLabel(text: String, color: SKColor) -> SKAction {
@@ -708,23 +703,19 @@ final class HorseRaceCornholeScene: SKScene {
     // MARK: - UI / HUD
 
     private func setupUI() {
-        let dsPrimary  = SKColor(red: 0.102, green: 0.039, blue: 0.016, alpha: 1)
-        let dsGold     = SKColor(red: 0.941, green: 0.753, blue: 0.376, alpha: 1)
-        let dsIronGray = SKColor(red: 0.349, green: 0.349, blue: 0.349, alpha: 1)
-
         let topInset: CGFloat = view?.safeAreaInsets.top ?? 0
         let topH: CGFloat = 48
         let totalTopH = topH + topInset
         let topBarY   = size.height / 2 - totalTopH / 2
 
-        let topBar = SKSpriteNode(color: dsPrimary,
+        let topBar = SKSpriteNode(color: Parchment.paper,
                                   size: CGSize(width: size.width, height: totalTopH))
         topBar.position  = CGPoint(x: 0, y: topBarY)
         topBar.zPosition = 500
         addChild(topBar)
 
-        let topBorder = SKSpriteNode(color: dsGold,
-                                     size: CGSize(width: size.width, height: 2))
+        let topBorder = SKSpriteNode(color: Parchment.edge,
+                                     size: CGSize(width: size.width, height: 3))
         topBorder.position  = CGPoint(x: 0, y: topBarY - topH / 2 - topInset / 2)
         // Place border at the bottom edge of the ribbon (below the visible 48pt area).
         topBorder.position.y = size.height / 2 - topInset - topH + 1
@@ -751,7 +742,7 @@ final class HorseRaceCornholeScene: SKScene {
         let label = SKLabelNode(fontNamed: "PressStart2P-Regular")
         label.text                    = "RED 0  |  TOMMY 0"
         label.fontSize                = 10
-        label.fontColor               = dsGold
+        label.fontColor               = Parchment.deep
         label.horizontalAlignmentMode = .center
         label.verticalAlignmentMode   = .center
         label.position  = CGPoint(x: 0, y: contentY)
@@ -785,10 +776,10 @@ final class HorseRaceCornholeScene: SKScene {
         // Iron corner bolts
         let ribbonTopY = size.height / 2 - topInset - 5
         let ribbonBotY = size.height / 2 - topInset - topH + 5
-        addIronBolt(at: CGPoint(x: -size.width / 2 + 5, y: ribbonTopY), color: dsIronGray)
-        addIronBolt(at: CGPoint(x:  size.width / 2 - 5, y: ribbonTopY), color: dsIronGray)
-        addIronBolt(at: CGPoint(x: -size.width / 2 + 5, y: ribbonBotY), color: dsIronGray)
-        addIronBolt(at: CGPoint(x:  size.width / 2 - 5, y: ribbonBotY), color: dsIronGray)
+        addIronBolt(at: CGPoint(x: -size.width / 2 + 5, y: ribbonTopY), color: Parchment.surface)
+        addIronBolt(at: CGPoint(x:  size.width / 2 - 5, y: ribbonTopY), color: Parchment.surface)
+        addIronBolt(at: CGPoint(x: -size.width / 2 + 5, y: ribbonBotY), color: Parchment.surface)
+        addIronBolt(at: CGPoint(x:  size.width / 2 - 5, y: ribbonBotY), color: Parchment.surface)
     }
 
     private func addIronBolt(at pt: CGPoint, color: SKColor) {
@@ -804,13 +795,13 @@ final class HorseRaceCornholeScene: SKScene {
         let img = UIGraphicsImageRenderer(size: CGSize(width: w, height: h), format: fmt).image { ctx in
             let c = ctx.cgContext
             c.clear(CGRect(x: 0, y: 0, width: w, height: h))
-            c.setFillColor(UIColor(white: 0, alpha: 0.28).cgColor)
+            c.setFillColor(UIColor(white: 0, alpha: 0.10).cgColor)
             var y: CGFloat = 0
             while y < h { c.fill(CGRect(x: 0, y: y, width: w, height: 1)); y += 3 }
             let space = CGColorSpaceCreateDeviceRGB()
             let vColors = [UIColor(white: 0, alpha: 0).cgColor,
-                           UIColor(white: 0, alpha: 0.18).cgColor,
-                           UIColor(white: 0, alpha: 0.70).cgColor] as CFArray
+                           UIColor(white: 0, alpha: 0.08).cgColor,
+                           UIColor(white: 0, alpha: 0.35).cgColor] as CFArray
             let vGrad = CGGradient(colorsSpace: space, colors: vColors, locations: [0, 0.55, 1.0])!
             c.drawRadialGradient(vGrad,
                                  startCenter: CGPoint(x: w/2, y: h/2), startRadius: 0,
@@ -1335,14 +1326,14 @@ final class HorseRaceCornholeScene: SKScene {
         let panel = SKShapeNode(rect: CGRect(x: -panelW / 2, y: -panelH / 2,
                                              width: panelW, height: panelH),
                                 cornerRadius: 10)
-        panel.fillColor   = SKColor(red: 0.10, green: 0.04, blue: 0.02, alpha: 0.97)
-        panel.strokeColor = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 0.80)
-        panel.lineWidth   = 2
+        panel.fillColor   = Parchment.paper.withAlphaComponent(0.97)
+        panel.strokeColor = Parchment.edge.withAlphaComponent(0.80)
+        panel.lineWidth   = 3
         ov.addChild(panel)
 
         let title = SKLabelNode(fontNamed: "PressStart2P-Regular")
         title.text = "PAUSED"; title.fontSize = 16
-        title.fontColor = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 1)
+        title.fontColor = Parchment.deep
         title.horizontalAlignmentMode = .center; title.verticalAlignmentMode = .center
         title.position = CGPoint(x: 0, y: 40)
         ov.addChild(title)
@@ -1351,8 +1342,8 @@ final class HorseRaceCornholeScene: SKScene {
         let resumeBg = SKShapeNode(rect: CGRect(x: -btnW / 2, y: -btnH / 2,
                                                 width: btnW, height: btnH),
                                    cornerRadius: 8)
-        resumeBg.fillColor   = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 0.20)
-        resumeBg.strokeColor = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 0.80)
+        resumeBg.fillColor   = Parchment.deep.withAlphaComponent(0.20)
+        resumeBg.strokeColor = Parchment.deep.withAlphaComponent(0.80)
         resumeBg.lineWidth   = 1.5
         resumeBg.position = CGPoint(x: 0, y: -16)
         resumeBg.name = "resumeBtn"
@@ -1360,7 +1351,7 @@ final class HorseRaceCornholeScene: SKScene {
 
         let resumeLbl = SKLabelNode(fontNamed: "PressStart2P-Regular")
         resumeLbl.text = "RESUME"; resumeLbl.fontSize = 11
-        resumeLbl.fontColor = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 1)
+        resumeLbl.fontColor = Parchment.deep
         resumeLbl.horizontalAlignmentMode = .center; resumeLbl.verticalAlignmentMode = .center
         resumeLbl.position = CGPoint(x: 0, y: -1)
         resumeLbl.name = "resumeBtn"
@@ -1386,14 +1377,14 @@ final class HorseRaceCornholeScene: SKScene {
         let body = SKShapeNode(rect: CGRect(x: -panelW / 2, y: -panelH / 2,
                                             width: panelW, height: panelH),
                                cornerRadius: 8)
-        body.fillColor   = SKColor(red: 0.10, green: 0.04, blue: 0.02, alpha: 0.97)
-        body.strokeColor = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 0.80)
+        body.fillColor   = Parchment.paper.withAlphaComponent(0.97)
+        body.strokeColor = Parchment.edge.withAlphaComponent(0.80)
         body.lineWidth   = 2
         panel.addChild(body)
 
         let q = SKLabelNode(fontNamed: "PressStart2P-Regular")
         q.text = "QUIT THE RACE?"; q.fontSize = 10
-        q.fontColor = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 1)
+        q.fontColor = Parchment.deep
         q.horizontalAlignmentMode = .center; q.verticalAlignmentMode = .center
         q.position = CGPoint(x: 0, y: 32)
         panel.addChild(q)
@@ -1417,14 +1408,14 @@ final class HorseRaceCornholeScene: SKScene {
         let cancel = SKShapeNode(rect: CGRect(x: -bw / 2, y: -bh / 2, width: bw, height: bh),
                                  cornerRadius: 6)
         cancel.fillColor   = SKColor(red: 0.20, green: 0.20, blue: 0.20, alpha: 0.95)
-        cancel.strokeColor = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 0.80)
+        cancel.strokeColor = Parchment.edge.withAlphaComponent(0.80)
         cancel.lineWidth   = 1.5
         cancel.position    = CGPoint(x: 52, y: -22)
         cancel.name        = "cancelQuitBtn"
         panel.addChild(cancel)
         let cLbl = SKLabelNode(fontNamed: "PressStart2P-Regular")
         cLbl.text = "STAY"; cLbl.fontSize = 9
-        cLbl.fontColor = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 1)
+        cLbl.fontColor = Parchment.deep
         cLbl.horizontalAlignmentMode = .center; cLbl.verticalAlignmentMode = .center
         cLbl.name = "cancelQuitBtn"
         cancel.addChild(cLbl)

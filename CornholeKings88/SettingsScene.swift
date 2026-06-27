@@ -17,12 +17,12 @@ final class SettingsScene: SKScene {
     private var sliderTrackY: CGFloat = 0
     private var isDraggingSlider = false
 
-    // Style constants (Bit-Wood Brawler)
-    private let dsPrimary = SKColor(red: 0.102, green: 0.039, blue: 0.016, alpha: 1) // #1a0a04
-    private let dsGold    = SKColor(red: 0.941, green: 0.753, blue: 0.376, alpha: 1) // #f0c060
-    private let dsGoldDim = SKColor(red: 0.78, green: 0.57, blue: 0.16, alpha: 1)
-    private let dsCream   = SKColor(red: 1.0, green: 0.89, blue: 0.69, alpha: 1)
-    private let dsMuted   = SKColor(white: 0.50, alpha: 1)
+    // Style constants (Parchment)
+    private let dsPrimary = Parchment.paper
+    private let dsGold    = Parchment.edge
+    private let dsGoldDim = Parchment.amber
+    private let dsCream   = Parchment.deep
+    private let dsMuted   = Parchment.muted
 
     // MARK: - didMove
     override func didMove(to view: SKView) {
@@ -30,16 +30,16 @@ final class SettingsScene: SKScene {
         W = size.width
         H = size.height
 
-        backgroundColor = SKColor(red: 0.02, green: 0.04, blue: 0.02, alpha: 1)
+        backgroundColor = Parchment.bg
 
         setupTopStrip()
         setupContent()
         setupFooter()
-        setupEmbers()
+        // embers removed for parchment theme
         addCrtOverlay()
     }
 
-    // MARK: - Top ribbon (DS standard: #1a0a04 + 2px gold border, safe-area aware)
+    // MARK: - Top ribbon (parchment paper + ink edge border, safe-area aware)
     private func setupTopStrip() {
         let topInset  = view?.safeAreaInsets.top ?? 0
         let topH: CGFloat = 48
@@ -300,8 +300,8 @@ final class SettingsScene: SKScene {
 
         // Thumb (gold rounded square)
         let thumb = SKShapeNode(rectOf: CGSize(width: 16, height: 18), cornerRadius: 3)
-        thumb.fillColor   = dsGold
-        thumb.strokeColor = SKColor(white: 0.12, alpha: 1)
+        thumb.fillColor   = Parchment.amber
+        thumb.strokeColor = Parchment.edge
         thumb.lineWidth   = 1.5
         thumb.zPosition   = 24
         thumb.name        = "throwSliderThumb"
@@ -320,7 +320,7 @@ final class SettingsScene: SKScene {
         let copy = SKLabelNode(fontNamed: "PressStart2P-Regular")
         copy.text = "\u{00A9} 2026 CK88"
         copy.fontSize = min(5, W / 60)
-        copy.fontColor = SKColor(white: 0.40, alpha: 1)
+        copy.fontColor = Parchment.muted
         copy.horizontalAlignmentMode = .left
         copy.verticalAlignmentMode = .center
         copy.position  = CGPoint(x: -W / 2 + 12, y: y)
@@ -357,13 +357,13 @@ final class SettingsScene: SKScene {
         let img = UIGraphicsImageRenderer(size: CGSize(width: W, height: H), format: fmt).image { ctx in
             let c = ctx.cgContext
             c.clear(CGRect(x: 0, y: 0, width: W, height: H))
-            c.setFillColor(UIColor(white: 0, alpha: 0.28).cgColor)
+            c.setFillColor(UIColor(white: 0, alpha: 0.10).cgColor)
             var y: CGFloat = 0
             while y < H { c.fill(CGRect(x: 0, y: y, width: W, height: 1)); y += 3 }
             let space = CGColorSpaceCreateDeviceRGB()
             let vColors = [UIColor(white: 0, alpha: 0).cgColor,
-                           UIColor(white: 0, alpha: 0.18).cgColor,
-                           UIColor(white: 0, alpha: 0.70).cgColor] as CFArray
+                           UIColor(white: 0, alpha: 0.10).cgColor,
+                           UIColor(white: 0, alpha: 0.35).cgColor] as CFArray
             let vGrad = CGGradient(colorsSpace: space, colors: vColors, locations: [0, 0.55, 1.0])!
             c.drawRadialGradient(vGrad,
                                  startCenter: CGPoint(x: W/2, y: H/2), startRadius: 0,
@@ -462,7 +462,7 @@ final class SettingsScene: SKScene {
             .wait(forDuration: 1.0),
             .run { [weak self] in
                 lbl.text = "RESET"
-                lbl.fontColor = self?.dsGold ?? .yellow
+                lbl.fontColor = self?.dsGold ?? Parchment.edge
             },
         ]))
     }
@@ -471,8 +471,8 @@ final class SettingsScene: SKScene {
 
     private func addRivet(at pos: CGPoint, radius: CGFloat, z: CGFloat) {
         let r = SKShapeNode(circleOfRadius: radius)
-        r.fillColor = SKColor(white: 0.42, alpha: 1)
-        r.strokeColor = SKColor(white: 0.20, alpha: 1)
+        r.fillColor = Parchment.muted
+        r.strokeColor = Parchment.edge
         r.lineWidth = 0.5
         r.position = pos
         r.zPosition = z
@@ -486,25 +486,20 @@ final class SettingsScene: SKScene {
             let path = UIBezierPath(roundedRect: CGRect(origin: .zero, size: size), cornerRadius: 6)
             c.addPath(path.cgPath); c.clip()
 
-            let space = CGColorSpaceCreateDeviceRGB()
-            let colors = [
-                UIColor(red: 0.35, green: 0.35, blue: 0.35, alpha: 1).cgColor,
-                UIColor(red: 0.22, green: 0.22, blue: 0.22, alpha: 1).cgColor,
-                UIColor(red: 0.12, green: 0.12, blue: 0.12, alpha: 1).cgColor,
-            ] as CFArray
-            let grad = CGGradient(colorsSpace: space, colors: colors, locations: [0, 0.5, 1.0])!
-            c.drawLinearGradient(grad, start: .zero, end: CGPoint(x: 0, y: size.height), options: [])
+            // Parchment surface fill
+            c.setFillColor(Parchment.surface.cgColor)
+            c.fill(CGRect(origin: .zero, size: size))
 
-            c.setFillColor(UIColor(red: 0.63, green: 0.31, blue: 0.06, alpha: 0.25).cgColor)
-            c.fillEllipse(in: CGRect(x: size.width * 0.62, y: size.height * 0.20, width: size.width * 0.42, height: size.height * 0.80))
-
-            c.setFillColor(UIColor(white: 1, alpha: 0.12).cgColor)
+            // Top highlight
+            c.setFillColor(UIColor(white: 1, alpha: 0.20).cgColor)
             c.fill(CGRect(x: 0, y: 0, width: size.width, height: 1))
 
-            c.setFillColor(UIColor(white: 0, alpha: 0.35).cgColor)
+            // Bottom shadow
+            c.setFillColor(Parchment.edge.withAlphaComponent(0.18).cgColor)
             c.fill(CGRect(x: 0, y: size.height - 3, width: size.width, height: 3))
 
-            c.setStrokeColor(UIColor(white: 0.07, alpha: 1).cgColor)
+            // Ink edge border
+            c.setStrokeColor(Parchment.edge.cgColor)
             c.setLineWidth(2)
             let border = UIBezierPath(roundedRect: CGRect(x: 1, y: 1, width: size.width - 2, height: size.height - 2), cornerRadius: 5)
             c.addPath(border.cgPath); c.strokePath()
@@ -518,12 +513,13 @@ final class SettingsScene: SKScene {
             let c = ctx.cgContext
             let path = UIBezierPath(roundedRect: CGRect(origin: .zero, size: size), cornerRadius: 3)
             c.addPath(path.cgPath); c.clip()
-            c.setFillColor(UIColor(white: 0.06, alpha: 1).cgColor)
+            // Recessed parchment channel
+            c.setFillColor(Parchment.bg.cgColor)
             c.fill(CGRect(origin: .zero, size: size))
             // Subtle top inner-shadow
-            c.setFillColor(UIColor(white: 0, alpha: 0.55).cgColor)
+            c.setFillColor(Parchment.edge.withAlphaComponent(0.25).cgColor)
             c.fill(CGRect(x: 0, y: 0, width: size.width, height: 1))
-            c.setStrokeColor(UIColor(white: 0.16, alpha: 1).cgColor)
+            c.setStrokeColor(Parchment.edge.withAlphaComponent(0.40).cgColor)
             c.setLineWidth(1)
             c.stroke(CGRect(x: 0.5, y: 0.5, width: size.width - 1, height: size.height - 1))
         }

@@ -28,13 +28,13 @@ final class LoadingScene: SKScene {
         // Cold app launch — restore hearts to full for the new session.
         HeartsManager.shared.refill()
         anchorPoint = CGPoint(x: 0.5, y: 0.5)
-        backgroundColor = .black
+        backgroundColor = Parchment.bg
 
         // Title
         let title = SKLabelNode(fontNamed: "PressStart2P-Regular")
         title.text = "CORNHOLE KINGS"
         title.fontSize = 18
-        title.fontColor = SKColor(red: 0.95, green: 0.80, blue: 0.20, alpha: 1)
+        title.fontColor = Parchment.deep
         title.position = CGPoint(x: 0, y: 20)
         addChild(title)
 
@@ -42,7 +42,7 @@ final class LoadingScene: SKScene {
         loadingLabel = SKLabelNode(fontNamed: "PressStart2P-Regular")
         loadingLabel.text = "LOADING"
         loadingLabel.fontSize = 10
-        loadingLabel.fontColor = .white
+        loadingLabel.fontColor = Parchment.amber
         loadingLabel.position = CGPoint(x: 0, y: -30)
         addChild(loadingLabel)
 

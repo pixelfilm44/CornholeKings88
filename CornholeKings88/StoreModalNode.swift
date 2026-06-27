@@ -48,8 +48,8 @@ final class StoreModalNode: SKNode {
         let panelH: CGFloat = min(H - 96, 432)
         let panel = SKShapeNode(rect: CGRect(x: -panelW/2, y: -panelH/2, width: panelW, height: panelH),
                                 cornerRadius: 8)
-        panel.fillColor   = SKColor(red: 0.10, green: 0.04, blue: 0.02, alpha: 0.98)
-        panel.strokeColor = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 0.85)
+        panel.fillColor   = Parchment.surface
+        panel.strokeColor = Parchment.edge
         panel.lineWidth   = 2
         panel.zPosition   = 1
         addChild(panel)
@@ -58,7 +58,7 @@ final class StoreModalNode: SKNode {
         let title = SKLabelNode(fontNamed: "PressStart2P-Regular")
         title.text = "STORE"
         title.fontSize  = 18
-        title.fontColor = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 1)
+        title.fontColor = Parchment.deep
         title.position  = CGPoint(x: 0, y: panelH/2 - 26)
         title.zPosition = 2
         addChild(title)
@@ -66,7 +66,7 @@ final class StoreModalNode: SKNode {
         // Coin balance
         let coin = SKLabelNode(fontNamed: "PressStart2P-Regular")
         coin.fontSize  = 10
-        coin.fontColor = SKColor(red: 0.95, green: 0.82, blue: 0.30, alpha: 1)
+        coin.fontColor = Parchment.amber
         coin.position  = CGPoint(x: 0, y: panelH/2 - 46)
         coin.zPosition = 2
         addChild(coin)
@@ -114,8 +114,8 @@ final class StoreModalNode: SKNode {
         // Close button — generous tap target so the X is easy to hit.
         let closeBtn = SKShapeNode(rect: CGRect(x: -22, y: -22, width: 44, height: 44),
                                    cornerRadius: 6)
-        closeBtn.fillColor   = SKColor(red: 0.20, green: 0.10, blue: 0.05, alpha: 0.9)
-        closeBtn.strokeColor = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 0.85)
+        closeBtn.fillColor   = Parchment.surface2
+        closeBtn.strokeColor = Parchment.edge
         closeBtn.lineWidth   = 1.5
         closeBtn.position    = CGPoint(x: panelW/2 - 24, y: panelH/2 - 24)
         closeBtn.zPosition   = 3
@@ -125,7 +125,7 @@ final class StoreModalNode: SKNode {
         let closeLbl = SKLabelNode(fontNamed: "PressStart2P-Regular")
         closeLbl.text = "X"
         closeLbl.fontSize  = 14
-        closeLbl.fontColor = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 1)
+        closeLbl.fontColor = Parchment.deep
         closeLbl.verticalAlignmentMode   = .center
         closeLbl.horizontalAlignmentMode = .center
         closeLbl.zPosition = 1
@@ -146,8 +146,8 @@ final class StoreModalNode: SKNode {
 
         let bg = SKShapeNode(rect: CGRect(x: -width/2, y: -height/2, width: width, height: height),
                              cornerRadius: 4)
-        bg.fillColor   = SKColor(red: 0.16, green: 0.09, blue: 0.05, alpha: 1)
-        bg.strokeColor = SKColor(red: 0.60, green: 0.42, blue: 0.15, alpha: 0.9)
+        bg.fillColor   = Parchment.paper
+        bg.strokeColor = Parchment.edge
         bg.lineWidth   = 1.5
         bg.zPosition   = 0
         card.addChild(bg)
@@ -155,7 +155,7 @@ final class StoreModalNode: SKNode {
         let nameLbl = SKLabelNode(fontNamed: "PressStart2P-Regular")
         nameLbl.text = title
         nameLbl.fontSize  = 10
-        nameLbl.fontColor = SKColor(red: 0.95, green: 0.86, blue: 0.40, alpha: 1)
+        nameLbl.fontColor = Parchment.deep
         nameLbl.horizontalAlignmentMode = .left
         nameLbl.verticalAlignmentMode   = .center
         nameLbl.position = CGPoint(x: -width/2 + 10, y: 10)
@@ -165,7 +165,7 @@ final class StoreModalNode: SKNode {
         let subLbl = SKLabelNode(fontNamed: "PressStart2P-Regular")
         subLbl.text = subtitle
         subLbl.fontSize  = 6
-        subLbl.fontColor = SKColor(white: 0.78, alpha: 1)
+        subLbl.fontColor = Parchment.muted
         subLbl.horizontalAlignmentMode = .left
         subLbl.verticalAlignmentMode   = .center
         subLbl.position = CGPoint(x: -width/2 + 10, y: -8)
@@ -176,8 +176,8 @@ final class StoreModalNode: SKNode {
         let btnW: CGFloat = 78, btnH: CGFloat = 36
         let btn = SKShapeNode(rect: CGRect(x: -btnW/2, y: -btnH/2, width: btnW, height: btnH),
                               cornerRadius: 6)
-        btn.fillColor   = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 0.20)
-        btn.strokeColor = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 0.85)
+        btn.fillColor   = Parchment.surface2
+        btn.strokeColor = Parchment.edge
         btn.lineWidth   = 1.5
         btn.position    = CGPoint(x: width/2 - btnW/2 - 8, y: 0)
         btn.zPosition   = 1
@@ -187,7 +187,7 @@ final class StoreModalNode: SKNode {
         let priceLbl = SKLabelNode(fontNamed: "PressStart2P-Regular")
         priceLbl.text = "\(price)c"
         priceLbl.fontSize  = 11
-        priceLbl.fontColor = SKColor(red: 0.95, green: 0.82, blue: 0.30, alpha: 1)
+        priceLbl.fontColor = Parchment.amber
         priceLbl.verticalAlignmentMode   = .center
         priceLbl.horizontalAlignmentMode = .center
         priceLbl.zPosition = 2

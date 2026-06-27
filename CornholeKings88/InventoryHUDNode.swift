@@ -39,8 +39,8 @@ final class InventoryHUDNode: SKNode {
         let node = SKNode()
         node.name = "slot_\(type.rawValue)"
 
-        // Dark pill background
-        let bg = SKSpriteNode(color: SKColor(red: 0.08, green: 0.06, blue: 0.04, alpha: 0.82),
+        // Parchment pill background
+        let bg = SKSpriteNode(color: Parchment.surface2.withAlphaComponent(0.82),
                               size: CGSize(width: slotWidth, height: slotHeight))
         bg.zPosition = 0
         node.addChild(bg)
@@ -71,7 +71,7 @@ final class InventoryHUDNode: SKNode {
         let label = SKLabelNode(fontNamed: "PressStart2P-Regular")
         label.text = "×\(count)"
         label.fontSize = 8
-        label.fontColor = SKColor(white: 0.90, alpha: 1.0)
+        label.fontColor = Parchment.ink
         label.verticalAlignmentMode = .center
         label.horizontalAlignmentMode = .left
         label.position = CGPoint(x: iconPos.x + 10, y: 0)

@@ -51,7 +51,7 @@ final class StoryModuleScene: SKScene {
         anchorPoint = CGPoint(x: 0.5, y: 0.5)
         W = size.width
         H = size.height
-        backgroundColor = SKColor(red: 0.04, green: 0.04, blue: 0.14, alpha: 1)
+        backgroundColor = Parchment.bg
 
         if hasSetup {
             // Returning from a mini-game — advance to queued module
@@ -86,8 +86,8 @@ final class StoryModuleScene: SKScene {
         let bg = SKShapeNode(
             rect: CGRect(x: -panelW/2, y: -panelH/2, width: panelW, height: panelH),
             cornerRadius: 2)
-        bg.fillColor   = SKColor(red: 0.07, green: 0.07, blue: 0.22, alpha: 0.97)
-        bg.strokeColor = SKColor(red: 0.78, green: 0.62, blue: 0.12, alpha: 1)
+        bg.fillColor   = Parchment.paper.withAlphaComponent(0.97)
+        bg.strokeColor = Parchment.edge
         bg.lineWidth   = 2
         panelNode.addChild(bg)
 
@@ -96,7 +96,7 @@ final class StoryModuleScene: SKScene {
             rect: CGRect(x: -panelW/2 + 3, y: -panelH/2 + 3, width: panelW - 6, height: panelH - 6),
             cornerRadius: 1)
         inner.fillColor   = .clear
-        inner.strokeColor = SKColor(red: 0.78, green: 0.62, blue: 0.12, alpha: 0.25)
+        inner.strokeColor = Parchment.edge.withAlphaComponent(0.25)
         inner.lineWidth   = 1
         panelNode.addChild(inner)
 
@@ -124,14 +124,14 @@ final class StoryModuleScene: SKScene {
         path.move(to: CGPoint(x: -panelW/2 + 6, y: divY))
         path.addLine(to: CGPoint(x: panelW/2 - 6, y: divY))
         divLine.path = path
-        divLine.strokeColor = SKColor(red: 0.78, green: 0.62, blue: 0.12, alpha: 0.45)
+        divLine.strokeColor = Parchment.edge.withAlphaComponent(0.45)
         divLine.lineWidth = 1
         panelNode.addChild(divLine)
 
         // Title label — sits just below divider
         titleLabel = SKLabelNode(fontNamed: "PressStart2P-Regular")
         titleLabel.fontSize = min(24, W / 13)
-        titleLabel.fontColor = SKColor(red: 0.95, green: 0.82, blue: 0.10, alpha: 1)
+        titleLabel.fontColor = Parchment.deep
         titleLabel.horizontalAlignmentMode = .left
         titleLabel.verticalAlignmentMode   = .top
         titleLabel.position  = CGPoint(x: -panelW/2 + 10, y: divY - 4)
@@ -142,7 +142,7 @@ final class StoryModuleScene: SKScene {
         let textY = divY - titleLabel.fontSize - 14
         textLabel = SKLabelNode(fontNamed: "PressStart2P-Regular")
         textLabel.fontSize = min(14, W / 17)
-        textLabel.fontColor = .white
+        textLabel.fontColor = Parchment.ink
         textLabel.numberOfLines = 0
         textLabel.preferredMaxLayoutWidth = panelW - 24
         textLabel.horizontalAlignmentMode = .left
@@ -155,7 +155,7 @@ final class StoryModuleScene: SKScene {
         continueArrow = SKLabelNode(fontNamed: "PressStart2P-Regular")
         continueArrow.text      = "▼"
         continueArrow.fontSize  = min(21, W / 15)
-        continueArrow.fontColor = SKColor(red: 0.95, green: 0.82, blue: 0.10, alpha: 1)
+        continueArrow.fontColor = Parchment.amber
         continueArrow.horizontalAlignmentMode = .right
         continueArrow.verticalAlignmentMode   = .bottom
         continueArrow.position  = CGPoint(x: panelW/2 - 12, y: -panelH/2 + 20)
@@ -176,11 +176,11 @@ final class StoryModuleScene: SKScene {
         panelNode.addChild(choiceContainer)
     }
 
-    /// Top ribbon — DS standard: #1a0a04 + 2px gold border, safe-area aware.
+    /// Top ribbon — parchment paper + ink edge border, safe-area aware.
     /// Sets ribbonBottomY so buildPanel() can position below it.
     private func buildTopBar() {
-        let dsPrimary = SKColor(red: 0.102, green: 0.039, blue: 0.016, alpha: 1) // #1a0a04
-        let dsGold    = SKColor(red: 0.941, green: 0.753, blue: 0.376, alpha: 1) // #f0c060
+        let dsPrimary = Parchment.paper
+        let dsGold    = Parchment.edge
 
         let topInset  = view?.safeAreaInsets.top ?? 0
         let topH: CGFloat = 48
@@ -213,8 +213,8 @@ final class StoryModuleScene: SKScene {
 
     private func addPanelRivet(at pos: CGPoint, radius: CGFloat) {
         let r = SKShapeNode(circleOfRadius: radius)
-        r.fillColor   = SKColor(white: 0.55, alpha: 1)
-        r.strokeColor = SKColor(white: 0.20, alpha: 1)
+        r.fillColor   = Parchment.muted
+        r.strokeColor = Parchment.edge
         r.lineWidth   = 0.5
         r.position    = pos
         r.zPosition   = 6
@@ -346,8 +346,8 @@ final class StoryModuleScene: SKScene {
             let pill = SKShapeNode(
                 rect: CGRect(x: -btnW/2, y: -btnH/2, width: btnW, height: btnH),
                 cornerRadius: 4)
-            pill.fillColor   = SKColor(white: 0.13, alpha: 0.95)
-            pill.strokeColor = SKColor(red: 0.78, green: 0.62, blue: 0.12, alpha: 0.80)
+            pill.fillColor   = Parchment.surface2.withAlphaComponent(0.95)
+            pill.strokeColor = Parchment.edge.withAlphaComponent(0.80)
             pill.lineWidth   = 1.5
             pill.name        = "choice_\(i)"
             container.addChild(pill)
@@ -356,7 +356,7 @@ final class StoryModuleScene: SKScene {
             let bar = SKShapeNode(
                 rect: CGRect(x: -btnW/2, y: -btnH/2, width: 4, height: btnH),
                 cornerRadius: 2)
-            bar.fillColor   = SKColor(red: 0.78, green: 0.62, blue: 0.12, alpha: 0.9)
+            bar.fillColor   = Parchment.amber.withAlphaComponent(0.9)
             bar.strokeColor = .clear
             bar.name        = "choice_\(i)"
             container.addChild(bar)
@@ -364,7 +364,7 @@ final class StoryModuleScene: SKScene {
             let lbl = SKLabelNode(fontNamed: font)
             lbl.text      = choice.label
             lbl.fontSize  = min(15, W / 20)
-            lbl.fontColor = SKColor(red: 0.95, green: 0.88, blue: 0.60, alpha: 1)
+            lbl.fontColor = Parchment.deep
             lbl.horizontalAlignmentMode = .center
             lbl.verticalAlignmentMode   = .center
             lbl.position = .zero
@@ -381,13 +381,13 @@ final class StoryModuleScene: SKScene {
         let img = UIGraphicsImageRenderer(size: CGSize(width: W, height: H), format: fmt).image { ctx in
             let c = ctx.cgContext
             c.clear(CGRect(x: 0, y: 0, width: W, height: H))
-            c.setFillColor(UIColor(white: 0, alpha: 0.28).cgColor)
+            c.setFillColor(UIColor(white: 0, alpha: 0.10).cgColor)
             var y: CGFloat = 0
             while y < H { c.fill(CGRect(x: 0, y: y, width: W, height: 1)); y += 3 }
             let space = CGColorSpaceCreateDeviceRGB()
             let vColors = [UIColor(white: 0, alpha: 0).cgColor,
-                           UIColor(white: 0, alpha: 0.18).cgColor,
-                           UIColor(white: 0, alpha: 0.70).cgColor] as CFArray
+                           UIColor(white: 0, alpha: 0.10).cgColor,
+                           UIColor(white: 0, alpha: 0.35).cgColor] as CFArray
             let vGrad = CGGradient(colorsSpace: space, colors: vColors, locations: [0, 0.55, 1.0])!
             c.drawRadialGradient(vGrad,
                                  startCenter: CGPoint(x: W/2, y: H/2), startRadius: 0,

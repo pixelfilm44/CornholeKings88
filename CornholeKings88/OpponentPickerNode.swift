@@ -63,20 +63,20 @@ final class OpponentPickerNode: SKNode {
 
         // Panel background
         let panel = SKSpriteNode(
-            color: SKColor(red: 0.07, green: 0.05, blue: 0.03, alpha: 0.97),
+            color: Parchment.paper,
             size: CGSize(width: panelW, height: panelH))
         addChild(panel)
 
-        // Amber-wood border
+        // Ink edge border
         let border = SKShapeNode(rectOf: CGSize(width: panelW + 3, height: panelH + 3))
-        border.strokeColor = SKColor(red: 0.60, green: 0.42, blue: 0.15, alpha: 1)
+        border.strokeColor = Parchment.edge
         border.fillColor   = .clear
         border.lineWidth   = 3
         addChild(border)
 
         // Title
         let title = makeLabel("CHOOSE OPPONENT", size: fs * 0.82,
-                              color: SKColor(red: 0.78, green: 0.57, blue: 0.16, alpha: 1))
+                              color: Parchment.deep)
         title.position = CGPoint(x: 0, y: panelH * 0.44)
         addChild(title)
 
@@ -177,12 +177,10 @@ final class OpponentPickerNode: SKNode {
         let tag = "card_\(index)"
         let card = SKNode()
 
-        let bgColor = isBoss
-            ? SKColor(red: 0.14, green: 0.06, blue: 0.04, alpha: 1)
-            : SKColor(red: 0.12, green: 0.09, blue: 0.06, alpha: 1)
+        let bgColor = Parchment.surface
         let borderColor = isBoss
-            ? SKColor(red: 0.80, green: 0.18, blue: 0.12, alpha: 1)
-            : SKColor(red: 0.40, green: 0.26, blue: 0.10, alpha: 1)
+            ? Parchment.red
+            : Parchment.edge
 
         // Card background
         let bg = SKSpriteNode(color: bgColor, size: CGSize(width: w, height: h))
@@ -200,7 +198,7 @@ final class OpponentPickerNode: SKNode {
         // Boss badge
         if isBoss {
             let badge = makeLabel("★ BOSS ★", size: max(4, fs * 0.50),
-                                  color: SKColor(red: 1.0, green: 0.28, blue: 0.12, alpha: 1))
+                                  color: Parchment.red)
             badge.position = CGPoint(x: 0, y: h * 0.42)
             badge.name = tag
             card.addChild(badge)
@@ -216,17 +214,14 @@ final class OpponentPickerNode: SKNode {
         card.addChild(portrait)
 
         // Opponent name
-        let nameColor = isBoss
-            ? SKColor(red: 1.0, green: 0.36, blue: 0.18, alpha: 1)
-            : SKColor(red: 0.90, green: 0.42, blue: 0.42, alpha: 1)
-        let nameLabel = makeLabel(config.name, size: fs * 0.74, color: nameColor)
+        let nameLabel = makeLabel(config.name, size: fs * 0.74, color: Parchment.deep)
         nameLabel.position = CGPoint(x: 0, y: -h * (isBoss ? 0.28 : 0.23))
         nameLabel.name = tag
         card.addChild(nameLabel)
 
         // Trait description
         let traitLabel = makeLabel(config.traitText, size: max(4, fs * 0.52),
-                                   color: SKColor(white: 0.60, alpha: 1))
+                                   color: Parchment.muted)
         traitLabel.position = CGPoint(x: 0, y: -h * (isBoss ? 0.40 : 0.36))
         traitLabel.name = tag
         card.addChild(traitLabel)

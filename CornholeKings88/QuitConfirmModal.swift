@@ -21,29 +21,29 @@ enum QuitConfirmModal {
         panel.zPosition = 3000
         panel.name      = panelName
 
-        let bg = SKSpriteNode(color: SKColor(red: 0.07, green: 0.05, blue: 0.03, alpha: 0.97),
+        let bg = SKSpriteNode(color: Parchment.surface,
                               size: CGSize(width: panelW, height: panelH))
         panel.addChild(bg)
 
         let border = SKShapeNode(rectOf: CGSize(width: panelW + 3, height: panelH + 3))
-        border.strokeColor = SKColor(red: 0.60, green: 0.42, blue: 0.15, alpha: 1)
+        border.strokeColor = Parchment.edge
         border.fillColor   = .clear
         border.lineWidth   = 3
         panel.addChild(border)
 
-        let q = label("QUIT GAME?", size: fs, color: SKColor(white: 0.88, alpha: 1))
+        let q = label("QUIT GAME?", size: fs, color: Parchment.deep)
         q.position = CGPoint(x: 0, y: panelH * 0.22)
         panel.addChild(q)
 
-        let cancel = button("CANCEL", fg: .white,
-                            bg: SKColor(red: 0.20, green: 0.20, blue: 0.20, alpha: 1),
+        let cancel = button("CANCEL", fg: Parchment.deep,
+                            bg: Parchment.surface2,
                             size: CGSize(width: panelW * 0.42, height: fs * 1.8))
         cancel.position = CGPoint(x: -panelW * 0.24, y: -panelH * 0.22)
         cancel.name     = cancelName
         panel.addChild(cancel)
 
-        let quit = button("QUIT", fg: .white,
-                          bg: SKColor(red: 0.50, green: 0.10, blue: 0.10, alpha: 1),
+        let quit = button("QUIT", fg: Parchment.onAmber,
+                          bg: Parchment.red,
                           size: CGSize(width: panelW * 0.42, height: fs * 1.8))
         quit.position = CGPoint(x: panelW * 0.24, y: -panelH * 0.22)
         quit.name     = quitName

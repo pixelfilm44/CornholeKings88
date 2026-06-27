@@ -37,12 +37,12 @@ final class TutorialOverlay: SKNode {
     var onComplete: (() -> Void)?
 
     // MARK: - Styling (centralized — change here to restyle all tutorials)
-    private static let panelFill   = SKColor(red: 0.10, green: 0.04, blue: 0.02, alpha: 0.96)
-    private static let panelStroke = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 0.55)
-    private static let titleColor: SKColor = .yellow
-    private static let bodyColor   = SKColor(white: 0.92, alpha: 1)
-    private static let promptColor = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 1)
-    private static let counterColor = SKColor(white: 0.55, alpha: 1)
+    private static let panelFill   = Parchment.surface
+    private static let panelStroke = Parchment.edge
+    private static let titleColor  = Parchment.deep
+    private static let bodyColor   = Parchment.ink
+    private static let promptColor = Parchment.amber
+    private static let counterColor = Parchment.muted
     private static let backdropAlpha: CGFloat = 0.78
     private static let titleFont = "PressStart2P-Regular"
     private static let bodyFont  = "PressStart2P-Regular"
@@ -250,7 +250,7 @@ final class TutorialOverlay: SKNode {
 
         let arrow = SKShapeNode(path: path)
         arrow.fillColor   = TutorialOverlay.promptColor
-        arrow.strokeColor = .black
+        arrow.strokeColor = Parchment.edge
         arrow.lineWidth   = 1
         arrow.position    = scenePoint
         arrow.zRotation   = angle
@@ -314,8 +314,8 @@ enum TutorialHelpButton {
         container.zPosition = 60
 
         let bg = SKShapeNode(circleOfRadius: radius)
-        bg.fillColor   = SKColor(red: 0.10, green: 0.04, blue: 0.02, alpha: 0.96)
-        bg.strokeColor = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 0.6)
+        bg.fillColor   = Parchment.surface2
+        bg.strokeColor = Parchment.edge
         bg.lineWidth   = 1.5
         bg.name        = name
         container.addChild(bg)
@@ -323,7 +323,7 @@ enum TutorialHelpButton {
         let q = SKLabelNode(fontNamed: "PressStart2P-Regular")
         q.text = "?"
         q.fontSize = radius * 1.1
-        q.fontColor = .yellow
+        q.fontColor = Parchment.deep
         q.horizontalAlignmentMode = .center
         q.verticalAlignmentMode   = .center
         q.position = CGPoint(x: 0, y: -1)

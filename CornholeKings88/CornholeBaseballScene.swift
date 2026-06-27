@@ -258,7 +258,6 @@ final class CornholeBaseballScene: SKScene {
 
     private func presentOpponentPicker() {
         let W = size.width, H = size.height
-        let gold = SKColor(red: 0xf0/255.0, green: 0xc0/255.0, blue: 0x60/255.0, alpha: 1)
 
         let container = SKNode()
         container.zPosition = 200
@@ -271,7 +270,7 @@ final class CornholeBaseballScene: SKScene {
         let title = SKLabelNode(fontNamed: "PressStart2P-Regular")
         title.text = "CHOOSE OPPONENT"
         title.fontSize = min(16, W / 18)
-        title.fontColor = gold
+        title.fontColor = Parchment.deep
         title.verticalAlignmentMode = .center
         title.position = CGPoint(x: 0, y: H * 0.22)
         container.addChild(title)
@@ -300,14 +299,11 @@ final class CornholeBaseballScene: SKScene {
 
     private func makeOpponentCard(title: String, subtitle: String, desc: String,
                                   name: String, accent: SKColor, size cardSize: CGSize) -> SKNode {
-        let gold = SKColor(red: 0xf0/255.0, green: 0xc0/255.0, blue: 0x60/255.0, alpha: 1)
-        let wood = SKColor(red: 0x1a/255.0, green: 0x0a/255.0, blue: 0x04/255.0, alpha: 1)
-
-        let card = SKSpriteNode(color: wood, size: cardSize)
+        let card = SKSpriteNode(color: Parchment.surface, size: cardSize)
         card.name = name
 
         let border = SKShapeNode(rectOf: cardSize)
-        border.strokeColor = gold
+        border.strokeColor = Parchment.edge
         border.lineWidth = 2
         border.fillColor = .clear
         border.name = name
@@ -325,7 +321,7 @@ final class CornholeBaseballScene: SKScene {
         let subLabel = SKLabelNode(fontNamed: "PressStart2P-Regular")
         subLabel.text = subtitle
         subLabel.fontSize = min(8, cardSize.width / 13)
-        subLabel.fontColor = gold
+        subLabel.fontColor = Parchment.deep
         subLabel.verticalAlignmentMode = .center
         subLabel.position = .zero
         subLabel.name = name
@@ -334,7 +330,7 @@ final class CornholeBaseballScene: SKScene {
         let descLabel = SKLabelNode(fontNamed: "PressStart2P-Regular")
         descLabel.text = desc
         descLabel.fontSize = min(7, cardSize.width / 15)
-        descLabel.fontColor = SKColor(white: 0.75, alpha: 1)
+        descLabel.fontColor = Parchment.muted
         descLabel.verticalAlignmentMode = .center
         descLabel.position = CGPoint(x: 0, y: -cardSize.height * 0.22)
         descLabel.name = name
@@ -460,7 +456,7 @@ final class CornholeBaseballScene: SKScene {
     }
 
     private static func makeCRTView(frame: CGRect) -> UIView {
-        // Matches the SK CRT overlay: 4pt scanlines (2pt clear / 2pt dark) at 28% view opacity.
+        // Matches the SK CRT overlay: 4pt scanlines (2pt clear / 2pt dark) at reduced parchment opacity.
         let fmt = UIGraphicsImageRendererFormat.default()
         fmt.opaque = false
         let tile = UIGraphicsImageRenderer(size: CGSize(width: 2, height: 4), format: fmt).image { ctx in
@@ -472,7 +468,7 @@ final class CornholeBaseballScene: SKScene {
         v.autoresizingMask    = [.flexibleWidth, .flexibleHeight]
         v.isUserInteractionEnabled = false
         v.backgroundColor     = UIColor(patternImage: tile)
-        v.alpha               = 0.28
+        v.alpha               = 0.10
         return v
     }
 
@@ -1479,7 +1475,7 @@ final class CornholeBaseballScene: SKScene {
         let stars = SKLabelNode(fontNamed: "PressStart2P-Regular")
         stars.text      = "✦ ✦ ✦"
         stars.fontSize  = 8
-        stars.fontColor = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 1)
+        stars.fontColor = Parchment.amber
         stars.verticalAlignmentMode = .center
         stars.position  = CGPoint(x: node.position.x, y: node.position.y + 18)
         stars.zPosition = node.zPosition + 1
@@ -1819,13 +1815,13 @@ final class CornholeBaseballScene: SKScene {
         let img = UIGraphicsImageRenderer(size: CGSize(width: w, height: h), format: fmt).image { ctx in
             let c = ctx.cgContext
             c.clear(CGRect(x: 0, y: 0, width: w, height: h))
-            c.setFillColor(UIColor(white: 0, alpha: 0.28).cgColor)
+            c.setFillColor(UIColor(white: 0, alpha: 0.10).cgColor)
             var y: CGFloat = 0
             while y < h { c.fill(CGRect(x: 0, y: y, width: w, height: 1)); y += 3 }
             let space = CGColorSpaceCreateDeviceRGB()
             let vColors = [UIColor(white: 0, alpha: 0).cgColor,
-                           UIColor(white: 0, alpha: 0.18).cgColor,
-                           UIColor(white: 0, alpha: 0.70).cgColor] as CFArray
+                           UIColor(white: 0, alpha: 0.08).cgColor,
+                           UIColor(white: 0, alpha: 0.35).cgColor] as CFArray
             let vGrad = CGGradient(colorsSpace: space, colors: vColors, locations: [0, 0.55, 1.0])!
             c.drawRadialGradient(vGrad,
                                  startCenter: CGPoint(x: w/2, y: h/2), startRadius: 0,
@@ -2201,12 +2197,12 @@ final class CornholeBaseballScene: SKScene {
         overlay.name      = "readyToBatOverlay"
         overlay.alpha     = 0
 
-        let back = SKSpriteNode(color: SKColor(red: 0.06, green: 0.04, blue: 0.02, alpha: 0.96),
+        let back = SKSpriteNode(color: Parchment.paper.withAlphaComponent(0.96),
                                 size: CGSize(width: panelW, height: panelH))
         overlay.addChild(back)
 
         let border = SKShapeNode(rectOf: CGSize(width: panelW + 3, height: panelH + 3))
-        border.strokeColor = SKColor(red: 0.60, green: 0.42, blue: 0.14, alpha: 1)
+        border.strokeColor = Parchment.edge
         border.fillColor   = .clear
         border.lineWidth   = 3
         overlay.addChild(border)
@@ -2243,12 +2239,12 @@ final class CornholeBaseballScene: SKScene {
         overlay.name      = "readyToPitchOverlay"
         overlay.alpha     = 0
 
-        let back = SKSpriteNode(color: SKColor(red: 0.06, green: 0.04, blue: 0.02, alpha: 0.96),
+        let back = SKSpriteNode(color: Parchment.paper.withAlphaComponent(0.96),
                                 size: CGSize(width: panelW, height: panelH))
         overlay.addChild(back)
 
         let border = SKShapeNode(rectOf: CGSize(width: panelW + 3, height: panelH + 3))
-        border.strokeColor = SKColor(red: 0.60, green: 0.42, blue: 0.14, alpha: 1)
+        border.strokeColor = Parchment.edge
         border.fillColor   = .clear
         border.lineWidth   = 3
         overlay.addChild(border)
@@ -2330,26 +2326,26 @@ final class CornholeBaseballScene: SKScene {
 
         let panelW: CGFloat = min(W - 48, 280), panelH: CGFloat = 200
         let panel = SKShapeNode(rect: CGRect(x: -panelW / 2, y: -panelH / 2, width: panelW, height: panelH), cornerRadius: 10)
-        panel.fillColor   = SKColor(red: 0.10, green: 0.04, blue: 0.02, alpha: 0.97)
-        panel.strokeColor = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 0.80)
-        panel.lineWidth   = 2; ov.addChild(panel)
+        panel.fillColor   = Parchment.paper.withAlphaComponent(0.97)
+        panel.strokeColor = Parchment.edge.withAlphaComponent(0.80)
+        panel.lineWidth   = 3; ov.addChild(panel)
 
         let title = SKLabelNode(fontNamed: "PressStart2P-Regular")
         title.text = "PAUSED"; title.fontSize = 16
-        title.fontColor = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 1)
+        title.fontColor = Parchment.deep
         title.horizontalAlignmentMode = .center; title.verticalAlignmentMode = .center
         title.position = CGPoint(x: 0, y: 56); ov.addChild(title)
 
         let btnW = panelW - 40, btnH: CGFloat = 44
         let resumeBg = SKShapeNode(rect: CGRect(x: -btnW / 2, y: -btnH / 2, width: btnW, height: btnH), cornerRadius: 8)
-        resumeBg.fillColor   = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 0.20)
-        resumeBg.strokeColor = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 0.80)
+        resumeBg.fillColor   = Parchment.amber.withAlphaComponent(0.20)
+        resumeBg.strokeColor = Parchment.edge.withAlphaComponent(0.80)
         resumeBg.lineWidth   = 1.5; resumeBg.position = CGPoint(x: 0, y: 6)
         resumeBg.name = "resumeBtn"; ov.addChild(resumeBg)
 
         let resumeLbl = SKLabelNode(fontNamed: "PressStart2P-Regular")
         resumeLbl.text = "RESUME"; resumeLbl.fontSize = 11
-        resumeLbl.fontColor = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 1)
+        resumeLbl.fontColor = Parchment.deep
         resumeLbl.horizontalAlignmentMode = .center; resumeLbl.verticalAlignmentMode = .center
         resumeLbl.position = CGPoint(x: 0, y: -1); resumeLbl.name = "resumeBtn"; resumeBg.addChild(resumeLbl)
 
@@ -2358,7 +2354,7 @@ final class CornholeBaseballScene: SKScene {
 
         let helpHint = SKLabelNode(fontNamed: "PressStart2P-Regular")
         helpHint.text = "TUTORIAL"; helpHint.fontSize = 7
-        helpHint.fontColor = SKColor(white: 0.6, alpha: 0.8)
+        helpHint.fontColor = Parchment.muted
         helpHint.horizontalAlignmentMode = .center; helpHint.verticalAlignmentMode = .top
         helpHint.position = CGPoint(x: 0, y: -80); ov.addChild(helpHint)
     }

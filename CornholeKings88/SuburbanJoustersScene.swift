@@ -251,20 +251,15 @@ final class SuburbanJoustersScene: SKScene {
     // MARK: - HUD
 
     private func buildHUD() {
-        let dsPrimary   = SKColor(red: 0.102, green: 0.039, blue: 0.016, alpha: 1)
-        let dsGold      = SKColor(red: 0.941, green: 0.753, blue: 0.376, alpha: 1)
-        let dsHeartRed  = SKColor(red: 0.831, green: 0.267, blue: 0.118, alpha: 1)
-        let dsTimerBlue = SKColor(red: 0.353, green: 0.612, blue: 0.831, alpha: 1)
-
         let topInset = view?.safeAreaInsets.top ?? 0
         let topH: CGFloat = 48
         let totalTopH = topH + topInset
         let contentY  = H / 2 - topInset - topH / 2
 
-        let bar = SKSpriteNode(color: dsPrimary, size: CGSize(width: W, height: totalTopH))
+        let bar = SKSpriteNode(color: Parchment.paper, size: CGSize(width: W, height: totalTopH))
         bar.position = CGPoint(x: 0, y: H / 2 - totalTopH / 2); bar.zPosition = 500
         addChild(bar)
-        let border = SKSpriteNode(color: dsGold, size: CGSize(width: W, height: 2))
+        let border = SKSpriteNode(color: Parchment.edge, size: CGSize(width: W, height: 3))
         border.position = CGPoint(x: 0, y: H / 2 - totalTopH + 1); border.zPosition = 501
         addChild(border)
 
@@ -292,14 +287,14 @@ final class SuburbanJoustersScene: SKScene {
             let h = SKLabelNode(text: "♥")
             h.fontName = "AvenirNext-Heavy"
             h.fontSize = 14
-            h.fontColor = dsHeartRed
+            h.fontColor = Parchment.heartRed
             h.verticalAlignmentMode = .center; h.horizontalAlignmentMode = .left
             h.position = CGPoint(x: CGFloat(i) * spacing, y: 0)
             hContainer.addChild(h)
             heartLabels.append(h)
         }
 
-        let rivalLbl = makeLabel("YOU \(playerCornholes) / \(cornholesToWin)", size: 8, color: SKColor(red: 0.96, green: 0.84, blue: 0.10, alpha: 1))
+        let rivalLbl = makeLabel("YOU \(playerCornholes) / \(cornholesToWin)", size: 8, color: Parchment.deep)
         rivalLbl.position = CGPoint(x: 0, y: contentY - 7); rivalLbl.zPosition = 502
         addChild(rivalLbl); rivalLivesLbl = rivalLbl
 
@@ -309,12 +304,12 @@ final class SuburbanJoustersScene: SKScene {
         close.position = CGPoint(x: W / 2 - 22, y: contentY); close.zPosition = 502; close.name = "closeButton"
         addChild(close)
 
-        let speed = makeLabel("MPH 0", size: 8, color: dsTimerBlue)
+        let speed = makeLabel("MPH 0", size: 8, color: Parchment.timerBlue)
         speed.horizontalAlignmentMode = .right
         speed.position = CGPoint(x: W / 2 - 52, y: contentY + 7); speed.zPosition = 502
         addChild(speed); hudSpeedLbl = speed
 
-        let round = makeLabel("R1", size: 8, color: dsGold)
+        let round = makeLabel("R1", size: 8, color: Parchment.deep)
         round.horizontalAlignmentMode = .right
         round.position = CGPoint(x: W / 2 - 52, y: contentY - 7); round.zPosition = 502
         addChild(round); hudRoundLbl = round
@@ -349,7 +344,7 @@ final class SuburbanJoustersScene: SKScene {
         let lines = text.components(separatedBy: "\n")
         for (i, line) in lines.enumerated() {
             let l = makeLabel(line, size: 9,
-                              color: SKColor(red: 0.96, green: 0.84, blue: 0.10, alpha: 0.95))
+                              color: Parchment.deep)
             l.horizontalAlignmentMode = align
             l.verticalAlignmentMode = .center
             l.position = CGPoint(x: 0, y: CGFloat(lines.count - 1 - i) * 12)
@@ -378,7 +373,7 @@ final class SuburbanJoustersScene: SKScene {
 
     private func showCountdownLabel(_ text: String) {
         countdownLabel?.removeFromParent()
-        let l = makeLabel(text, size: 28, color: SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 1))
+        let l = makeLabel(text, size: 28, color: Parchment.deep)
         l.position = CGPoint(x: 0, y: H * 0.10)
         l.zPosition = 900
         l.setScale(1.5)
@@ -1281,7 +1276,7 @@ final class SuburbanJoustersScene: SKScene {
         let titleColor: SKColor
         if playerScored && rivalScored {
             title = "DOUBLE DISMOUNT!"
-            titleColor = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 1)
+            titleColor = Parchment.deep
         } else if playerScored {
             title = "YOU CORNHOLED!"
             titleColor = SKColor(red: 0.30, green: 0.92, blue: 0.30, alpha: 1)
@@ -1420,15 +1415,15 @@ final class SuburbanJoustersScene: SKScene {
         let overlay = SKNode(); overlay.zPosition = 1400
         let dim = SKSpriteNode(color: SKColor.black.withAlphaComponent(0.65), size: CGSize(width: W, height: H))
         overlay.addChild(dim)
-        let title = makeLabel("PAUSED", size: 18, color: SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 1))
+        let title = makeLabel("PAUSED", size: 18, color: Parchment.deep)
         title.position = CGPoint(x: 0, y: 30); overlay.addChild(title)
         let btnW: CGFloat = W * 0.6, btnH: CGFloat = 40
         let resume = SKShapeNode(rect: CGRect(x: -btnW / 2, y: -btnH / 2, width: btnW, height: btnH), cornerRadius: 6)
-        resume.fillColor = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 0.25)
-        resume.strokeColor = SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 0.9)
+        resume.fillColor = Parchment.deep.withAlphaComponent(0.25)
+        resume.strokeColor = Parchment.deep.withAlphaComponent(0.9)
         resume.lineWidth = 1.5; resume.position = CGPoint(x: 0, y: -20)
         resume.name = "resumeBtn"; overlay.addChild(resume)
-        let rLbl = makeLabel("RESUME", size: 11, color: SKColor(red: 0.94, green: 0.75, blue: 0.38, alpha: 1))
+        let rLbl = makeLabel("RESUME", size: 11, color: Parchment.deep)
         rLbl.position = resume.position; rLbl.name = "resumeBtn"; overlay.addChild(rLbl)
         addChild(overlay)
         pauseOverlayNode = overlay
@@ -1566,13 +1561,13 @@ final class SuburbanJoustersScene: SKScene {
         let img = UIGraphicsImageRenderer(size: CGSize(width: w, height: h), format: fmt).image { ctx in
             let c = ctx.cgContext
             c.clear(CGRect(x: 0, y: 0, width: w, height: h))
-            c.setFillColor(UIColor(white: 0, alpha: 0.24).cgColor)
+            c.setFillColor(UIColor(white: 0, alpha: 0.10).cgColor)
             var y: CGFloat = 0
             while y < h { c.fill(CGRect(x: 0, y: y, width: w, height: 1)); y += 3 }
             let space = CGColorSpaceCreateDeviceRGB()
             let cols = [UIColor(white: 0, alpha: 0).cgColor,
-                        UIColor(white: 0, alpha: 0.16).cgColor,
-                        UIColor(white: 0, alpha: 0.62).cgColor] as CFArray
+                        UIColor(white: 0, alpha: 0.08).cgColor,
+                        UIColor(white: 0, alpha: 0.35).cgColor] as CFArray
             let grad = CGGradient(colorsSpace: space, colors: cols, locations: [0, 0.55, 1.0])!
             c.drawRadialGradient(grad,
                                  startCenter: CGPoint(x: w/2, y: h/2), startRadius: 0,
