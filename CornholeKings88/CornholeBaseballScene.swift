@@ -42,22 +42,22 @@ final class CornholeBaseballScene: SKScene {
     /// AI style injected by story mode; defaults to standard for free-play.
     var aiDifficulty: BaseballAIDifficulty = .standard
 
-    /// When true (free-play picker path), show the Jen/Tommy opponent picker
+    /// When true (free-play picker path), show the Jen/Tim opponent picker
     /// before play begins. Story path leaves this false and pre-sets aiDifficulty.
     var showOpponentPicker = false
     private var opponentPickerNode: SKNode?
 
-    /// Name shown for the AI in the score HUD ("BOT" by default; "JEN" / "TOM" /
-    /// "TOMMY" once an opponent is known). Set by the picker or derived from `aiDifficulty`.
+    /// Name shown for the AI in the score HUD ("BOT" by default; "JEN" / "TIM"
+    /// once an opponent is known). Set by the picker or derived from `aiDifficulty`.
     private var opponentDisplayName = "BOT"
 
     /// The player-tunable character matching the current opponent, or nil for the
-    /// generic BOT (never tuned). Maps by HUD name: JEN → jen, TOM/TOMMY → tom.
+    /// generic BOT (never tuned). Maps by HUD name: JEN → jen, TIM → tom.
     private var tuningCharacter: BaseballAISettings.Character? {
         switch opponentDisplayName {
-        case "JEN":          return .jen
-        case "TOM", "TOMMY": return .tom
-        default:             return nil
+        case "JEN": return .jen
+        case "TIM": return .tom
+        default:    return nil
         }
     }
     /// Difficulty multiplier set by the player in Settings → Baseball AI (1.0 when untuned / BOT).
@@ -233,12 +233,12 @@ final class CornholeBaseballScene: SKScene {
     }
 
     /// HUD name for an opponent when no explicit pick was made (story / free play).
-    /// `.powerHitter` is story Jen here — the free-play Tommy path sets the name
+    /// `.powerHitter` is story Jenny here — the free-play Tim path sets the name
     /// explicitly in `selectOpponent`, so it never reaches this fallback.
     private func defaultOpponentName(for d: BaseballAIDifficulty) -> String {
         switch d {
-        case .powerHitter:  return "JEN"   // story Jen
-        case .greatFielder: return "TOM"   // story Tom
+        case .powerHitter:  return "JEN"   // story Jenny
+        case .greatFielder: return "TIM"   // story Tim
         case .fastPitcher:  return "JEN"
         case .standard:     return "BOT"
         }
@@ -286,7 +286,7 @@ final class CornholeBaseballScene: SKScene {
         jen.position = CGPoint(x: -(cardW / 2 + gap / 2), y: -H * 0.02)
         container.addChild(jen)
 
-        let tommy = makeOpponentCard(title: "TOMMY", subtitle: "POWER HITTER",
+        let tommy = makeOpponentCard(title: "TIM", subtitle: "POWER HITTER",
                                      desc: "SWINGS BIG", name: "baseballOpp_tommy",
                                      accent: SKColor(red: 0.35, green: 0.55, blue: 0.85, alpha: 1),
                                      size: CGSize(width: cardW, height: cardH))
@@ -342,7 +342,7 @@ final class CornholeBaseballScene: SKScene {
     private func selectOpponent(_ difficulty: BaseballAIDifficulty) {
         guard opponentPickerNode != nil else { return }
         aiDifficulty = difficulty
-        opponentDisplayName = (difficulty == .fastPitcher) ? "JEN" : "TOMMY"
+        opponentDisplayName = (difficulty == .fastPitcher) ? "JEN" : "TIM"
         opponentPickerNode?.removeFromParent()
         opponentPickerNode = nil
         proceedToPlay()
@@ -785,9 +785,9 @@ final class CornholeBaseballScene: SKScene {
     /// Sheet asset name for the current opponent, or nil for the generic BOT.
     private func opponentSheetName() -> String? {
         switch opponentDisplayName {
-        case "JEN":           return "jen_sprite"
-        case "TOM", "TOMMY":  return "tom_sprite"
-        default:              return nil
+        case "JEN": return "jen_sprite"
+        case "TIM": return "tom_sprite"
+        default:    return nil
         }
     }
 

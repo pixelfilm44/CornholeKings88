@@ -30,6 +30,8 @@ final class MiniGamePickerScene: SKScene {
         MenuItem(label: "PIRANHA BRIDGE", subLabel: "bridge build",  name: "piranha",    isLocked: false),
         MenuItem(label: "SUBURBAN JOUSTERS", subLabel: "bike joust", name: "jousters",   isLocked: false),
         MenuItem(label: "WELL DROPPER",   subLabel: "tilt to dodge", name: "wellflinger", isLocked: false),
+        MenuItem(label: "KICKBALL",       subLabel: "dream at bat",  name: "kickball",   isLocked: false),
+        MenuItem(label: "MOP CHASE",      subLabel: "bucket rhythm", name: "mopChase",   isLocked: false),
         MenuItem(label: "HORSE RACE",     subLabel: "cornhole derby", name: "horseRace",  isLocked: false),
         MenuItem(label: "EXPLORE",        subLabel: "open world",    name: "explore",    isLocked: true),
     ]
@@ -501,6 +503,66 @@ final class MiniGamePickerScene: SKScene {
                 c.setFillColor(accentColor.cgColor)
                 c.fill(CGRect(x: s.width*0.44, y: s.height*0.44, width: s.width*0.14, height: s.height*0.14))
 
+            case "kickball":
+                // Pavement backdrop with chalk foul lines and a big red kickball
+                c.setFillColor(UIColor(red: 0.32, green: 0.31, blue: 0.33, alpha: 1).cgColor)
+                c.fill(CGRect(x: 0, y: 0, width: s.width, height: s.height))
+                // Chalk foul lines from the bottom corner
+                c.setStrokeColor(UIColor(white: 0.92, alpha: 0.6).cgColor)
+                c.setLineWidth(1.5)
+                c.move(to: CGPoint(x: s.width * 0.50, y: s.height * 0.88))
+                c.addLine(to: CGPoint(x: s.width * 0.10, y: s.height * 0.12))
+                c.strokePath()
+                c.move(to: CGPoint(x: s.width * 0.50, y: s.height * 0.88))
+                c.addLine(to: CGPoint(x: s.width * 0.90, y: s.height * 0.12))
+                c.strokePath()
+                // Home plate
+                c.setFillColor(UIColor(white: 0.94, alpha: 0.9).cgColor)
+                c.fill(CGRect(x: s.width * 0.46, y: s.height * 0.80, width: 6, height: 6))
+                // The cocky red kickball
+                c.setFillColor(accentColor.cgColor)
+                let ballR = s.width * 0.18
+                c.fillEllipse(in: CGRect(x: s.width * 0.50 - ballR, y: s.height * 0.36 - ballR,
+                                         width: ballR * 2, height: ballR * 2))
+                c.setStrokeColor(UIColor(red: 0.55, green: 0.10, blue: 0.08, alpha: 1).cgColor)
+                c.setLineWidth(1)
+                c.strokeEllipse(in: CGRect(x: s.width * 0.50 - ballR, y: s.height * 0.36 - ballR,
+                                           width: ballR * 2, height: ballR * 2))
+
+            case "mopChase":
+                // Hallway with lockers, a yellow bucket, and a mop
+                c.setFillColor(UIColor(red: 0.78, green: 0.73, blue: 0.62, alpha: 1).cgColor)
+                c.fill(CGRect(x: 0, y: 0, width: s.width, height: s.height))
+                // Locker band across the top
+                c.setFillColor(UIColor(red: 0.30, green: 0.42, blue: 0.55, alpha: 1).cgColor)
+                c.fill(CGRect(x: 0, y: 0, width: s.width, height: s.height * 0.38))
+                c.setFillColor(UIColor(white: 0, alpha: 0.25).cgColor)
+                for lx in stride(from: s.width * 0.12, through: s.width * 0.88, by: s.width * 0.22) {
+                    c.fill(CGRect(x: lx, y: s.height * 0.08, width: 1.5, height: s.height * 0.24))
+                }
+                // Floor
+                c.setFillColor(UIColor(red: 0.55, green: 0.50, blue: 0.44, alpha: 1).cgColor)
+                c.fill(CGRect(x: 0, y: s.height * 0.72, width: s.width, height: s.height * 0.28))
+                // Water trail
+                c.setFillColor(UIColor(red: 0.35, green: 0.60, blue: 0.90, alpha: 0.5).cgColor)
+                c.fillEllipse(in: CGRect(x: s.width * 0.08, y: s.height * 0.70,
+                                         width: s.width * 0.34, height: 5))
+                // Yellow bucket
+                c.setFillColor(UIColor(red: 0.85, green: 0.75, blue: 0.20, alpha: 1).cgColor)
+                c.fill(CGRect(x: s.width * 0.40, y: s.height * 0.54, width: s.width * 0.24, height: s.height * 0.18))
+                // Wheels
+                c.setFillColor(UIColor(white: 0.2, alpha: 1).cgColor)
+                c.fillEllipse(in: CGRect(x: s.width * 0.42, y: s.height * 0.70, width: 5, height: 5))
+                c.fillEllipse(in: CGRect(x: s.width * 0.58, y: s.height * 0.70, width: 5, height: 5))
+                // Mop leaning out of the bucket
+                c.setStrokeColor(UIColor(red: 0.55, green: 0.38, blue: 0.20, alpha: 1).cgColor)
+                c.setLineWidth(2.5)
+                c.move(to: CGPoint(x: s.width * 0.56, y: s.height * 0.58))
+                c.addLine(to: CGPoint(x: s.width * 0.78, y: s.height * 0.16))
+                c.strokePath()
+                c.setFillColor(UIColor(white: 0.88, alpha: 1).cgColor)
+                c.fill(CGRect(x: s.width * 0.74, y: s.height * 0.10, width: 8, height: 6))
+
             case "horseRace":
                 // Race lane with a tiny red horse running over it
                 c.setFillColor(UIColor(red: 0.44, green: 0.30, blue: 0.16, alpha: 1).cgColor)
@@ -693,6 +755,18 @@ final class MiniGamePickerScene: SKScene {
 
         case "wellflinger":
             let s = WellFlingerScene(size: ppSize)
+            s.previousScene = self; s.scaleMode = .resizeFill
+            s.onComplete = { _ in }
+            push(to: s)
+
+        case "kickball":
+            let s = KickballScene(size: ppSize)
+            s.previousScene = self; s.scaleMode = .resizeFill
+            s.onComplete = { _ in }
+            push(to: s)
+
+        case "mopChase":
+            let s = MopBucketChaseScene(size: ppSize)
             s.previousScene = self; s.scaleMode = .resizeFill
             s.onComplete = { _ in }
             push(to: s)

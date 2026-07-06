@@ -1,5 +1,22 @@
 import SpriteKit
 
+/// Groups a square block of tile sprites so GameScene can hide whole
+/// off-screen blocks with one `isHidden` toggle instead of paying render
+/// traversal for every tile in the map each frame. The chunk itself sits at
+/// the layer origin; its tiles keep their absolute layer-space positions, so
+/// existing position-based lookups only need one extra nesting level.
+final class TMXTileChunk: SKNode {
+    /// Covered area in map/layer coordinates.
+    let coverage: CGRect
+
+    init(coverage: CGRect) {
+        self.coverage = coverage
+        super.init()
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+}
+
 struct TMXMap {
     let mapNode: SKNode
     let tileSize: CGSize
@@ -11,11 +28,25 @@ struct TMXMap {
     /// Each loaded tileset's lowercase basename, GID range, and grid shape.
     let tilesetRanges: [(name: String, gidRange: ClosedRange<Int>, columns: Int, rows: Int)]
 
+    /// Tiles per side of one culling chunk (see `TMXTileChunk`).
+    static let chunkCells = 10
+
     func tileCenter(col: Int, row: Int) -> CGPoint {
         CGPoint(
             x: CGFloat(col) * tileSize.width + tileSize.width / 2,
             y: CGFloat(rows - 1 - row) * tileSize.height + tileSize.height / 2
         )
+    }
+
+    /// Hides every chunk whose coverage lies outside `visibleRect` (map
+    /// coordinates) and shows the rest. Sprite-level `isHidden` flags set by
+    /// GameScene (opened chests, chopped trees, …) are untouched.
+    func cullChunks(outside visibleRect: CGRect) {
+        for (_, layerNode) in layerNodes {
+            for case let chunk as TMXTileChunk in layerNode.children {
+                chunk.isHidden = !chunk.coverage.intersects(visibleRect)
+            }
+        }
     }
 }
 
@@ -36,7 +67,18 @@ enum TMXLoader {
         // .tsx files aren't bundled by Xcode's synchronized folders, so we infer tileset metadata
         // from the PNG: filename derived by lowercasing the .tsx basename, columns/tileCount by
         // dividing image dimensions by the map's tile size.
-        var tilesets: [LoadedTileset] = []
+        let tw = parser.tileWidth
+        let th = parser.tileHeight
+        guard tw > 0, th > 0 else {
+            print("TMXLoader: invalid map tile size")
+            return nil
+        }
+
+        // Collect every tileset's PNG first; they're composited below into one
+        // shared atlas texture so tiles from different tilesets share a texture
+        // and SpriteKit can batch them into the same draw call.
+        var pending: [(name: String, firstgid: Int, columns: Int, tileCount: Int,
+                       width: Int, height: Int, image: UIImage)] = []
         for ref in parser.tilesetRefs {
             // Tiled writes tileset sources as paths relative to the .tmx file
             // (e.g. "../../../Grass.tsx"). The bundle is flat, so match by the
@@ -51,31 +93,39 @@ enum TMXLoader {
             }
             let imageWidth = Int(image.size.width)
             let imageHeight = Int(image.size.height)
-            let tw = parser.tileWidth
-            let th = parser.tileHeight
-            guard tw > 0, th > 0 else {
-                print("TMXLoader: invalid map tile size")
-                return nil
-            }
             let columns = imageWidth / tw
             let rowsInImage = imageHeight / th
-            let tileCount = columns * rowsInImage
-
-            let atlas = SKTexture(image: image)
-            atlas.filteringMode = .nearest
-            tilesets.append(LoadedTileset(
+            pending.append((
                 name: tsxBasename.lowercased(),
                 firstgid: ref.firstgid,
-                tileWidth: tw,
-                tileHeight: th,
                 columns: columns,
-                tileCount: tileCount,
-                imageWidth: imageWidth,
-                imageHeight: imageHeight,
-                atlas: atlas
+                tileCount: columns * rowsInImage,
+                width: imageWidth,
+                height: imageHeight,
+                image: image
             ))
         }
-        tilesets.sort { $0.firstgid < $1.firstgid }
+        pending.sort { $0.firstgid < $1.firstgid }
+
+        guard let packed = packTilesets(pending.map { ($0.image, $0.width, $0.height) }) else {
+            print("TMXLoader: failed to composite tileset atlas")
+            return nil
+        }
+        let tilesets: [LoadedTileset] = pending.enumerated().map { i, p in
+            LoadedTileset(
+                name: p.name,
+                firstgid: p.firstgid,
+                tileWidth: tw,
+                tileHeight: th,
+                columns: p.columns,
+                tileCount: p.tileCount,
+                originX: Int(packed.origins[i].x),
+                originY: Int(packed.origins[i].y),
+                atlasWidth: packed.width,
+                atlasHeight: packed.height,
+                atlas: packed.atlas
+            )
+        }
 
         let tileSize = CGSize(width: parser.tileWidth, height: parser.tileHeight)
         let cols = parser.mapWidth
@@ -97,6 +147,12 @@ enum TMXLoader {
             layerNode.name = layer.name
             layerNode.zPosition = CGFloat(layerIndex)
 
+            // Tiles are parented under TMXTileChunk blocks (keyed by chunk grid
+            // index) so GameScene can cull whole off-screen blocks cheaply.
+            let chunkCells = TMXMap.chunkCells
+            let chunkCols = (cols + chunkCells - 1) / chunkCells
+            var chunks: [Int: TMXTileChunk] = [:]
+
             for r in 0..<rows {
                 for c in 0..<cols {
                     let raw = grid[r][c]
@@ -114,7 +170,28 @@ enum TMXLoader {
                     // Stash GID so callers can recover which tileset/tile-row this
                     // sprite came from (used for tree-anchor z-sorting in GameScene).
                     sprite.userData = NSMutableDictionary(dictionary: ["gid": gid])
-                    layerNode.addChild(sprite)
+
+                    let chunkKey = (r / chunkCells) * chunkCols + (c / chunkCells)
+                    let chunk: TMXTileChunk
+                    if let existing = chunks[chunkKey] {
+                        chunk = existing
+                    } else {
+                        let c0 = (c / chunkCells) * chunkCells
+                        let r0 = (r / chunkCells) * chunkCells
+                        let c1 = min(cols, c0 + chunkCells)
+                        let r1 = min(rows, r0 + chunkCells)
+                        // Row 0 is the top of the map, so the row band [r0, r1)
+                        // spans y = (rows - r1) * th ..< (rows - r0) * th.
+                        chunk = TMXTileChunk(coverage: CGRect(
+                            x: CGFloat(c0) * tileSize.width,
+                            y: CGFloat(rows - r1) * tileSize.height,
+                            width: CGFloat(c1 - c0) * tileSize.width,
+                            height: CGFloat(r1 - r0) * tileSize.height
+                        ))
+                        chunks[chunkKey] = chunk
+                        layerNode.addChild(chunk)
+                    }
+                    chunk.addChild(sprite)
                 }
             }
             mapNode.addChild(layerNode)
@@ -149,6 +226,47 @@ enum TMXLoader {
         return match
     }
 
+    /// Shelf-packs the tileset images into one atlas image. A 2 px gutter
+    /// separates images so nearest-neighbor sampling at a tileset's outer
+    /// edge can't bleed into a neighbor. Returns the shared texture, its
+    /// pixel size, and each image's top-left origin (input order preserved).
+    private static func packTilesets(_ images: [(image: UIImage, width: Int, height: Int)])
+        -> (atlas: SKTexture, width: Int, height: Int, origins: [CGPoint])? {
+        let gutter = 2
+        let maxRowWidth = 1024
+        var origins = Array(repeating: CGPoint.zero, count: images.count)
+        var x = 0, y = 0, rowHeight = 0, atlasWidth = 0
+        for (i, img) in images.enumerated() {
+            if x > 0 && x + img.width > maxRowWidth {
+                x = 0
+                y += rowHeight + gutter
+                rowHeight = 0
+            }
+            origins[i] = CGPoint(x: x, y: y)
+            x += img.width + gutter
+            rowHeight = max(rowHeight, img.height)
+            atlasWidth = max(atlasWidth, x - gutter)
+        }
+        let atlasHeight = y + rowHeight
+        guard atlasWidth > 0, atlasHeight > 0 else { return nil }
+
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = false
+        let renderer = UIGraphicsImageRenderer(
+            size: CGSize(width: atlasWidth, height: atlasHeight), format: format)
+        let composite = renderer.image { ctx in
+            ctx.cgContext.interpolationQuality = .none
+            for (i, img) in images.enumerated() {
+                img.image.draw(in: CGRect(origin: origins[i],
+                                          size: CGSize(width: img.width, height: img.height)))
+            }
+        }
+        let atlas = SKTexture(image: composite)
+        atlas.filteringMode = .nearest
+        return (atlas, atlasWidth, atlasHeight, origins)
+    }
+
     private static func textureFor(gid: Int, in ts: LoadedTileset) -> SKTexture? {
         let local = gid - ts.firstgid
         guard ts.columns > 0, local >= 0, local < ts.tileCount else { return nil }
@@ -156,14 +274,16 @@ enum TMXLoader {
         let row = local / ts.columns
         let tw = CGFloat(ts.tileWidth)
         let th = CGFloat(ts.tileHeight)
-        let iw = CGFloat(ts.imageWidth)
-        let ih = CGFloat(ts.imageHeight)
-        // SKTexture rect: normalized, origin bottom-left
-        let normX = (CGFloat(col) * tw) / iw
-        let normY = 1.0 - (CGFloat(row + 1) * th) / ih
-        let normW = tw / iw
-        let normH = th / ih
-        let rect = CGRect(x: normX, y: normY, width: normW, height: normH)
+        let aw = CGFloat(ts.atlasWidth)
+        let ah = CGFloat(ts.atlasHeight)
+        // Tile position in atlas pixels, top-left origin…
+        let px = CGFloat(ts.originX) + CGFloat(col) * tw
+        let pyTop = CGFloat(ts.originY) + CGFloat(row) * th
+        // …converted to SKTexture's normalized, bottom-left-origin rect.
+        let rect = CGRect(x: px / aw,
+                          y: 1.0 - (pyTop + th) / ah,
+                          width: tw / aw,
+                          height: th / ah)
         let tex = SKTexture(rect: rect, in: ts.atlas)
         tex.filteringMode = .nearest
         return tex
@@ -210,8 +330,12 @@ private struct LoadedTileset {
     let tileHeight: Int
     let columns: Int
     let tileCount: Int
-    let imageWidth: Int
-    let imageHeight: Int
+    /// Top-left corner of this tileset's image inside the shared atlas, in pixels.
+    let originX: Int
+    let originY: Int
+    let atlasWidth: Int
+    let atlasHeight: Int
+    /// The composited atlas texture shared by every tileset in the map.
     let atlas: SKTexture
 }
 

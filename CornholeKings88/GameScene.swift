@@ -259,6 +259,10 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     /// each "screen" covers less of the map, so navigation has more squares.
     private let worldZoom: CGFloat = 2.0
 
+    /// Camera position at the last chunk-culling pass; the sentinel forces a
+    /// full cull on the first `updateCamera()` after the map loads.
+    private var lastCullCenter = CGPoint(x: -.greatestFiniteMagnitude, y: -.greatestFiniteMagnitude)
+
     // Layout — square stage in the middle, HUD on top, controls on bottom.
     private let baseTopChromeHeight: CGFloat = 48
     /// Top safe area inset (e.g. notch / Dynamic Island), in scene units.
@@ -1796,12 +1800,14 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
                 return m.tileCenter(col: cell.c, row: cell.r)
             }
             guard !layerTreeCenters.isEmpty else { continue }
-            for child in layerNode.children {
-                for center in layerTreeCenters {
-                    if abs(child.position.x - center.x) < tw / 2 + 1 &&
-                       abs(child.position.y - center.y) < th / 2 + 1 {
-                        child.isHidden = true
-                        break
+            for chunk in layerNode.children {
+                for child in chunk.children {
+                    for center in layerTreeCenters {
+                        if abs(child.position.x - center.x) < tw / 2 + 1 &&
+                           abs(child.position.y - center.y) < th / 2 + 1 {
+                            child.isHidden = true
+                            break
+                        }
                     }
                 }
             }
@@ -2591,11 +2597,13 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     /// (torch, axe-as-chest, treasure chest, …).
     private func tileTextureAt(worldPos: CGPoint, in m: TMXMap) -> SKTexture? {
         for (_, layerNode) in m.layerNodes {
-            for child in layerNode.children {
-                guard let sprite = child as? SKSpriteNode, !sprite.isHidden else { continue }
-                if abs(sprite.position.x - worldPos.x) < 2 && abs(sprite.position.y - worldPos.y) < 2,
-                   let tex = sprite.texture {
-                    return tex
+            for chunk in layerNode.children {
+                for child in chunk.children {
+                    guard let sprite = child as? SKSpriteNode, !sprite.isHidden else { continue }
+                    if abs(sprite.position.x - worldPos.x) < 2 && abs(sprite.position.y - worldPos.y) < 2,
+                       let tex = sprite.texture {
+                        return tex
+                    }
                 }
             }
         }
@@ -2798,12 +2806,14 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     private func hideBerryTile(at worldPos: CGPoint) {
         guard let m = map, !berryGidRanges.isEmpty else { return }
         for (_, layerNode) in m.layerNodes {
-            for child in layerNode.children {
-                guard abs(child.position.x - worldPos.x) < 2,
-                      abs(child.position.y - worldPos.y) < 2,
-                      let gid = child.userData?["gid"] as? Int,
-                      berryGidRanges.contains(where: { $0.contains(gid) }) else { continue }
-                child.isHidden = true
+            for chunk in layerNode.children {
+                for child in chunk.children {
+                    guard abs(child.position.x - worldPos.x) < 2,
+                          abs(child.position.y - worldPos.y) < 2,
+                          let gid = child.userData?["gid"] as? Int,
+                          berryGidRanges.contains(where: { $0.contains(gid) }) else { continue }
+                    child.isHidden = true
+                }
             }
         }
     }
@@ -2811,9 +2821,11 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     private func hideChestTile(at worldPos: CGPoint) {
         guard let m = map else { return }
         for (_, layerNode) in m.layerNodes {
-            for child in layerNode.children {
-                if abs(child.position.x - worldPos.x) < 2 && abs(child.position.y - worldPos.y) < 2 {
-                    child.isHidden = true
+            for chunk in layerNode.children {
+                for child in chunk.children {
+                    if abs(child.position.x - worldPos.x) < 2 && abs(child.position.y - worldPos.y) < 2 {
+                        child.isHidden = true
+                    }
                 }
             }
         }
@@ -3061,7 +3073,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
             baseball.onComplete = { [weak self] won in
                 if won {
                     stats.defeatedTomBaseball = true
-                    self?.showHintBanner("You beat Jen & Tom\nat baseball.\nThe joust awaits!")
+                    self?.showHintBanner("You beat Jen & Tim\nat baseball.\nThe joust awaits!")
                 }
                 self?.isTransitioning = false
             }
@@ -3276,35 +3288,78 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
             return false
         }
 
-        for r in 0..<m.rows {
-            for c in 0..<m.cols {
-                let gateHere = (gate?[r][c] ?? 0) != 0
-                let graveHere = (grave?[r][c] ?? 0) != 0
-                let blocked = (collisions?[r][c] ?? 0) != 0
-                                    || (fences?[r][c] ?? 0) != 0
-                                    || gateHere
-                                    || graveHere
-                                    || isMountain(r, c)
-                let waterHere = isWater(ground?[r][c] ?? 0)
-                // A bridge (any tile on the Interactions layer at this cell)
-                // overrides the water block so the player can cross it.
-                let bridgeHere = (interactions?[r][c] ?? 0) != 0
-                guard blocked || (waterHere && !bridgeHere) else { continue }
+        let fx = m.layerGIDs["ImaginationFX"]
 
-                let blocker = SKNode()
-                blocker.position = m.tileCenter(col: c, row: r)
-                // Body matches the painted tile exactly — alignment depends on
-                // the Collisions layer being painted correctly in Tiled.
-                let body = SKPhysicsBody(rectangleOf: m.tileSize)
-                body.isDynamic = false
-                body.categoryBitMask = PlayerNode.worldBit
-                body.collisionBitMask = PlayerNode.categoryBit | PlayerNode.enemyBit
-                body.contactTestBitMask = PlayerNode.categoryBit
-                blocker.physicsBody = body
-                m.mapNode.addChild(blocker)
-                if gateHere { gatePhysicsNodes.append(blocker) }
-                if graveHere { gravePhysicsNodes.append(blocker) }
+        // Consecutive blocked cells in a row are merged into one wide body to
+        // keep the static-body count low. A run may never span cells that are
+        // later removed independently of their neighbors:
+        //   .gate / .grave — removed as whole groups, so they merge, but only
+        //     with cells of their own kind;
+        //   .bridgeCell — any blocker under an ImaginationFX (bridge) tile is
+        //     matched by exact tile-center position in
+        //     cacheBridgePhysicsNodes(), so it stays one body per cell.
+        enum BlockKind: Equatable { case solid, gate, grave, bridgeCell }
+
+        func kindAt(_ r: Int, _ c: Int) -> BlockKind? {
+            let gateHere = (gate?[r][c] ?? 0) != 0
+            let graveHere = (grave?[r][c] ?? 0) != 0
+            let blocked = (collisions?[r][c] ?? 0) != 0
+                                || (fences?[r][c] ?? 0) != 0
+                                || gateHere
+                                || graveHere
+                                || isMountain(r, c)
+            let waterHere = isWater(ground?[r][c] ?? 0)
+            // A bridge (any tile on the Interactions layer at this cell)
+            // overrides the water block so the player can cross it.
+            let bridgeHere = (interactions?[r][c] ?? 0) != 0
+            guard blocked || (waterHere && !bridgeHere) else { return nil }
+            if gateHere { return .gate }
+            if graveHere { return .grave }
+            if ((fx?[r][c] ?? 0) & 0x0FFF_FFFF) != 0 { return .bridgeCell }
+            return .solid
+        }
+
+        func addBlocker(row: Int, cols: ClosedRange<Int>, kind: BlockKind) {
+            let left = m.tileCenter(col: cols.lowerBound, row: row)
+            let right = m.tileCenter(col: cols.upperBound, row: row)
+            let blocker = SKNode()
+            blocker.position = CGPoint(x: (left.x + right.x) / 2, y: left.y)
+            // Body matches the painted tiles exactly — alignment depends on
+            // the Collisions layer being painted correctly in Tiled.
+            let body = SKPhysicsBody(rectangleOf: CGSize(
+                width: CGFloat(cols.count) * m.tileSize.width,
+                height: m.tileSize.height
+            ))
+            body.isDynamic = false
+            body.categoryBitMask = PlayerNode.worldBit
+            body.collisionBitMask = PlayerNode.categoryBit | PlayerNode.enemyBit
+            body.contactTestBitMask = PlayerNode.categoryBit
+            blocker.physicsBody = body
+            m.mapNode.addChild(blocker)
+            if kind == .gate { gatePhysicsNodes.append(blocker) }
+            if kind == .grave { gravePhysicsNodes.append(blocker) }
+        }
+
+        func flushRun(row: Int, cols: ClosedRange<Int>, kind: BlockKind) {
+            if kind == .bridgeCell {
+                for c in cols { addBlocker(row: row, cols: c...c, kind: kind) }
+            } else {
+                addBlocker(row: row, cols: cols, kind: kind)
             }
+        }
+
+        for r in 0..<m.rows {
+            var runStart = 0
+            var runKind: BlockKind? = nil
+            for c in 0..<m.cols {
+                let k = kindAt(r, c)
+                if k != runKind {
+                    if let prev = runKind { flushRun(row: r, cols: runStart...(c - 1), kind: prev) }
+                    runStart = c
+                    runKind = k
+                }
+            }
+            if let prev = runKind { flushRun(row: r, cols: runStart...(m.cols - 1), kind: prev) }
         }
     }
 
@@ -3511,8 +3566,13 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
                 setMiniGameReturnPosition(near: p)
                 openBeachBallCornhole()
             } else if let p = nearbyAppleTreePosition {
-                setMiniGameReturnPosition(near: p)
-                openCornholeMiniGame(preSelectedOpponent: .spirit)
+                if trigger == StoryManager.triggerAppleTree {
+                    StoryManager.shared.pendingWorldTrigger = nil
+                    launchStoryAtCurrentModule()
+                } else {
+                    setMiniGameReturnPosition(near: p)
+                    openCornholeMiniGame(preSelectedOpponent: .spirit)
+                }
             } else if let p = nearbyBaseballPosition {
                 if trigger == StoryManager.triggerBaseball || trigger == StoryManager.triggerQuestOffer {
                     StoryManager.shared.pendingWorldTrigger = nil
@@ -3528,7 +3588,12 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
                 setMiniGameReturnPosition(near: p)
                 openBeachBallCornhole()
             } else if let p = nearbyCavePosition {
-                handleCaveInteraction(at: p)
+                if trigger == StoryManager.triggerCave {
+                    StoryManager.shared.pendingWorldTrigger = nil
+                    launchStoryAtCurrentModule()
+                } else {
+                    handleCaveInteraction(at: p)
+                }
             } else if let p = nearbyBridgeWoodPosition {
                 if trigger == StoryManager.triggerBridge {
                     StoryManager.shared.pendingWorldTrigger = nil
@@ -3544,7 +3609,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
                     setMiniGameReturnPosition(near: p)
                     openSuburbanJousters()
                 } else if CornholeStatsManager.shared.defeatedJenBaseball {
-                    showHintBanner("Beat Tom at baseball\nto unlock the joust.")
+                    showHintBanner("Beat Tim at baseball\nto unlock the joust.")
                 } else {
                     showHintBanner("In order to joust\non your bike, you need\nsomething to use\nas a lance.")
                 }
@@ -3762,7 +3827,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
 
         for (name, layer) in m.layerNodes {
             guard !skipLayers.contains(name) else { continue }
-            for sprite in layer.children {
+            for sprite in layer.children.flatMap({ $0.children }) {
                 guard let s = sprite as? SKSpriteNode else { continue }
                 let halfH = s.size.height / 2
                 var sortY = s.position.y - halfH   // default: tile bottom
@@ -3944,6 +4009,28 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         let cx = max(halfStage, min(m.sizeInPoints.width  - halfStage, player.position.x))
         let cy = max(halfStage, min(m.sizeInPoints.height - halfStage, player.position.y))
         cameraNode.position = CGPoint(x: cx, y: cy - stageCenterYWorld)
+        updateChunkCulling()
+    }
+
+    /// Hides map-tile chunks outside the camera view (see `TMXTileChunk`).
+    /// The visible rect carries a one-chunk margin and the pass only re-runs
+    /// after the camera has moved a few tiles, so the margin always covers
+    /// the drift between passes.
+    private func updateChunkCulling() {
+        guard let m = map else { return }
+        let center = cameraNode.position
+        let recullDistance = m.tileSize.width * 4
+        if abs(center.x - lastCullCenter.x) < recullDistance,
+           abs(center.y - lastCullCenter.y) < recullDistance { return }
+        lastCullCenter = center
+
+        let halfW = size.width  / (2 * worldZoom)
+        let halfH = size.height / (2 * worldZoom)
+        let margin = CGFloat(TMXMap.chunkCells) * m.tileSize.width
+        m.cullChunks(outside: CGRect(x: center.x - halfW - margin,
+                                     y: center.y - halfH - margin,
+                                     width:  (halfW + margin) * 2,
+                                     height: (halfH + margin) * 2))
     }
 
     func didBegin(_ contact: SKPhysicsContact) {

@@ -553,6 +553,83 @@ final class StoryModuleScene: SKScene {
             }
             push(to: s)
 
+        case .piranha:
+            let inv = InventoryManager()
+            let s = BridgePiranhaScene(size: ppSize)
+            s.previousScene = self
+            s.scaleMode = .resizeFill
+            s.awardsRewards = true
+            s.availableFloatingBags = inv.counts[.floatingBag, default: 0]
+            s.onComplete = { [weak s] won in
+                if let used = s?.floatingBagsUsed, used > 0 { inv.consume(.floatingBag, count: used) }
+                if won { UserDefaults.standard.set(true, forKey: "bridgeUnlocked_v1") }
+                handleResult(won)
+            }
+            push(to: s)
+
+        case .beachball:
+            let inv = InventoryManager()
+            let s = BeachBallCornholeScene(size: ppSize)
+            s.previousScene = self
+            s.scaleMode = .resizeFill
+            s.awardsRewards = true
+            s.onComplete = { won in
+                if won { inv.collect(.floatingBag, count: 8) }
+                handleResult(won)
+            }
+            push(to: s)
+
+        case .jousters:
+            let s = SuburbanJoustersScene(size: ppSize)
+            s.previousScene = self
+            s.scaleMode = .resizeFill
+            s.awardsRewards = true
+            s.startingHearts = HeartsManager.shared.currentHearts
+            s.onComplete = { [weak s] won in
+                if let s { HeartsManager.shared.set(s.remainingHearts) }
+                if won { UserDefaults.standard.set(true, forKey: "goldenLanceEarned_v1") }
+                handleResult(won)
+            }
+            push(to: s)
+
+        case .horseRace:
+            let s = HorseRaceCornholeScene(size: ppSize)
+            s.previousScene = self
+            s.scaleMode = .resizeFill
+            s.onComplete = { won in handleResult(won) }
+            push(to: s)
+
+        case .kickball:
+            let s = KickballScene(size: ppSize)
+            s.previousScene = self
+            s.scaleMode = .resizeFill
+            s.onComplete = { won in handleResult(won) }
+            push(to: s)
+
+        case .mopChase:
+            let s = MopBucketChaseScene(size: ppSize)
+            s.previousScene = self
+            s.scaleMode = .resizeFill
+            s.onComplete = { won in handleResult(won) }
+            push(to: s)
+
+        case .wellFlinger:
+            let inv = InventoryManager()
+            let s = WellFlingerScene(size: ppSize)
+            s.previousScene = self
+            s.scaleMode = .resizeFill
+            s.awardsRewards = true
+            s.availableBags = inv.counts[.bag, default: 0]
+            s.availableFireBags = inv.counts[.fireBag, default: 0]
+            s.onComplete = { [weak s] won in
+                if let used = s?.bagsUsed, used > 0 {
+                    inv.consume(.bag, count: min(used, inv.counts[.bag, default: 0]))
+                }
+                if let e = s?.fireBagsEarned, e > 0 { inv.collect(.fireBag, count: e) }
+                handleResult(won)
+            }
+            push(to: s)
+
         case .bike:
             // Bike runs as a UIViewController modal; callback fires after VC dismisses.
             guard let rootVC = view?.window?.rootViewController else { return }

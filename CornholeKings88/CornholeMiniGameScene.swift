@@ -37,7 +37,7 @@ final class CornholeMiniGameScene: SKScene {
     private(set) var magicBagsUsed: Int = 0
     /// Whether the player has opted in to throwing a magic bag on the next throw.
     private var magicBagSelected = false
-    /// Magic bags earned this match (awarded on Tree Spirit win); read by GameScene after onComplete.
+    /// Magic bags earned this match (awarded on Fairy Queen win); read by GameScene after onComplete.
     private(set) var magicBagsEarned: Int = 0
     /// Fire bags from inventory injected by GameScene before presenting.
     var availableFireBags: Int = 0
@@ -102,7 +102,7 @@ final class CornholeMiniGameScene: SKScene {
         var isGolden = false
         /// Bags marked destroyed are removed from scoring but kept in activeBags until the round ends.
         var isDestroyed = false
-        /// Set when an off-board bag drops into Barnum's chasm — it falls into the dark and
+        /// Set when an off-board bag drops into Herman's chasm — it falls into the dark and
         /// is removed from collisions/scoring. Prevents the plummet animation re-triggering.
         var isFallingInChasm = false
         /// Cannonball bags appear as a black sphere with yellow glow. They cannot be stolen by
@@ -380,7 +380,7 @@ final class CornholeMiniGameScene: SKScene {
     private var crowFlyingRight = true
     private var currentObstacleType: FlyingObstacleType = .duck
 
-    // Dragon — Barnum's cavern only. Rises from the chasm and breathes flame across
+    // Dragon — Herman's cavern only. Rises from the chasm and breathes flame across
     // the bag-flight corridor, igniting any airborne bag into a fire bag.
     private var dragonNode: SKNode?
 
@@ -390,7 +390,7 @@ final class CornholeMiniGameScene: SKScene {
     private var batNode: SKNode?
 
     // Opponent selection
-    enum AIOpponent { case tom, jenny, billy, spirit, bully, barnum, cathy }
+    enum AIOpponent { case tom, jenny, billy, spirit, bully, barnum, cathy, ricky }
     /// Set before presenting to skip the picker and start with a specific opponent.
     var preSelectedOpponent: AIOpponent? = nil
     private var selectedOpponent: AIOpponent = .tom
@@ -398,13 +398,14 @@ final class CornholeMiniGameScene: SKScene {
     private var playerPortrait: SKSpriteNode?
     private var opponentName: String {
         switch selectedOpponent {
-        case .tom:    return "TOM"
+        case .tom:    return "TIM"
         case .jenny:  return "JENNY"
         case .billy:  return "BILLY"
-        case .spirit: return "SPIRIT"
+        case .spirit: return "QUEEN"
         case .bully:  return "BULLY"
-        case .barnum: return "BARNUM"
+        case .barnum: return "HERMAN"
         case .cathy:  return "CATHYX"
+        case .ricky:  return "RICKY"
         }
     }
 
@@ -413,17 +414,34 @@ final class CornholeMiniGameScene: SKScene {
     // applyCathySettings(); read by calculateRoundScore() and the cornhole-streak guard.
     private var isCathyMatch = false
 
-    // Barnum — "good but not great". Fixed aim noise (lower = tighter). Tom/Jenny
-    // sit around 2.5; Billy adapts down toward 1.4. Barnum lands in between.
+    // Herman — "good but not great". Fixed aim noise (lower = tighter). Tom/Jenny
+    // sit around 2.5; Billy adapts down toward 1.4. Herman lands in between.
     private var barnumNoiseFactor: CGFloat = 2.8
+
+    // Ricky Rogers — the school legend, tightest aim in the game. Reached only via
+    // `preSelectedOpponent` from the party story beat (no picker card). Once per
+    // match, when the score is tied and he's a bag from winning, he "tweaks his
+    // ankle" mid-throw and airballs it completely — the story's signature moment.
+    private var rickyNoiseFactor: CGFloat = 1.3
+    private var rickyHasSprained = false
+
+    // Jenny-vs-Becky side score — a narrative ticker shown only during the Ricky
+    // match, sells the "doubles" party feel without a real doubles engine. Jenny is
+    // clearly the better player (per the story), so she's favored each tick.
+    private var jennySideScore = 0
+    private var beckySideScore = 0
+    private var sideScoreLabel: SKLabelNode?
     // Cave-match flag: dark cavern scenery, no gophers, a dragon that ignites bags.
     private var isCaveMatch = false
     private var caveDragonScheduled = false
+    // First board burn in a Herman match triggers a one-time "Sir Michael swaps
+    // the board" flavor beat instead of the plain fire reset.
+    private var hermanBoardSwapped = false
     // Chasm Y-band (world coords). An off-board bag landing between these falls into the dark.
     private var caveChasmTopY: CGFloat = 0
     private var caveChasmBottomY: CGFloat = 0
 
-    // Billy the Bully — adaptive difficulty state
+    // Billy Badger — adaptive difficulty state
     private var billyNoiseFactor: CGFloat  = 2.5  // lower = harder; adapts each round
     private var billyBombBagsRemaining: Int = 0   // bomb bags Billy can throw this match
 
@@ -477,7 +495,7 @@ final class CornholeMiniGameScene: SKScene {
                       "rain_start.wav", "gopher_pop.wav", "gopher_steal.wav",
                       "game_win.wav",  "game_lose.wav",  "storm.mp3",
                       "cornhole.wav", "quack.wav", "crying.wav",
-                      "dragon_roar.wav",   // Barnum's dragon — asset optional; skipped if absent
+                      "dragon_roar.wav",   // Herman's dragon — asset optional; skipped if absent
                       "fart.wav"]   // Tom's toot — asset optional; skipped if absent
         sounds.forEach { warmUpSound($0) }
     }
@@ -601,7 +619,7 @@ final class CornholeMiniGameScene: SKScene {
 
     /// Swaps the outdoor grass field for a dark cavern: black ground, a deep chasm
     /// the bag flies over, jagged rock edges, and stalactites hanging from above.
-    /// Called from `applyBarnumSettings()` after layout settles.
+    /// Called from `applyHermanSettings()` after layout settles.
     private func applyCaveScenery() {
         // Dim the daylight glow and darken the ground to near-black cave rock.
         sunGlowNode?.removeFromParent()
@@ -792,17 +810,16 @@ final class CornholeMiniGameScene: SKScene {
         return tex
     }
 
-    /// Draws Barnum's portrait from scratch — a pixel-art circus showman with a black
-    /// top hat (red band), big curled mustache, and a red bowtie. No asset required.
-    static func makeBarnumPortraitTexture() -> SKTexture {
+    /// Draws Herman's portrait from scratch — a pixel-art ex-jock school janitor with
+    /// thinning gray hair, a gray mustache, and his old football jersey. No asset required.
+    static func makeHermanPortraitTexture() -> SKTexture {
         // 16×16 legend grid.
         let rows = [
-            "......HHHH......",
-            "......HHHH......",
-            "......HHHH......",
-            "......RRRR......",
-            "....HHHHHHHH....",
-            ".....SSSSSS.....",
+            "................",
+            "......GGGG......",
+            "....GGGGGGGG....",
+            "...GG......GG...",
+            "....SSSSSSSS....",
             ".....SSSSSS.....",
             "....SSSSSSSS....",
             "....SEESSEES....",
@@ -810,16 +827,18 @@ final class CornholeMiniGameScene: SKScene {
             "...MMSSSSSSMM...",
             "...MMMMMMMMMM...",
             "......SSSS......",
-            "......SSSS......",
-            "....RRRRRRRR....",
-            "...RRRRRRRRRR...",
+            "....GGGGGGGG....",
+            "...JJJJJJJJJJ...",
+            "...JJJWWWJJJ....",
+            "...JJJJJJJJJJ...",
         ]
         let colors: [Character: UIColor] = [
-            "H": UIColor(red: 0.08, green: 0.07, blue: 0.09, alpha: 1),
-            "R": UIColor(red: 0.80, green: 0.16, blue: 0.12, alpha: 1),
-            "S": UIColor(red: 0.93, green: 0.76, blue: 0.55, alpha: 1),
+            "G": UIColor(red: 0.55, green: 0.55, blue: 0.58, alpha: 1),
+            "S": UIColor(red: 0.85, green: 0.68, blue: 0.52, alpha: 1),
             "E": UIColor(red: 0.10, green: 0.08, blue: 0.12, alpha: 1),
-            "M": UIColor(red: 0.30, green: 0.18, blue: 0.08, alpha: 1),
+            "M": UIColor(red: 0.40, green: 0.36, blue: 0.34, alpha: 1),
+            "J": UIColor(red: 0.15, green: 0.35, blue: 0.20, alpha: 1),
+            "W": UIColor(red: 0.92, green: 0.92, blue: 0.90, alpha: 1),
         ]
         let cells = 16
         let ps: CGFloat = 3
@@ -895,6 +914,37 @@ final class CornholeMiniGameScene: SKScene {
         return pixelPortrait(rows: rows, colors: colors)
     }
 
+    /// Ricky: shiny blond hair, peachy skin, blue eyes, crimson-and-white letterman look.
+    static func makeRickyPortraitTexture() -> SKTexture {
+        let rows = [
+            "................",
+            "....HHHHHHHH....",
+            "...HHHHHHHHHH...",
+            "..HHHHHHHHHHHH..",
+            "..HHSSSSSSSSHH..",
+            "..HSSSSSSSSSSH..",
+            "..HSSEESSSEESH..",
+            "..HSSSSSSSSSSH..",
+            "...SSSSMMSSSS...",
+            "....SSSSSSSS....",
+            ".....SSSSSS.....",
+            "...BBBWWWWBBB...",
+            "..BWWBBBBBBWWB..",
+            "..WBBWWWWWWBBW..",
+            "..BWWBBBBBBWWB..",
+            "..BB........BB..",
+        ]
+        let colors: [Character: UIColor] = [
+            "H": UIColor(red: 0.90, green: 0.78, blue: 0.35, alpha: 1), // blond hair
+            "S": UIColor(red: 0.97, green: 0.80, blue: 0.62, alpha: 1), // peach skin
+            "E": UIColor(red: 0.16, green: 0.32, blue: 0.62, alpha: 1), // blue eyes
+            "M": UIColor(red: 0.55, green: 0.22, blue: 0.18, alpha: 1), // mouth
+            "B": UIColor(red: 0.75, green: 0.12, blue: 0.14, alpha: 1), // crimson jersey
+            "W": UIColor(red: 0.94, green: 0.94, blue: 0.94, alpha: 1), // white trim
+        ]
+        return pixelPortrait(rows: rows, colors: colors)
+    }
+
     /// Jenny: long dark wavy hair, tan skin, brown eyes, red top.
     static func makeJennyPortraitTexture() -> SKTexture {
         let rows = [
@@ -957,7 +1007,7 @@ final class CornholeMiniGameScene: SKScene {
         return pixelPortrait(rows: rows, colors: colors)
     }
 
-    /// Billy the Bully: messy spiky black hair, pale skin, angry brow, dark shirt.
+    /// Billy Badger: messy spiky black hair, pale skin, angry brow, dark shirt.
     static func makeBillyPortraitTexture() -> SKTexture {
         let rows = [
             "..H...HH..HH..H.",
@@ -1054,7 +1104,7 @@ final class CornholeMiniGameScene: SKScene {
         return pixelPortrait(rows: rows, colors: colors)
     }
 
-    /// Tree Spirit: leafy crown, bark-textured face, glowing yellow eyes.
+    /// Fairy Queen: leafy crown, bark-textured face, glowing yellow eyes.
     static func makeSpiritPortraitTexture() -> SKTexture {
         let rows = [
             "....LL..LL.LL...",
@@ -1727,6 +1777,7 @@ final class CornholeMiniGameScene: SKScene {
 
     private func startRound() {
         roundNumber += 1
+        advanceSideScore()
 
         // Tom's fart — deactivate any lingering effect first, then re-roll
         if tomFartActive { deactivateTomFart() }
@@ -1891,7 +1942,7 @@ final class CornholeMiniGameScene: SKScene {
 
         updateScoreLabels()
 
-        // Tree Spirit: once the player takes the lead, the storm calms but the
+        // Fairy Queen: once the player takes the lead, the storm calms but the
         // moonlit night tint stays. Disarm stormStartRound so it can't re-trigger.
         if selectedOpponent == .spirit && stormActive && playerScore > aiScore {
             stormStartRound = -1
@@ -2283,7 +2334,7 @@ final class CornholeMiniGameScene: SKScene {
                     triggerCannonballHole(bag)
                 }
             } else if isCaveMatch && bag.by <= caveChasmTopY && bag.by >= caveChasmBottomY {
-                // Missed into Barnum's chasm — the bag plummets into the darkness (0 pts).
+                // Missed into Herman's chasm — the bag plummets into the darkness (0 pts).
                 fallIntoChasm(bag)
                 return
             } else {
@@ -2590,6 +2641,10 @@ final class CornholeMiniGameScene: SKScene {
     private func triggerFireBoard(at pos: CGPoint, by owner: BagOwner) {
         boardOnFire = true
         showFireBoardOverlay()
+        if selectedOpponent == .barnum && !hermanBoardSwapped {
+            hermanBoardSwapped = true
+            showSirMichaelSwap()
+        }
         var destroyed = 0
         for bag in activeBags where !bag.isFire && !bag.isDestroyed
                                   && bag.isGrounded && !bag.hasScored && checkIsOnBoard(bag) {
@@ -2923,7 +2978,7 @@ final class CornholeMiniGameScene: SKScene {
         let startX       = pendingAIStartX
         let flightFrames = 2.0 * vzInitial / gravityPerFrame  // ≈ 60 frames
 
-        // Base aim: hole with noise scaled by weather. Barnum is "good but not great" —
+        // Base aim: hole with noise scaled by weather. Herman is "good but not great" —
         // a fixed, tighter-than-Tom/Jenny aim that doesn't adapt like Billy.
         let noiseFactor: CGFloat = rainActive ? 3.4 : (selectedOpponent == .barnum ? barnumNoiseFactor : 2.5)
         let noise = holeRadius * noiseFactor
@@ -2971,7 +3026,7 @@ final class CornholeMiniGameScene: SKScene {
             return
         }
 
-        // Tree Spirit — drops magic bags straight down from above.
+        // Fairy Queen — drops magic bags straight down from above.
         // 50% aim near the hole; 50% fall on a random board spot.
         if selectedOpponent == .spirit {
             let targetX: CGFloat
@@ -2985,6 +3040,28 @@ final class CornholeMiniGameScene: SKScene {
                 targetY = CGFloat.random(in: (boardY - boardHalfH * 0.80) ... (boardY + boardHalfH * 0.80))
             }
             dropMagicBagFromAbove(targetX: targetX, targetY: targetY)
+            return
+        }
+
+        // Ricky Rogers — tightest aim in the game. Once per match, at the tied,
+        // near-winning moment, he "tweaks his ankle" and airballs the throw entirely.
+        if selectedOpponent == .ricky {
+            if !rickyHasSprained && playerScore == aiScore && aiScore >= winScore - 3 {
+                rickyHasSprained = true
+                showRickySprainAnnouncement()
+                let wildX  = CGFloat.random(in: -boardHalfW * 2.2 ... boardHalfW * 2.2)
+                let wildY  = throwLineY + (holeCenter.y - throwLineY) * CGFloat.random(in: 0.15...0.35)
+                let wildVx = (wildX - startX) / flightFrames
+                let wildVy = (wildY - throwLineY) / flightFrames
+                throwBag(owner: .ai, startX: startX, vx: wildVx, vy: wildVy)
+                return
+            }
+            let rickyNoise = holeRadius * rickyNoiseFactor
+            let rickyAimX  = holeCenter.x + CGFloat.random(in: -rickyNoise...rickyNoise)
+            let rickyAimY  = holeCenter.y + CGFloat.random(in: -rickyNoise * 0.5...rickyNoise * 0.5)
+            let rickyVx    = (rickyAimX - startX) / flightFrames
+            let rickyVy    = (rickyAimY - throwLineY) / flightFrames
+            throwBag(owner: .ai, startX: startX, vx: rickyVx, vy: rickyVy)
             return
         }
 
@@ -3256,6 +3333,9 @@ final class CornholeMiniGameScene: SKScene {
                 // No item reward — beating CathyX opens the graveyard (grave layer
                 // cleared by GameScene). Surface that as the win line.
                 rewards = [.unlock("GRAVEYARD OPENED!")]
+            case .ricky:
+                // No item reward — beating Ricky is a pure story beat (the party).
+                rewards = [.unlock("YOU'RE INVITED TO THE PARTY!")]
             }
         }
 
@@ -3757,6 +3837,63 @@ final class CornholeMiniGameScene: SKScene {
         overlay.run(SKAction.repeatForever(shimmer))
     }
 
+    private func showRickySprainAnnouncement() {
+        let lbl = makeLabel(text: "RICKY TWEAKS HIS ANKLE!",
+                            size: max(6, size.width * 0.042),
+                            color: SKColor(red: 0.95, green: 0.55, blue: 0.20, alpha: 1))
+        lbl.position  = CGPoint(x: 0, y: size.height * 0.12)
+        lbl.zPosition = 800
+        lbl.alpha     = 0
+        addChild(lbl)
+
+        lbl.run(SKAction.sequence([
+            SKAction.fadeIn(withDuration: 0.28),
+            SKAction.wait(forDuration: 1.5),
+            SKAction.fadeOut(withDuration: 0.38),
+            SKAction.removeFromParent(),
+        ]))
+    }
+
+    /// Herman's cave, first board burn: a small pixel boy (Sir Michael) darts across
+    /// the board and swaps in a fresh one, with a flavor banner. Purely cosmetic —
+    /// the real fire-board reset already happens via `showFireBoardOverlay()`.
+    private func showSirMichaelSwap() {
+        let kid = SKNode()
+        kid.zPosition = 99
+        let body = SKSpriteNode(color: SKColor(red: 0.35, green: 0.22, blue: 0.10, alpha: 1),
+                                 size: CGSize(width: 10, height: 16))
+        let head = SKSpriteNode(color: SKColor(red: 0.90, green: 0.72, blue: 0.55, alpha: 1),
+                                 size: CGSize(width: 9, height: 9))
+        head.position = CGPoint(x: 0, y: 12)
+        kid.addChild(body)
+        kid.addChild(head)
+
+        let startX = -boardHalfW * 1.6
+        let endX   =  boardHalfW * 1.6
+        kid.position = CGPoint(x: startX, y: boardY)
+        gameWorldNode.addChild(kid)
+
+        kid.run(SKAction.sequence([
+            SKAction.move(to: CGPoint(x: endX, y: boardY), duration: 0.55),
+            SKAction.removeFromParent(),
+        ]))
+
+        let lbl = makeLabel(text: "SIR MICHAEL SWAPS THE BOARD!",
+                            size: max(5, size.width * 0.036),
+                            color: SKColor(red: 0.95, green: 0.72, blue: 0.20, alpha: 1))
+        lbl.position  = CGPoint(x: 0, y: size.height * 0.10)
+        lbl.zPosition = 800
+        lbl.alpha     = 0
+        addChild(lbl)
+
+        lbl.run(SKAction.sequence([
+            SKAction.fadeIn(withDuration: 0.28),
+            SKAction.wait(forDuration: 1.6),
+            SKAction.fadeOut(withDuration: 0.38),
+            SKAction.removeFromParent(),
+        ]))
+    }
+
     private func showRainAnnouncement() {
         let lbl = makeLabel(text: "RAIN! SLIPPERY!",
                             size: max(6, size.width * 0.048),
@@ -3933,7 +4070,7 @@ final class CornholeMiniGameScene: SKScene {
         glow.alpha     = 0
         addChild(glow)
 
-        let lbl = makeLabel(text: "TOMMY TOOTS! 💨",
+        let lbl = makeLabel(text: "TIM TOOTS! 💨",
                             size: max(7, size.width * 0.052),
                             color: SKColor(red: 0.58, green: 1.00, blue: 0.22, alpha: 1))
         lbl.position  = CGPoint(x: 0, y: size.height * 0.14)
@@ -4726,7 +4863,7 @@ final class CornholeMiniGameScene: SKScene {
         ]))
     }
 
-    // MARK: - Dragon (Barnum's cavern)
+    // MARK: - Dragon (Herman's cavern)
 
     /// Queues the next dragon emergence at a random interval. Reschedules itself so the
     /// dragon can strike multiple times per round.
@@ -5334,8 +5471,9 @@ final class CornholeMiniGameScene: SKScene {
             case .billy:  applyBillySettings()
             case .spirit: applySpiritSettings()
             case .bully:  applyBullySettings()
-            case .barnum: applyBarnumSettings()
+            case .barnum: applyHermanSettings()
             case .cathy:  applyCathySettings()
+            case .ricky:  applyRickySettings()
             default: break
             }
             rollWeatherScenarios()
@@ -5348,19 +5486,19 @@ final class CornholeMiniGameScene: SKScene {
             return
         }
         let configs: [OpponentConfig] = [
-            OpponentConfig(name: "TOM",    imageName: "tom",
+            OpponentConfig(name: "TIM",    imageName: "tom",
                            traitText: "TOPS YOUR HOLE SHOTS",
                            textureOverride: CornholeMiniGameScene.makeTomPortraitTexture()),
             OpponentConfig(name: "JENNY",  imageName: "jenny",
                            traitText: "KNOCKS BAGS OFF BOARD",
                            textureOverride: CornholeMiniGameScene.makeJennyPortraitTexture()),
-            OpponentConfig(name: "BARNUM", imageName: "barnum",
+            OpponentConfig(name: "HERMAN", imageName: "barnum",
                            traitText: "DRAGON CAVE • TO 11",
-                           textureOverride: CornholeMiniGameScene.makeBarnumPortraitTexture()),
+                           textureOverride: CornholeMiniGameScene.makeHermanPortraitTexture()),
             OpponentConfig(name: "BILLY",  imageName: "billy",
                            traitText: "MATCHES YOUR SKILL • TO 21",
                            textureOverride: CornholeMiniGameScene.makeBillyPortraitTexture()),
-            OpponentConfig(name: "SPIRIT", imageName: "spirit",
+            OpponentConfig(name: "QUEEN",  imageName: "spirit",
                            traitText: "DROPS MAGIC BAGS • TO 21",
                            textureOverride: CornholeMiniGameScene.makeSpiritPortraitTexture()),
             OpponentConfig(name: "CATHYX", imageName: "cathy",
@@ -5376,7 +5514,7 @@ final class CornholeMiniGameScene: SKScene {
             case 1: self.selectedOpponent = .jenny
             case 2:
                 self.selectedOpponent = .barnum
-                self.applyBarnumSettings()
+                self.applyHermanSettings()
             case 3:
                 self.selectedOpponent = .billy
                 self.applyBillySettings()
@@ -5398,16 +5536,17 @@ final class CornholeMiniGameScene: SKScene {
         addChild(picker)
     }
 
-    /// Configures Barnum: an 11-point long-distance match thrown across a dark cavern.
+    /// Configures Herman: an 11-point long-distance match thrown across a dark cavern.
     /// No weather, no gophers — instead a dragon periodically rises from the chasm and
     /// breathes flame, turning any bag it catches mid-flight into a fire bag.
-    private func applyBarnumSettings() {
+    private func applyHermanSettings() {
         winScore = 11
         rainStartRound  = -1
         rainEndRound    = Int.max
         stormStartRound = -1
         stormEndRound   = Int.max
         isCaveMatch = true
+        hermanBoardSwapped = false
         // Long-distance variant: shrink board, hole, and bags to simulate a longer throw
         distanceScale = 0.5
         rebuildPlayfieldForDistance()
@@ -5503,7 +5642,7 @@ final class CornholeMiniGameScene: SKScene {
         board.addChild(marker)
     }
 
-    /// Configures Tree Spirit game overrides: score to 21, long-distance throw, and
+    /// Configures Fairy Queen game overrides: score to 21, long-distance throw, and
     /// a permanent moonlit thunderstorm (blue night tint + rain + lightning + wind).
     private func applySpiritSettings() {
         winScore = 21
@@ -5521,6 +5660,42 @@ final class CornholeMiniGameScene: SKScene {
     /// standard difficulty. Used by world-map bully encounters.
     private func applyBullySettings() {
         winScore = 7
+    }
+
+    /// Configures Ricky: a 21-point match on the standard board, no special weather
+    /// or scenery — just the tightest AI aim in the game, and one scripted airball.
+    private func applyRickySettings() {
+        winScore = 21
+        rickyHasSprained = false
+        jennySideScore = 0
+        beckySideScore = 0
+        addSideScoreLabel()
+    }
+
+    /// Small narrative ticker shown just under the top ribbon for the Ricky match —
+    /// Jenny vs. Becky playing it out alongside the real game.
+    private func addSideScoreLabel() {
+        let topInset: CGFloat = view?.safeAreaInsets.top ?? 0
+        let topH: CGFloat = 48
+        let panelTopY = size.height / 2 - topInset
+        let topBarY   = panelTopY - topH / 2
+
+        sideScoreLabel?.removeFromParent()
+        let lbl = makeLabel(text: "JENNY 0 - 0 BECKY", size: 7, color: Parchment.deep)
+        lbl.horizontalAlignmentMode = .center
+        lbl.position  = CGPoint(x: 0, y: topBarY - topH / 2 - 12)
+        lbl.zPosition = 502
+        lbl.alpha     = 0.85
+        addChild(lbl)
+        sideScoreLabel = lbl
+    }
+
+    /// Advances the Jenny-vs-Becky side score by one point each round, favoring Jenny.
+    private func advanceSideScore() {
+        guard selectedOpponent == .ricky, sideScoreLabel != nil else { return }
+        if Double.random(in: 0..<1) < 0.65 { jennySideScore += 1 }
+        else                               { beckySideScore += 1 }
+        sideScoreLabel?.text = "JENNY \(jennySideScore) - \(beckySideScore) BECKY"
     }
 
     /// Configures all Billy-specific overrides after opponent selection.
@@ -5575,9 +5750,10 @@ final class CornholeMiniGameScene: SKScene {
         case .jenny:  tex = CornholeMiniGameScene.makeJennyPortraitTexture()
         case .billy:  tex = CornholeMiniGameScene.makeBillyPortraitTexture()
         case .spirit: tex = CornholeMiniGameScene.makeSpiritPortraitTexture()
-        case .barnum: tex = CornholeMiniGameScene.makeBarnumPortraitTexture()
+        case .barnum: tex = CornholeMiniGameScene.makeHermanPortraitTexture()
         case .bully:  tex = CornholeMiniGameScene.makeBullyPortraitTexture()
         case .cathy:  tex = CornholeMiniGameScene.makeCathyPortraitTexture()
+        case .ricky:  tex = CornholeMiniGameScene.makeRickyPortraitTexture()
         }
         let portraitSize = CGSize(width: 48, height: 48)
         let bottomH = size.height * 0.09

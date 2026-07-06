@@ -26,11 +26,11 @@ final class ProgressManager {
 
     // MARK: - Earned-item unlock flags (mirror existing reward sources)
 
-    /// Earned a baseball — beat both Tom and Jenny at cornhole. Mirrors
+    /// Earned a baseball — beat both Tim and Jenny at cornhole. Mirrors
     /// `CornholeStatsManager.baseballUnlocked`; enables the baseball mini-game.
     var hasBaseball: Bool { CornholeStatsManager.shared.baseballUnlocked }
 
-    /// Earned a bat — beat both Tom and Jenny at baseball. Mirrors
+    /// Earned a bat — beat both Tim and Jenny at baseball. Mirrors
     /// `CornholeStatsManager.joustersUnlocked`; enables Suburban Jousters.
     var hasBat: Bool { CornholeStatsManager.shared.joustersUnlocked }
 

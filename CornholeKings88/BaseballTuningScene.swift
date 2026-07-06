@@ -1,6 +1,6 @@
 import SpriteKit
 
-/// Bit-Wood tuning screen for the two named baseball opponents (Tom & Jen).
+/// Bit-Wood tuning screen for the two named baseball opponents (Tim & Jen).
 /// Reached from `SettingsScene` via the "BASEBALL AI" card. Each character has
 /// four −/+ steppers (hit %, power, pitch speed, run speed) backed by
 /// `BaseballAISettings`. Changes persist immediately.

@@ -7,10 +7,10 @@ enum ItemType: String, CaseIterable {
     /// Won from BeeHive Battle. In cornhole these bags stick to the board —
     /// immune to wind and to being knocked by the bot's bags.
     case honeyBag
-    /// Won by beating Billy the Bully. Destroys all opponent bags on the board
+    /// Won by beating Billy Badger. Destroys all opponent bags on the board
     /// when it lands on the surface; destroys opponent hole bags when scored.
     case bombBag
-    /// Won by beating the Tree Spirit. On board collision destroys the opponent bag hit;
+    /// Won by beating the Fairy Queen. On board collision destroys the opponent bag hit;
     /// when scored in the hole, destroys all opponent bags already in the hole this round.
     case magicBag
     /// Burns all bags on the board this round when it lands on the surface (thrower scores 1 pt,

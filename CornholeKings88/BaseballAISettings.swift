@@ -1,7 +1,7 @@
 import CoreGraphics
 import Foundation
 
-/// Player-tunable difficulty knobs for the two named baseball opponents, Tom and Jen.
+/// Player-tunable difficulty knobs for the two named baseball opponents, Tim and Jen.
 ///
 /// Each knob is stored as an integer percentage (default 100%) and exposed to the
 /// game as a multiplier. `CornholeBaseballScene` reads these for whichever named
@@ -15,7 +15,7 @@ final class BaseballAISettings {
 
     enum Character: String, CaseIterable {
         case tom, jen
-        var displayName: String { self == .tom ? "TOM" : "JEN" }
+        var displayName: String { self == .tom ? "TIM" : "JEN" }
     }
 
     /// The four performance dials the player can adjust.

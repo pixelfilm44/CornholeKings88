@@ -132,7 +132,7 @@ final class HorseRaceCornholeScene: SKScene {
     private var selectedOpponent: Opponent = .tommy
     private var awaitingOpponentChoice = true
     private var opponentPickerNode: SKNode?
-    private var opponentName: String { selectedOpponent == .tommy ? "TOMMY" : "JEN" }
+    private var opponentName: String { selectedOpponent == .tommy ? "TIM" : "JEN" }
 
     // MARK: - Lifecycle
 
@@ -178,7 +178,7 @@ final class HorseRaceCornholeScene: SKScene {
         let cardH = min(H * 0.36, 230)
         let gap   = min(W * 0.06, 28)
 
-        let tommy = makeOpponentCard(title: "TOMMY", subtitle: "STEADY +1",
+        let tommy = makeOpponentCard(title: "TIM", subtitle: "STEADY +1",
                                      desc: "BIG-HOLE ACE",
                                      name: "horseOpp_tommy",
                                      accent: SKColor(red: 0.35, green: 0.55, blue: 0.85, alpha: 1),
@@ -740,7 +740,7 @@ final class HorseRaceCornholeScene: SKScene {
 
         // Zone B: score
         let label = SKLabelNode(fontNamed: "PressStart2P-Regular")
-        label.text                    = "RED 0  |  TOMMY 0"
+        label.text                    = "RED 0  |  TIM 0"
         label.fontSize                = 10
         label.fontColor               = Parchment.deep
         label.horizontalAlignmentMode = .center

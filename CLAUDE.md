@@ -57,10 +57,15 @@ The visible play area is a square "stage" (`stageSize = scene.width`). Chrome ba
 Maps are authored in **Tiled** (.tmx format, CSV encoding) and loaded by `TMXLoader`. The loader:
 1. Parses the `.tmx` XML to find tileset references and layer data.
 2. Resolves each `.tsx` tileset to its PNG by lowercasing the basename (e.g., `Grass.tsx` → `grass.png`). **Both the .tmx and all PNG files must be in the Xcode target's Copy Bundle Resources phase**; `.tsx` files are not needed at runtime.
-3. Builds `SKSpriteNode` tiles for each layer, returned as a `TMXMap` struct containing:
+3. Composites **all tileset PNGs into one shared atlas texture** (shelf-packed with a 2 px gutter, built at load time in `packTilesets`); every tile sprite samples a sub-rect of that single texture so SpriteKit batches tiles across tilesets into the same draw call.
+4. Builds `SKSpriteNode` tiles for each layer, returned as a `TMXMap` struct containing:
    - `layerGIDs` — raw GID grid per layer name
    - `layerNodes` — rendered `SKNode` per layer
    - `tilesetRanges: [(name: String, gidRange: ClosedRange<Int>)]` — every loaded tileset's lowercased basename and its assigned GID range
+
+**Chunked rendering & culling** — within each layer, tile sprites are grouped under `TMXTileChunk` nodes covering `TMXMap.chunkCells` (10) × 10-cell blocks. Chunks sit at the layer origin and tiles keep absolute layer-space positions, so position-based lookups just need one extra nesting level (`layerNode.children` → chunks → tile sprites). `GameScene.updateChunkCulling()` (called from `updateCamera()`, re-runs only after ~4 tiles of camera travel) hides chunks outside the view + one-chunk margin via `TMXMap.cullChunks(outside:)` — off-screen tiles cost no render traversal. Sprite-level `isHidden` flags (opened chests, cleared trees) are independent of chunk hiding. The unit test `worldMapTilesResolveFromSharedAtlas` loads `World1` and validates the chunk hierarchy + atlas sub-rect math.
+
+**Merged collision bodies** — `buildPhysics(from:)` merges consecutive blocked cells in a row into one wide static body. Runs never mix kinds: gate cells, grave cells, and normal solids merge only with their own kind (gate/grave runs still land in `gatePhysicsNodes`/`gravePhysicsNodes` and are removed as whole groups on unlock), and any blocker under an `ImaginationFX` tile stays **one body per cell** because `cacheBridgePhysicsNodes()` matches bridge blockers by exact tile-center position.
 
 `GameScene` uses `tilesetRanges` to detect special tiles **by tileset name** (case-insensitive `contains`), not by hardcoded GID ranges. This means adding a new tileset in Tiled never requires touching code as long as the name contains the expected keyword. Detection mapping:
 
@@ -69,11 +74,11 @@ Maps are authored in **Tiled** (.tmx format, CSV encoding) and loaded by `TMXLoa
 | `cornhole`            | Classic cornhole mini-game (board tiles are 2×2 groups) |
 | `baseball`            | Beanbag baseball mini-game |
 | `tree` (but not `apple`) | Tree climbing (safe zone) |
-| `apple`               | Apple tree → cornhole vs. Tree Spirit |
+| `apple`               | Apple tree → cornhole vs. the Fairy Queen |
 | `bee`                 | Beehive battle mini-game |
 | `pool`                | Beach-ball cornhole |
 | `bridge_stone`        | Beach-ball cornhole (same mini-game, different trigger) |
-| `cave`                | Cornhole vs. Barnum (long-distance board, dark cavern, dragon) |
+| `cave`                | Cornhole vs. Herman (long-distance board, dark cavern, dragon) |
 | `chest`               | Open chest → 50/50 heart refill or dog biscuit |
 | `bridge_wood`         | Piranha mini-game; on win, unlocks walkable bridge (ImaginationFX layer) |
 
@@ -176,16 +181,17 @@ When `false`, scenes pass an empty `rewards:` array (no prize lines) and skip se
 |---------------------|--------|
 | BeanBag Bike — 1st place | Unlocks the world map (`ProgressManager.worldUnlocked`); plus any golden bags earned mid-race |
 | Cornhole vs `.bully` | 10 coins (`coinsEarned`) |
-| Cornhole vs `.billy` (Billy) | 10 coins **+** 3 bomb bags (`coinsEarned` + `bombBagsEarned`) — stacked |
-| Cornhole vs `.spirit` | 6 magic bags (`magicBagsEarned`) |
-| Cornhole — beat both Tom **and** Jenny | Earns a baseball → baseball mini-game unlocked (`CornholeStatsManager.baseballUnlocked`) |
+| Cornhole vs `.billy` (Billy Badger) | 10 coins **+** 3 bomb bags (`coinsEarned` + `bombBagsEarned`) — stacked |
+| Cornhole vs `.spirit` (Fairy Queen) | 6 magic bags (`magicBagsEarned`) |
+| Cornhole vs `.ricky` (Ricky) | No item — story-only unlock line ("YOU'RE INVITED TO THE PARTY!") |
+| Cornhole — beat both Tim **and** Jenny | Earns a baseball → baseball mini-game unlocked (`CornholeStatsManager.baseballUnlocked`) |
 | BeeHive win | 3 honey bags |
 | BeachBall win | 8 `floatingBag`s |
 | Piranha Bridge win | Earns the bridge (`unlockBridge()` — cross the river) |
-| Baseball — beat both Jen **and** Tom | Earns a bat → Suburban Jousters unlocked (`joustersUnlocked`) |
+| Baseball — beat both Jen **and** Tim | Earns a bat → Suburban Jousters unlocked (`joustersUnlocked`) |
 | Suburban Jousters — first win | Golden Lance (`"goldenLanceEarned_v1"`) |
 | Well Flinger win | 3 fire bags (`fireBagsEarned`) |
-| Cornhole vs `.barnum` (Barnum) | 3 fire bags (`fireBagsEarned`) |
+| Cornhole vs `.barnum` (Herman) | 3 fire bags (`fireBagsEarned`) |
 
 Scenes expose their winnings as `private(set) var …Earned` properties; the host's `onComplete` reads them after the closure fires and calls `inventory.collect(...)`. Consumable bags carried *into* a game (`available…Bags`) are deducted via `…BagsUsed` the same way.
 
@@ -193,33 +199,37 @@ Scenes expose their winnings as `private(set) var …Earned` properties; the hos
 
 ### Cornhole Opponents
 
-`CornholeMiniGameScene` supports five opponents selected via `OpponentPickerNode` before the game starts. The host scene can bypass the picker by setting `mini.preSelectedOpponent = .spirit` (etc.) before presenting — used by the apple tree world trigger (Spirit) and the `cave` world trigger (Barnum) to drop the player straight into a match.
+`CornholeMiniGameScene` supports opponents selected via `OpponentPickerNode` before the game starts. The host scene can bypass the picker by setting `mini.preSelectedOpponent = .spirit` (etc.) before presenting — used by the apple tree world trigger (Fairy Queen) and the `cave` world trigger (Herman) to drop the player straight into a match. `.ricky` is reachable **only** via `preSelectedOpponent` from the story's party beat — there is no picker card for him.
 
-| Opponent | Enum | Win score | Special rules |
-|----------|------|-----------|---------------|
-| Tom | `.tom` | 11 | Baseline AI, moderate accuracy |
-| Jenny | `.jenny` | 11 | Slightly tighter aim than Tom |
-| Barnum | `.barnum` | 11 | Long-distance board (`distanceScale 0.5`); dark cave scenery (no weather, no gophers); a dragon rises from the chasm and ignites airborne bags. Fixed "good-not-great" aim (`barnumNoiseFactor = 1.9`) |
-| Billy the Bully | `.billy` | 21 | Forced thunderstorm every round; adaptive difficulty; can throw bomb bags (~25% chance) |
-| Tree Spirit | `.spirit` | 21 | Drops magic bags vertically from above (50% cornhole / 50% random board position) |
+Enum case names (`.tom`, `.barnum`, `.spirit`, …) predate the story's character renames and are kept as-is to avoid churn to save-data keys and internal call sites; only the **display names** shown to the player use the new names below.
+
+| Opponent | Enum | Display name | Win score | Special rules |
+|----------|------|---------------|-----------|---------------|
+| Tim | `.tom` | TIM | 11 | Baseline AI, moderate accuracy. Random per-round chance to trigger "Tim's Fart" (green fog + faster indicator) |
+| Jenny | `.jenny` | JENNY | 11 | Slightly tighter aim than Tim |
+| Herman | `.barnum` | HERMAN | 11 | Long-distance board (`distanceScale 0.5`); dark cave scenery (no weather, no gophers); a dragon rises from the chasm and ignites airborne bags. Fixed "good-not-great" aim (`barnumNoiseFactor`). First board burn triggers a one-time "Sir Michael swaps the board" flavor beat (`showSirMichaelSwap()`) |
+| Billy Badger | `.billy` | BILLY | 21 | Forced thunderstorm every round; adaptive difficulty; can throw bomb bags (~25% chance) |
+| Fairy Queen | `.spirit` | QUEEN | 21 | Drops magic bags vertically from above (50% cornhole / 50% random board position) |
+| Ricky Rogers | `.ricky` | RICKY | 21 | Tightest aim in the game (`rickyNoiseFactor = 1.3`). Story-only — once per match, at a tied score near the win line, he "tweaks his ankle" and airballs the throw entirely (`showRickySprainAnnouncement()`). During this match only, a narrative Jenny-vs-Becky side score ticker (`addSideScoreLabel()`/`advanceSideScore()`) advances each round below the top ribbon |
 
 **Billy adaptive difficulty** — `billyNoiseFactor` starts from career cornhole accuracy (`cornholes / (totalGames × 12)`, clamped to `[1.4, 3.8]`). Each round the player wins tightens Billy by `−0.12`; each round Billy wins eases him by `+0.15`. Range stays within `[1.4, 3.8]`.
 
-**Barnum cave match** (`applyBarnumSettings()`) — win score 11, `distanceScale = 0.5` (same long board Billy uses), no rain/storm. `isCaveMatch = true` swaps the grass field for `applyCaveScenery()`: near-black cave floor, a bottomless chasm between the throw line and board's front edge, jagged rock lips, and stalactites. The chasm's world-Y band is stored in `caveChasmTopY`/`caveChasmBottomY`. **Chasm fall** — in a cave match, an off-board bag whose landing `by` falls inside that band is routed to `fallIntoChasm(_:)` instead of resting: it recedes into the depths — shrinking toward nothing in place (spin + fade, no downward screen translation, since the view is top-down), counts as a miss (0 pts), and is pulled out of collisions/scoring via `hasAppliedGroundScale` + the new `isFallingInChasm` flag. `maybeStartGopher` early-returns in cave matches, and `startRound()` calls `scheduleDragon()` instead of `scheduleCrow()`. **Dragon** — `scheduleDragon()` reschedules itself every 4–8 s (multiple strikes per round). `spawnDragon()` rises a programmatically-drawn dragon head (`makeDragonNode`) from the chasm at the bag-flight corridor height (`crowY`), then `breatheFlame(fromX:y:towardRight:)` lays a wide, organic, **sustained** flame across the lane (~2.2 s hold; built from layered, out-of-phase flickering lobes via `makeFlameLobe`, with rolling embers from `spawnFlameEmbers`). The dragon holds its pose for the whole burn. Ignition is **continuous** for the flame's duration (a repeating `"dragonFlameScan"` action), so any airborne bag (`!isGrounded`, `bz > 2`, not already on fire) that crosses an 80-pt vertical band at any point — **either player's** — is passed to `igniteBag(_:)`, which sets `isFire = true`, recolors it, adds a `🔥` flicker marker, and shows a fire poof. The ignited bag then triggers the normal `fireBag` board/hole burn behavior on landing. The dragon is torn down on round reset and game over (`dragonSchedule` action + `dragonNode`). No art asset — Barnum's portrait is also drawn from scratch by the static `makeBarnumPortraitTexture()` (top-hat circus showman), used by both the picker card (via `OpponentConfig.textureOverride`) and the in-game portrait.
+**Herman's cave match** (`applyHermanSettings()`) — win score 11, `distanceScale = 0.5` (same long board Billy uses), no rain/storm. `isCaveMatch = true` swaps the grass field for `applyCaveScenery()`: near-black cave floor, a bottomless chasm between the throw line and board's front edge, jagged rock lips, and stalactites. The chasm's world-Y band is stored in `caveChasmTopY`/`caveChasmBottomY`. **Chasm fall** — in a cave match, an off-board bag whose landing `by` falls inside that band is routed to `fallIntoChasm(_:)` instead of resting: it recedes into the depths — shrinking toward nothing in place (spin + fade, no downward screen translation, since the view is top-down), counts as a miss (0 pts), and is pulled out of collisions/scoring via `hasAppliedGroundScale` + the new `isFallingInChasm` flag. `maybeStartGopher` early-returns in cave matches, and `startRound()` calls `scheduleDragon()` instead of `scheduleCrow()`. **Dragon** — `scheduleDragon()` reschedules itself every 4–8 s (multiple strikes per round). `spawnDragon()` rises a programmatically-drawn dragon head (`makeDragonNode`) from the chasm at the bag-flight corridor height (`crowY`), then `breatheFlame(fromX:y:towardRight:)` lays a wide, organic, **sustained** flame across the lane (~2.2 s hold; built from layered, out-of-phase flickering lobes via `makeFlameLobe`, with rolling embers from `spawnFlameEmbers`). The dragon holds its pose for the whole burn. Ignition is **continuous** for the flame's duration (a repeating `"dragonFlameScan"` action), so any airborne bag (`!isGrounded`, `bz > 2`, not already on fire) that crosses an 80-pt vertical band at any point — **either player's** — is passed to `igniteBag(_:)`, which sets `isFire = true`, recolors it, adds a `🔥` flicker marker, and shows a fire poof. The ignited bag then triggers the normal `fireBag` board/hole burn behavior on landing. The dragon is torn down on round reset and game over (`dragonSchedule` action + `dragonNode`). No art asset — Herman's portrait is also drawn from scratch by the static `makeHermanPortraitTexture()` (ex-jock school janitor: thinning gray hair, gray mustache, old football jersey), used by both the picker card (via `OpponentConfig.textureOverride`) and the in-game portrait. The first board burn in a Herman match triggers a one-time "Sir Michael swaps the board" flavor beat (`showSirMichaelSwap()` — a small pixel boy darts across and a banner appears), cosmetic only.
 
-**Tree Spirit drop mechanic** — `dropMagicBagFromAbove(targetX:targetY:)` places a `MiniGameBag(isMagic: true)` at `bz = 220` with zero `vx/vy`; existing bz-guard in `resolveBagCollisions()` prevents mid-air collisions. The magic bag falls straight down to its target.
+**Fairy Queen drop mechanic** — `dropMagicBagFromAbove(targetX:targetY:)` places a `MiniGameBag(isMagic: true)` at `bz = 220` with zero `vx/vy`; existing bz-guard in `resolveBagCollisions()` prevents mid-air collisions. The magic bag falls straight down to its target.
 
 **Bag destruction** — `destroyBag(_:)` sets `isDestroyed = true` and plays a scale/fade animation. Destroyed bags are skipped in `calculateRoundScore()` but stay in `activeBags` until round cleanup. `resolveBagCollisions()` skips destroyed bags.
 
-**Rewards** — beating Billy awards 3 bomb bags **+ 10 coins**; beating the Tree Spirit awards 6 magic bags; beating Barnum awards 3 fire bags; beating the generic `.bully` awards 10 coins. These are set on `bombBagsEarned` / `magicBagsEarned` / `fireBagsEarned` / `coinsEarned` in `dismissScene` (only when `awardsRewards`) and collected by the host's `onComplete`. See **Result Modal & Reward Context**.
+**Rewards** — beating Billy awards 3 bomb bags **+ 10 coins**; beating the Fairy Queen awards 6 magic bags; beating Herman awards 3 fire bags; beating the generic `.bully` awards 10 coins; beating Ricky awards no item (pure story beat — a narrative "YOU'RE INVITED TO THE PARTY!" unlock line only). These are set on `bombBagsEarned` / `magicBagsEarned` / `fireBagsEarned` / `coinsEarned` in `dismissScene` (only when `awardsRewards`) and collected by the host's `onComplete`. See **Result Modal & Reward Context**.
 
 ### Opponent Picker Layout
 
 `OpponentPickerNode` renders opponents in one of four layouts based on count:
 - **2 opponents** — side-by-side cards
 - **3 opponents** — 2 regular cards on top row, 1 boss card centered below
-- **4 opponents** — 2×2 grid: top row regular (Tom, Jenny), bottom row boss (Billy, Spirit) with red borders and `★ BOSS ★` badge
-- **5 opponents** — 3 regular cards on the top row (Tom, Jenny, Barnum), 2 boss cards on the bottom row (Billy, Spirit). The first three configs are treated as regular, the last two as bosses. `OpponentConfig.textureOverride` lets a card use a pre-built texture (Barnum's drawn portrait) instead of a named asset.
+- **4 opponents** — 2×2 grid: top row regular (Tim, Jenny), bottom row boss (Billy, Fairy Queen) with red borders and `★ BOSS ★` badge
+- **5 opponents** — 3 regular cards on the top row (Tim, Jenny, Herman), 2 boss cards on the bottom row (Billy, Fairy Queen). The first three configs are treated as regular, the last two as bosses. `OpponentConfig.textureOverride` lets a card use a pre-built texture (Herman's drawn portrait) instead of a named asset.
+- The live picker also has a 6th card (CathyX) not reflected in this 5-tier layout description — see the actual layout logic in `OpponentPickerNode.swift` if extending further. Ricky has no picker card at all (story-only, via `preSelectedOpponent`).
 
 ### Audio
 
@@ -267,8 +277,8 @@ Items scattered in the world can be walked over to collect them. The system has 
 
 **Special bag items** (earned from boss opponents, usable in any cornhole game):
 - **`honeyBag`** — immune to wind and bot knockback; sticks on board contact.
-- **`bombBag`** — landing on the board destroys all opponent board bags; landing in the hole destroys all opponent hole bags. Billy can also throw bomb bags (~25% chance). Awarded (3) by beating Billy the Bully.
-- **`magicBag`** — physically intercepts opponent board bags on collision (opponent bag destroyed, magic bag keeps moving). Scoring in the hole destroys all opponent bags already scored in the hole this round. Awarded (3) by beating the Tree Spirit.
+- **`bombBag`** — landing on the board destroys all opponent board bags; landing in the hole destroys all opponent hole bags. Billy can also throw bomb bags (~25% chance). Awarded (3) by beating Billy Badger.
+- **`magicBag`** — physically intercepts opponent board bags on collision (opponent bag destroyed, magic bag keeps moving). Scoring in the hole destroys all opponent bags already scored in the hole this round. Awarded (3) by beating the Fairy Queen.
 - **`fireBag`** — landing on the board burns all other board bags instantly (thrower keeps 1 pt, all others score 0); subsequent bags landing on the board that round are also destroyed. Sets `boardOnFire = true` until round reset. Landing in the hole burns all other cornholes scored that round by either player (thrower keeps 3 pts, all others score 0). Sets `holeFire = true`. Visuals: pulsing red-orange board overlay + rising ember particles + blinking "🔥 BOARD ON FIRE! 🔥" label. Awarded (3) by winning Well Flinger from the world map.
 - **`cannonballBag`** — purchased from the store (20 coins each). Appears as a black sphere with a yellow glow. Cannot be stolen by the gopher (gopher spawn is suppressed). Passes through ducks/babies without stopping (the obstacle is knocked off screen but the bag maintains its trajectory). Immune to bag-vs-bag collisions and soft-bag deformation. When it lands on the board (not in the cornhole), it scores 3 pts immediately for the thrower and punches a new hole at the landing position. The new hole persists for the rest of the round — both player and opponent can score in it (3 pts, same as the main hole). Multiple cannonball holes can exist in one round. All cannonball holes and their visual nodes are cleared on round reset. If the cannonball enters the regular cornhole, it scores the normal 3 pts. State tracked via `cannonballHoles: [(center: CGPoint, radius: CGFloat)]` and `cannonballHoleNodes: [SKNode]`.
 
@@ -285,7 +295,7 @@ Items scattered in the world can be walked over to collect them. The system has 
 
 **Fire bag round state** — reset at the start of each round in `startRound()`: `boardOnFire`, `holeFire`, `fireBoardOverlay`, `fireBoardEmitter` node (named `"fireBoardEmitter"`), and `fireBoardLabel` node (named `"fireBoardLabel"`).
 
-**Losing to the Tree Spirit** — the game-over panel shows a green hint: *"SPECIAL BAGS MAY HELP AGAINST SUCH A FOE..."* to guide the player toward using magic/fire bags.
+**Losing to the Fairy Queen** — the game-over panel shows a green hint: *"SPECIAL BAGS MAY HELP AGAINST SUCH A FOE..."* to guide the player toward using magic/fire bags.
 
 **To add more item types:** add a case to `ItemType`, give it a `color`/`displayName`/`hudSymbol`, and drop `CollectibleNode(type: .newType)` nodes in `spawnCollectibles(in:)`. If the item should be usable from the inventory HUD, add a case to `GameScene.handleInventoryTap(_:)` for its world-use action.
 
@@ -312,7 +322,7 @@ The world pause overlay (pause button → `showPauseOverlay()`) has two buttons:
 
 Centralized framework that every mini-game uses for consistent first-play onboarding.
 
-- **`TutorialManager.swift`** — singleton tracking which tutorials have been seen (`UserDefaults`). Static keys per game: `.bike`, `.cornhole`, `.baseball`, `.beehive`, `.beachball`, `.piranha`, `.jousters`, `.wellFlinger`, `.horseRace`; `allKeys` lists them all. API: `hasSeen(_:)`, `markSeen(_:)`, `reset(_:)`, and `resetAll()` (clears every key — used by `SettingsScene`).
+- **`TutorialManager.swift`** — singleton tracking which tutorials have been seen (`UserDefaults`). Static keys per game: `.bike`, `.cornhole`, `.baseball`, `.beehive`, `.beachball`, `.piranha`, `.jousters`, `.wellFlinger`, `.horseRace`, `.kickball`, `.mopChase`; `allKeys` lists them all. API: `hasSeen(_:)`, `markSeen(_:)`, `reset(_:)`, and `resetAll()` (clears every key — used by `SettingsScene`).
 - **`TutorialOverlay.swift`** — full-screen `SKNode` overlay with shared styling (wood-iron panel, gold trim, `PressStart2P` font, pulsing prompt). Pass a `[TutorialStep]` and an `onComplete`; tap-to-advance, no skip. Step kinds:
   - `.card(title:body:)` — centered modal.
   - `.hint(at:title:body:)` — panel offset from a target point with a pulsing arrow.
@@ -358,14 +368,14 @@ Hardcoded GID ranges for world-trigger tiles are gone — see the "tileset name 
 
 **World trigger** — any non-zero tile on the `"fences"` map layer (detected by layer name, not tileset name). Pressing A within 36 world units opens the scene via `openSuburbanJousters()`.
 
-**Gate — must beat Jen and Tom at baseball first.** `CornholeStatsManager.shared.joustersUnlocked` (`defeatedJenBaseball && defeatedTomBaseball`) controls access:
+**Gate (free-roam only — the story reaches Jousters directly via `.miniGame(.jousters,...)`, ungated).** `CornholeStatsManager.shared.joustersUnlocked` (`defeatedJenBaseball && defeatedTomBaseball`) controls the free-roam fences-layer trigger:
 - Neither beaten → hint: *"In order to joust on your bike, you need something to use as a lance."*
-- Only Jen beaten → hint: *"Beat Tom at baseball to unlock the joust."*
+- Only Jen beaten → hint: *"Beat Tim at baseball to unlock the joust."*
 - Both beaten → scene launches.
 
-**Baseball sequencing** — `openCornholeBaseball()` in `GameScene` automatically sets the correct AI difficulty based on progress:
+**Baseball sequencing (free-roam)** — `openCornholeBaseball()` in `GameScene` automatically sets the correct AI difficulty based on progress:
 1. First visit: `aiDifficulty = .powerHitter` (Jen). Win sets `defeatedJenBaseball`.
-2. Second visit: `aiDifficulty = .greatFielder` (Tom). Win sets `defeatedTomBaseball` and shows the *"The joust awaits!"* banner.
+2. Second visit: `aiDifficulty = .greatFielder` (Tim, legacy `defeatedTomBaseball` key name unchanged). Win sets `defeatedTomBaseball` and shows the *"The joust awaits!"* banner.
 3. Subsequent visits: default `.standard` difficulty (free play).
 
 **Reward** — winning Suburban Jousters for the first time awards the **Golden Lance** (`UserDefaults` key `"goldenLanceEarned_v1"`), reveals `btnLance` in the world HUD, and shows *"You won the Golden Lance!"* banner. Hearts are synced back to `HeartsManager` from `joust.remainingHearts` on exit (win or loss).
@@ -428,7 +438,7 @@ Bag `collisionBitMask = wallCat | stoneCat | boardCat | groundCat` (it physicall
 
 **Entry points:**
 - `MiniGamePickerScene` → `"wellflinger"` card (`onComplete = { _ in }`).
-- No world trigger yet.
+- World trigger — any tileset whose name contains `"well"` (`Well.tsx`/`well.png`). `extractWellPositions(from:)` collects tile centers into `wellPositions`; A-press within range calls `openWellFlinger()`, which sets `awardsRewards = true` and passes `availableBags`/`availableFireBags` from inventory. Win awards 3 fire bags (same reward table as the picker path).
 
 **Tutorial key** — `TutorialManager.wellFlinger` (`"tutorial.wellFlinger.v1"`).
 
@@ -479,13 +489,65 @@ While `awaitingOpponentChoice`, `tutorialUp`, or `countdownActive` are true, `to
 
 **Replay** — `resetForReplay()` clears bags, resets spaces and horse positions, hides the indicator, sets `aiReadyTime = 0`, and calls `startCountdown()` so each rematch starts on the same 3-2-1 beat. Opponent is preserved.
 
-**HUD copy** — score label reads `RED \(playerSpaces)  |  \(opponentName) \(aiSpaces)` (e.g., `RED 4  |  TOMMY 7`). Game-over modal subtitle: `RED \(playerSpaces)  -  \(aiSpaces) \(opponentName)`.
+**HUD copy** — score label reads `RED \(playerSpaces)  |  \(opponentName) \(aiSpaces)` (e.g., `RED 4  |  TIM 7`). Game-over modal subtitle: `RED \(playerSpaces)  -  \(aiSpaces) \(opponentName)`.
 
 **Tutorial key** — `TutorialManager.horseRace` (`"tutorial.horseRace.v1"`); included in `allKeys` so `SettingsScene` "reset tutorials" covers it.
 
 **Entry points:**
 - `MiniGamePickerScene` → `"horseRace"` card (`onComplete = { _ in }`).
 - No world trigger.
+
+### Kickball (Dream at the Plate)
+
+`KickballScene` is the Chapter 2 dream sequence: kickball on the school pavement, bases loaded, first HIT in 3 tries wins. Center-origin scene, manual ball motion in `update()` (no SKPhysics).
+
+**Per-pitch flow** (`TryPhase`: `idle → pitching → running → ballInFlight → resolving`):
+1. **AIM** — while the ball rolls from the pitcher (top) to the plate (bottom, `pitchDuration = 2.3 s`, slight sine wobble), a horizontal swipe rotates the gold aim arrow at the plate (`aimAngle`, clamped ±0.30π).
+2. **RUN** — a tap (< 12 pt movement) starts Jack's sprint to the plate, which takes exactly `runSpeedRampTime` (1.1 s) with the speed meter filling 0→1 across it. **Reaching the plate while the ball is still rolling = dead stop**: momentum and power drop straight to zero ("STOPPED AT THE PLATE!", meter turns red, Jack slumps). The run start is the core timing decision — arrive together with the ball.
+3. **KICK** — the red KICK button (bottom-right, name `"kickBtn"`) appears when the run starts and pulses faster as the ball nears the plate (`pulseKickButtonIfRateChanged`). It fires on **touch-down** (checked in `touchesBegan` before the generic button walk) for timing feel.
+
+**Kick resolution** (`resolveKick()`): timing quality falls off linearly over `whiffWindow` (64 pt from plate; beyond = "WHIFF!"). `power = 0.30 + 0.70 × (0.55·timing + 0.45·runSpeed)`; a stalled kicker (`runSpeedFactor < 0.05`) has power capped below `hitPowerThreshold`, so a standing kick can never be a hit ("NO LEGS — EASY OUT!"). Timing error skews the direction (early pulls, late pushes). Outcome decided at the moment of the kick, then animated:
+- `|angle| > foulAngle (±43°)` → **FOUL** (failed try)
+- `power < hitPowerThreshold (0.62)` → **FIELDED — OUT** (nearest defender chases the projected stall point)
+- otherwise → **HIT**, with tiered flavor text ("PAST THE INFIELD!" / "DEEP INTO THE OUTFIELD!" / "OVER EVERYONE'S HEADS!")
+- Never starting the run, or the ball rolling 1.25× past the plate → **STRIKE** / "TOO LATE!"
+
+**Pause-clock note** — the pitch is driven by scene-time deltas, so `pauseGame()`/`resumeGame()` maintain `pauseTimeShift` to keep the ball from teleporting after a pause.
+
+**Dream dressing** — `addDreamOverlay()` (drifting white haze blobs + pale radial vignette at `zPosition 750`, under the CRT at 800); chalk foul lines/bases on hot-pavement gray; sideline watchers include a curly-brown-haired Kim per the memoir. All characters are `makeKid(shirt:hair:)` two-block pixel kids — no art assets.
+
+**Entry points:**
+- Story: `p1_kickball` module → `.miniGame(.kickball, winID: "p1_kickball_dream", loseID: "p1_kickball_retry")`. The win reveals it was a concussion dream; `p1_kickball_vision` then narrates what actually happened.
+- `MiniGamePickerScene` → `"kickball"` card (`onComplete = { _ in }`).
+
+**No rewards in any context** — pure story beat; `awardsRewards` exists only to satisfy hosts. Win modal buttons: PLAY AGAIN / CONTINUE; loss modal: PLAY AGAIN / EXIT (both routed via `playAgainBtn`/`exitBtn`; EXIT reports `didWin`).
+
+**Tutorial key** — `TutorialManager.kickball` (`"tutorial.kickball.v1"`); included in `allKeys`.
+
+### Mop Bucket Chase
+
+`MopBucketChaseScene` is the Chapter 3 chase: Billy punches Jack and bolts down a hallway mid bucket-race; Jack rows after him — one foot in a rolling mop bucket. Side-scrolling rhythm game, center-origin, manual physics in `update()` (dt-based, so pause needs no clock shifting).
+
+**Stroke loop** — HOLD plants the mop (power builds over `holdFullPower = 0.6 s`; holding past `holdDragStart = 0.85 s` drags: power decays and glide friction more than doubles). RELEASE fires the stroke (impulse scales with power). GLIDE decays speed exponentially (`frictionK = 0.55`). Cadence rule in `releaseStroke()`: a stroke released while `jackSpeed > optHigh` is "TOO EARLY!" (×0.55 impulse); a full-power stroke released inside the `[optLow, optHigh]` band is a "PERFECT STROKE!". All speed/length constants scale with scene width (`maxSpeed = W×1.7`, `optLow/optHigh = W×0.35/0.80`, `hallLength = W×17`, Billy base `W×0.9`, head start `W×2.0`, `catchRadius = W×0.35`).
+
+**Cadence meter** (`buildCadenceMeter()`) — vertical hold-power bar (turns red when dragging) + horizontal speed gauge with a green band and needle. After 3 perfect strokes the whole meter fades to `alpha 0.22` (`meterFaded`); the diegetic cue takes over — `wakePulse()` fires a ripple ring whenever glide speed decays down across `optHigh`.
+
+**Scripted rhythm-breakers** (world-anchored zones as fractions of `hallLength`):
+- **Limbo mop** (33%) — two kids hold a mop bar; being mid-HOLD inside the zone = "CLIPPED!" (speed ×0.45, once per run).
+- **Spray-bottle kid** (55%) — mists the meter overlay (`mistOverlay`) for 2 s.
+- **Puddle strip** (72%) — a stroke *released* inside the zone gets ×1.6 impulse ("SUPER STROKE!").
+
+**Billy** — runs at `billyBase` with three scripted stumbles (at 22/45/68% of the hall; ~1.1 s each at near-zero speed) that give mid-skill players catch-up windows. HUD center label shows `GAP <pts>`, turning green inside one screen-width.
+
+**Ending (canon: Jack never catches him)** — closing to `catchRadius` triggers `startFinale()`: input cut, janitor-water ellipse + Becky spawn ahead, Jack slides at max speed with the bucket spinning, then `crashIntoBecky()` (impact stars, screen shake, "CRASH!", heavy haptic) → win modal "CAUGHT UP... TOO FAST / RIGHT INTO BECKY" (PLAY AGAIN / CONTINUE). Billy reaching the far doors first = loss ("BILLY GOT AWAY", PLAY AGAIN / EXIT).
+
+**World layout** — everything world-anchored (lockers, floor dashes, hazards, Billy, Jack, doors) lives in `scrollLayer`; `layoutWorld()` sets `scrollLayer.position.x = jackScreenX - jackDist` each frame so Jack stays fixed at `x = -W×0.24` on screen.
+
+**Entry points:**
+- Story: `p1_becky_incident` ("The Punch") → `.miniGame(.mopChase, winID: "p1_chase_crash", loseID: "p1_chase_retry")`; the win module narrates the sweater incident.
+- `MiniGamePickerScene` → `"mopChase"` card (`onComplete = { _ in }`).
+
+**No rewards in any context.** **Tutorial key** — `TutorialManager.mopChase` (`"tutorial.mopChase.v1"`); in `allKeys`.
 
 ### Story System
 
@@ -498,10 +560,10 @@ While `awaitingOpponentChoice`, `tutorialUp`, or `countdownActive` are true, `to
 | `StoryModule` | One story beat: `id`, `title`, `imageColor`, `text`, `choices[]`, `autoOutcome` |
 | `StoryChoice` | A button label + `StoryOutcome` |
 | `StoryOutcome` | `.nextModule(id:)` / `.spawnOnMap(StorySpawnConfig)` / `.miniGame(type, winID, loseID)` / `.returnToMenu` |
-| `StoryMiniGame` | `.cornholeVs(opponent:)` / `.baseballVs(difficulty:)` / `.beehive` / `.bike` |
+| `StoryMiniGame` | `.cornholeVs(opponent:)` / `.baseballVs(difficulty:)` / `.beehive` / `.bike` / `.piranha` / `.beachball` / `.jousters` / `.horseRace` / `.wellFlinger` / `.kickball` / `.mopChase` |
 | `StorySpawnConfig` | Bundles `x?`, `y?`, `trigger?`, `nextModuleID?`, `flags[]` for a world spawn |
-| `StoryFlag` | `dogsEnabled` / `baseballEnabled` / `batFound` / `questAccepted` |
-| `BaseballAIDifficulty` | `standard` / `powerHitter` (story Jen, free-play Tommy) / `greatFielder` (Tom) / `fastPitcher` (free-play Jen) |
+| `StoryFlag` | `dogsEnabled` / `baseballEnabled` / `batFound` / `questAccepted` / `bulliesEnabled` — `baseballEnabled`, `batFound`, and `questAccepted` are legacy (kept because `GameScene` still reads the first two as an OR-fallback; current story content never sets any of the three) |
+| `BaseballAIDifficulty` | `standard` (story Becky, free-play generic) / `powerHitter` (free-play Tim) / `greatFielder` (legacy story Tim, unused by current content) / `fastPitcher` (free-play Jen) |
 
 `StoryManager.shared` persists three things to `UserDefaults`:
 - `currentModuleID` — which module to show next (key `storyCurrentModuleID_v1`)
@@ -515,10 +577,12 @@ While `awaitingOpponentChoice`, `tutorialUp`, or `countdownActive` are true, `to
 | Constant | Value | Fires when player A-presses near |
 |----------|-------|----------------------------------|
 | `triggerCornhole` | `"cornhole_story"` | Any cornhole board tile |
-| `triggerBat` | `"bat_story"` | Story bat pickup object |
-| `triggerBaseball` | `"baseball_story"` | Baseball tile |
 | `triggerBridge` | `"bridge_story"` | Bridge wood tile |
-| `triggerQuestOffer` | `"quest_offer"` | Baseball tile (quest re-offer) |
+| `triggerCave` | `"cave_story"` | Any cave tile (bypasses `handleCaveInteraction`'s cluster-teleport maze entirely while the trigger is pending) |
+| `triggerAppleTree` | `"appletree_story"` | Apple tree tile |
+| `triggerBat` | `"bat_story"` | Story bat pickup object — legacy, unused by current content |
+| `triggerBaseball` | `"baseball_story"` | Baseball tile — legacy, unused by current content |
+| `triggerQuestOffer` | `"quest_offer"` | Baseball tile (quest re-offer) — legacy, unused by current content |
 
 When a trigger fires, `GameScene` clears `pendingWorldTrigger` and calls `launchStoryAtCurrentModule()`, which transitions to `StoryModuleScene.startAtCurrentProgress()`.
 
@@ -533,53 +597,68 @@ When a trigger fires, `GameScene` clears `pendingWorldTrigger` and calls `launch
 #### Baseball AI difficulty
 
 `CornholeBaseballScene.aiDifficulty: BaseballAIDifficulty` (default `.standard`):
-- `.powerHitter` — AI hits 35% harder (`aiPowerBoost = 1.35`) and 45% wider (`vxSpread * 0.45`); used for story Jen **and** free-play Tommy
-- `.greatFielder` — AI fielder error ±14 pt (vs standard ±38) and 10-frame reaction delay (vs 20); used for story Tom
+- `.powerHitter` — AI hits 35% harder (`aiPowerBoost = 1.35`) and 45% wider (`vxSpread * 0.45`); used for free-play Tim (HUD name still reads "TIM", mapped from the `.tom` `BaseballAISettings.Character` case)
+- `.greatFielder` — AI fielder error ±14 pt (vs standard ±38) and 10-frame reaction delay (vs 20); legacy, not used by current story content (was story Tim's difficulty in the old bat-hunting chain)
 - `.fastPitcher` — AI pitch travels 1.5× faster (`pitch.vy *= 1.5` in `throwAIPitch()`), so it's harder to time your swing; used for free-play Jen
+- `.standard` — the carnival date's baseball-cornhole vs. Becky (`p3_baseball_intro`), and free-roam "subsequent visits" (generic BOT)
 
-**Free-play opponent picker** — when launched from `MiniGamePickerScene` (the `"baseball"` card sets `scene.showOpponentPicker = true`), `CornholeBaseballScene` shows a two-card Bit-Wood picker in `didMove` before play: **JEN — FAST PITCHER** (`.fastPitcher`) and **TOMMY — POWER HITTER** (`.powerHitter`). `presentOpponentPicker()` builds the cards (named `"baseballOpp_jen"` / `"baseballOpp_tommy"`); `touchesBegan` routes a tap to `selectOpponent(_:)`, which sets `aiDifficulty` and calls `proceedToPlay()` (tutorial-or-start). The **story path leaves `showOpponentPicker == false`** and pre-sets `aiDifficulty` itself, so the picker never appears there — story sequencing (Jen → Tom) is unchanged.
+**Free-play opponent picker** — when launched from `MiniGamePickerScene` (the `"baseball"` card sets `scene.showOpponentPicker = true`), `CornholeBaseballScene` shows a two-card Bit-Wood picker in `didMove` before play: **JEN — FAST PITCHER** (`.fastPitcher`) and **TIM — POWER HITTER** (`.powerHitter`). `presentOpponentPicker()` builds the cards (named `"baseballOpp_jen"` / `"baseballOpp_tommy"` — internal node names unchanged); `touchesBegan` routes a tap to `selectOpponent(_:)`, which sets `aiDifficulty` and calls `proceedToPlay()` (tutorial-or-start). The **story path leaves `showOpponentPicker == false`** and pre-sets `aiDifficulty` itself, so the picker never appears there.
 
 #### Bee difficulty ramp
 
 `BeeHiveScene` tracks a global fight count in `UserDefaults` key `beeHiveFightCount_v1`. On each launch the speed multiplier is `min(1.0 + count * 0.12, 2.2)`. `dismissScene(playerWon:)` increments the count regardless of outcome.
 
-#### Story bat pickup
+#### Story bat pickup (legacy)
 
-During the bat-search phase (`pendingWorldTrigger == "bat_story"`), `GameScene.spawnStoryBatIfNeeded()` places a floating bat `SKNode` at `StoryManager.batWorldPosition` (currently `CGPoint(x: 380, y: 260)` — **tune this to match the actual map**). Pressing A near it calls `collectStoryBat()` → clears the node → launches `launchStoryAtCurrentModule()` with module `p1_bat_found`.
+`GameScene.spawnStoryBatIfNeeded()`/`collectStoryBat()` still exist and are guarded by `pendingWorldTrigger == StoryManager.triggerBat`, but current story content never sets that trigger, so this path is dead code left over from the old bat-hunting chain. Harmless — the guard just never passes.
+
+#### Legacy module migration
+
+`StoryManager.currentModuleID`'s getter checks the raw `UserDefaults` value against `StoryContent.all`; if the saved ID no longer exists (e.g. a player mid-progress in the old Master Board chain: `p1_tom_win`, `p1_bat_found`, `p1_baseball_jen_intro`, `p1_quest_accept`, `p1_bridge_intro`, …), `StoryManager.legacyModuleMap` redirects it to the nearest equivalent checkpoint in the current chain (`p1_jen_win` — "already beat Jenny, heading into the party arc"). Unknown IDs with no mapping fall back to `firstModuleID`.
 
 #### Part 1 module chain
 
+The narrative follows *Cornhole Kings: A tale of friendship and discovering who you are meant to be* — a prologue establishing 12-year-old Jack's summer of '88, then four acts. Every `.miniGame(...)` loss module offers **REMATCH** (retry immediately) / **QUIT** (back to the pre-match narration) choices, mirroring the existing convention; omitted below for brevity.
+
 ```
-p1_birthday → p1_last_day → [bike]
-  win → p1_race_win → [world: cornhole trigger]
-  lose → p1_race_retry (RETRY / GIVE UP)
+PROLOGUE
+p1_intro → p1_kim_call → p1_kim_heartbreak → p1_kickball → [kickball]
+  win  → p1_kickball_dream ("it was a dream") → p1_kickball_vision
+  lose → p1_kickball_retry (TRY AGAIN / GIVE UP)
+p1_kickball_vision ("what actually happened": the miss, the armor vision, Chad)
+  → p1_billy_badger → p1_becky_incident ("The Punch") → [mopChase]
+    win  → p1_chase_crash (scripted slip into Becky, sweater incident) → p1_birthday
+    lose → p1_chase_retry (TRY AGAIN / GIVE UP)
 
-[cornhole board A-press]
-p1_jen_intro → [cornhole vs .jenny]
-  win → p1_jen_win → [cornhole vs .tom]
-    win → p1_tom_win → [world: bat trigger, sets dogsEnabled]
-    lose → p1_tom_lose (REMATCH / QUIT)
-  lose → p1_jen_lose (REMATCH / QUIT)
+ACT 1 — THE GIFT
+p1_birthday → p1_tim_intro → [cornhole vs .tom ("Tim")]
+  win → p1_tim_win → p1_last_day → [bike]
+    win → p1_race_win → [world: cornhole trigger]
+      → p1_jen_intro → [cornhole vs .jenny]
+        win → p1_jen_win → [world: bridge trigger] → p2_river_arrive
 
-[bat A-press]
-p1_bat_found → [world: baseball trigger, sets batFound + baseballEnabled]
+ACT 2 — THE PARTY
+p2_river_arrive → [piranha]
+  win → p2_river_win → [world: cave trigger] → p2_herman_intro → [cornhole vs .barnum ("Herman")]
+    win → p2_herman_win → p2_party_arrive → [cornhole vs .ricky]
+      win → p2_ricky_win → p3_carnival_intro
 
-[baseball tile A-press]
-p1_baseball_jen_intro → [baseball vs .powerHitter]
-  win → p1_baseball_jen_win → [baseball vs .greatFielder]
-    win → p1_baseball_tom_win → choice: ACCEPT / FORGET IT
-      ACCEPT → p1_quest_accept → [world: bridge trigger, sets questAccepted]
-      FORGET → [world: quest_offer trigger]
-    lose → p1_baseball_tom_lose (REMATCH / QUIT)
-  lose → p1_baseball_jen_lose (REMATCH / QUIT)
+ACT 3 — THE DATE
+p3_carnival_intro → p3_baseball_intro → [baseball vs .standard ("Becky")]
+  win → p3_baseball_win → [jousters]
+    win → p3_joust_win → [horseRace]
+      win → p3_horserace_win → p4_pool_intro
 
-[bridge A-press]
-p1_bridge_intro → [world: stays at p1_bridge_intro — end of Part 1]
+ACT 4 — TIME FOR TIM
+p4_pool_intro → [beachball vs Tim]
+  win → p4_pool_win → p4_confession (sets dogsEnabled + bulliesEnabled)
+    → [world: apple tree trigger] → p4_queen_intro → [cornhole vs .spirit ("Fairy Queen")]
+      win → p4_queen_win → p4_ending (— END OF PART 1 —, loops to itself)
 ```
 
 #### Dog gating
 
-`GameScene.spawnDog()` is guarded by `StoryManager.shared.hasFlag(.dogsEnabled)`. Dogs are disabled until the `p1_tom_win` module fires (which sets the flag via `StorySpawnConfig.flags`). In free-play (no story progress), dogs never appear unless the flag is set.
+`GameScene.spawnDog()` is guarded by `StoryManager.shared.hasFlag(.dogsEnabled)`. Dogs (and Billy Badger's gang, via `.bulliesEnabled`) are disabled until the `p4_confession` module fires, right before the Fairy Queen finale — matching the source material's "our yard had been taken over by stray dogs and Billy's gang" beat. In free-play (no story progress), dogs never appear unless the flag is set.
 
 ### HUD Design System (Bit-Wood Brawler)
 

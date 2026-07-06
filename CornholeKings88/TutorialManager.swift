@@ -18,11 +18,13 @@ final class TutorialManager {
     static let jousters    = "tutorial.jousters.v1"
     static let wellFlinger = "tutorial.wellFlinger.v1"
     static let horseRace   = "tutorial.horseRace.v1"
+    static let kickball    = "tutorial.kickball.v1"
+    static let mopChase    = "tutorial.mopChase.v1"
 
     /// Every tutorial key — used by `resetAll()` and the Settings screen.
     static let allKeys = [bike, cornhole, baseball, beehive,
                           beachball, piranha, jousters, wellFlinger,
-                          horseRace]
+                          horseRace, kickball, mopChase]
 
     func hasSeen(_ key: String) -> Bool {
         UserDefaults.standard.bool(forKey: key)
