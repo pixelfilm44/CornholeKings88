@@ -756,6 +756,9 @@ final class MiniGamePickerScene: SKScene {
         case "wellflinger":
             let s = WellFlingerScene(size: ppSize)
             s.previousScene = self; s.scaleMode = .resizeFill
+            // Free-play from the menu isn't tied to real inventory — start with
+            // a generous 5 bags so there's room to learn the shaft.
+            s.availableBags = 5
             s.onComplete = { _ in }
             push(to: s)
 

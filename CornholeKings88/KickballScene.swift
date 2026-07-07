@@ -34,9 +34,37 @@ final class KickballScene: SKScene {
     /// still rolling = Jack stops dead and ALL power is lost.
     private let runSpeedRampTime: TimeInterval = 1.1
     private let perfectWindow: CGFloat = 20          // |ballY-plateY| for perfect timing
-    private let whiffWindow:   CGFloat = 64          // beyond this = total miss
-    private let foulAngle:     CGFloat = .pi * 0.24  // ±43° from straight up = fair
-    private let hitPowerThreshold: CGFloat = 0.62    // weaker contact gets fielded
+    private let baseWhiffWindow:   CGFloat = 64          // beyond this = total miss
+    private let baseFoulAngle:     CGFloat = .pi * 0.24  // ±43° from straight up = fair
+    private let baseHitPowerThreshold: CGFloat = 0.62    // weaker contact gets fielded
+
+    /// This is a story beat, not a skill gate — nobody should get stuck in a
+    /// dream sequence. Each failed try quietly widens the timing window,
+    /// lowers the power bar, and opens up the foul lines, so the player fails
+    /// once or twice for drama, then connects and feels clever on a later try.
+    /// `currentTry` is 1-indexed (incremented at the start of each try), so
+    /// these read the *previous* fail count.
+    private var whiffWindow: CGFloat {
+        switch currentTry {
+        case ...1:  return baseWhiffWindow
+        case 2:     return baseWhiffWindow * 1.35
+        default:    return baseWhiffWindow * 1.7
+        }
+    }
+    private var foulAngle: CGFloat {
+        switch currentTry {
+        case ...1:  return baseFoulAngle
+        case 2:     return baseFoulAngle * 1.15
+        default:    return baseFoulAngle * 1.3
+        }
+    }
+    private var hitPowerThreshold: CGFloat {
+        switch currentTry {
+        case ...1:  return baseHitPowerThreshold
+        case 2:     return baseHitPowerThreshold - 0.08
+        default:    return baseHitPowerThreshold - 0.16
+        }
+    }
 
     // MARK: - Layout
     private var pitcherPos  = CGPoint.zero

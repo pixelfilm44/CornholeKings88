@@ -6,6 +6,8 @@ final class SettingsScene: SKScene {
     private var W: CGFloat = 0, H: CGFloat = 0
     private var ribbonBottomY: CGFloat = 0   // scene-Y of bottom edge of the top ribbon
     private var confirmLabel: SKLabelNode?
+    private var resetStoryLabel: SKLabelNode?
+    private var resetStoryArmed = false
 
     // Throw-force slider state
     private var sliderTrack: SKSpriteNode?
@@ -100,6 +102,15 @@ final class SettingsScene: SKScene {
                     action: "RESET",
                     name: "resetTutorials",
                     topY: y, width: cardW, height: 60)
+
+        // PROGRESS section
+        y -= 14
+        y = addSectionHeader("PROGRESS", atTopY: y, width: cardW)
+        y = addCard(label: "RESET STORY",
+                    sub: "erase all story progress",
+                    action: "RESET",
+                    name: "resetStory",
+                    topY: y, width: cardW, height: 60)
     }
 
     /// Draws a left-aligned, dim-gold section header above the cards.
@@ -178,6 +189,7 @@ final class SettingsScene: SKScene {
         addChild(actionLbl)
 
         if name == "resetTutorials" { confirmLabel = actionLbl }
+        if name == "resetStory" { resetStoryLabel = actionLbl }
 
         return center.y - height / 2 - 14
     }
@@ -396,6 +408,8 @@ final class SettingsScene: SKScene {
         case "resetTutorials":
             TutorialManager.shared.resetAll()
             flashConfirm()
+        case "resetStory":
+            handleResetStoryTap()
         case "tuneBaseball":
             openBaseballTuning()
         default:
@@ -452,6 +466,42 @@ final class SettingsScene: SKScene {
         let menu = MainMenuScene(size: size)
         menu.scaleMode = .resizeFill
         view?.presentScene(menu, transition: t)
+    }
+
+    /// Erasing story progress is destructive, so it needs a deliberate second
+    /// tap rather than the tutorials card's fire-immediately behavior. First
+    /// tap arms it ("TAP AGAIN?"); a second tap within 3 s resets; otherwise
+    /// it disarms itself.
+    private func handleResetStoryTap() {
+        guard let lbl = resetStoryLabel else { return }
+        if resetStoryArmed {
+            resetStoryArmed = false
+            lbl.removeAllActions()
+            StoryManager.shared.reset()
+            let green = SKColor(red: 0.40, green: 0.85, blue: 0.40, alpha: 1)
+            lbl.run(.sequence([
+                .run { lbl.text = "DONE!"; lbl.fontColor = green },
+                .wait(forDuration: 1.0),
+                .run { [weak self] in
+                    lbl.text = "RESET"
+                    lbl.fontColor = self?.dsGold ?? Parchment.edge
+                },
+            ]))
+        } else {
+            resetStoryArmed = true
+            lbl.removeAllActions()
+            lbl.text = "TAP AGAIN?"
+            lbl.fontColor = Parchment.red
+            lbl.run(.sequence([
+                .wait(forDuration: 3.0),
+                .run { [weak self] in
+                    guard let self, self.resetStoryArmed else { return }
+                    self.resetStoryArmed = false
+                    lbl.text = "RESET"
+                    lbl.fontColor = self.dsGold
+                },
+            ]))
+        }
     }
 
     private func flashConfirm() {

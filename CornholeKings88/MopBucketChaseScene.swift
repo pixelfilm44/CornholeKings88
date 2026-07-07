@@ -17,20 +17,23 @@ import UIKit
 // The hall is a 3-lane course seeded fresh each run: kids, wet-floor signs,
 // limbo mop bars (one open lane), waxed strips (never stroke on wax),
 // puddles (a stroke landing inside is a SUPER STROKE), spray-bottle kids
-// who mist the screen, swinging classroom doors (timed dodges), pacing hall
-// monitors, and high-five kids who grant a speed burst. Billy — waiting
+// who mist the screen, swinging classroom doors (timed dodges), and
+// high-five kids who grant a speed burst. Hazard variety and spacing were
+// trimmed (pacing hall monitors cut — they overlapped functionally with
+// swinging doors) so each hazard reads clearly instead of chaining crashes.
+// Billy — waiting
 // stationary at the end — occasionally hurls his binder back down Jack's
-// lane once Jack is close enough. Every crash costs a heart (universal
-// `HeartsManager`); run out and it's over regardless of the clock. A
-// side-view progress tracker under the ribbon shows Jack, Billy, and the
-// far doors.
+// lane once Jack is close enough. Every crash costs speed (not a heart) —
+// the 60-second clock is the only fail condition. A side-view progress
+// tracker under the ribbon shows Jack, Billy, and the far doors.
 //
 // The goal is simply to reach Billy before a 60-second clock runs out,
-// without crashing too much. Winning triggers the scripted cinematic
-// finale — slow-mo through the janitor water, spin-out, and a spectacular
-// pile-up into Becky (books, papers, ricocheting bucket, gawking
-// onlookers, Billy laughing his way out the doors). Running out of time or
-// hearts ends the chase before the crash ever happens.
+// without crashing too much (crashes bleed speed you need to make up).
+// Winning triggers the scripted cinematic finale — slow-mo through the
+// janitor water, spin-out, and a spectacular pile-up into Becky (books,
+// papers, ricocheting bucket, gawking onlookers, Billy laughing his way
+// out the doors). Running out of time ends the chase before the crash
+// ever happens.
 //
 // Pure story beat / picker replay — no rewards in any context.
 final class MopBucketChaseScene: SKScene {
@@ -101,16 +104,6 @@ final class MopBucketChaseScene: SKScene {
     }
     private var swingDoors: [SwingDoor] = []
 
-    /// Hall monitor pacing side-to-side across all three lanes.
-    private struct HallMonitor {
-        let dist: CGFloat
-        let node: SKNode
-        let speed: CGFloat
-        let phase: CGFloat
-        var hit = false
-    }
-    private var hallMonitors: [HallMonitor] = []
-
     /// Binder Billy hurls back down Jack's lane.
     private struct BillyProjectile {
         var dist: CGFloat
@@ -138,8 +131,6 @@ final class MopBucketChaseScene: SKScene {
     private var beckyDist: CGFloat = 0
     private var finaleWaterDist: CGFloat = 0
     private var didWin = false
-    private enum LoseReason { case timeOut, heartsGone }
-    private var loseReason: LoseReason = .timeOut
 
     // MARK: - Input tracking
     private var strokeTouch: UITouch?
@@ -156,7 +147,6 @@ final class MopBucketChaseScene: SKScene {
     private var billyNode: SKNode?
     private var beckyNode: SKNode?
     private var mistOverlay: SKSpriteNode?
-    private var heartSprites: [SKLabelNode] = []
     private var timeLabel: SKLabelNode?
     private var trackJack: SKNode?
     private var trackBilly: SKNode?
@@ -171,7 +161,6 @@ final class MopBucketChaseScene: SKScene {
         anchorPoint = CGPoint(x: 0.5, y: 0.5)
         backgroundColor = SKColor(red: 0.16, green: 0.17, blue: 0.22, alpha: 1)
 
-        if HeartsManager.shared.currentHearts <= 0 { HeartsManager.shared.refill() }
         billyDist = billyWaitDist   // Billy runs ahead once and waits here
         jackX = laneCenterX(1)
 
@@ -322,7 +311,6 @@ final class MopBucketChaseScene: SKScene {
     private func buildCourse(in layer: SKNode) {
         obstacles.removeAll()
         swingDoors.removeAll()
-        hallMonitors.removeAll()
         projectiles.removeAll()
 
         // — Scripted majors —
@@ -332,33 +320,36 @@ final class MopBucketChaseScene: SKScene {
         }
         func at(_ frac: CGFloat) -> CGFloat { hallLength * frac }
 
-        for f in [0.14, 0.44, 0.78] {
+        // Hazard variety trimmed (hall monitors cut — they overlapped
+        // functionally with swinging doors) and each survivor spaced further
+        // apart so it gets a readable introduction instead of blurring
+        // together in one dense 60-second hallway.
+        for f in [0.16, 0.62] {
             addWaxZone(at: at(f), length: W * 0.85, in: layer); reserve(at(f), W * 0.85)
         }
-        for f in [0.22, 0.52, 0.86] {
+        for f in [0.30, 0.74] {
             addLimbo(at: at(f), gapLane: Bool.random() ? 0 : 2, in: layer); reserve(at(f), 0)
         }
-        for f in [0.30, 0.68] {
+        for f in [0.44, 0.86] {
             addSprayKid(at: at(f), in: layer); reserve(at(f), 0)
         }
-        for f in [0.37, 0.60, 0.92] {
+        for f in [0.24, 0.68] {
             addPuddle(at: at(f), length: W * 0.80, in: layer); reserve(at(f), W * 0.80)
         }
-        for (i, f) in [0.18, 0.405, 0.63, 0.82].enumerated() {
+        for (i, f) in [0.20, 0.50, 0.80].enumerated() {
             addSwingDoor(at: at(f), lane: i % 2 == 0 ? 0 : 2, in: layer); reserve(at(f), 0)
         }
-        for f in [0.26, 0.56, 0.74] {
-            addHallMonitor(at: at(f), in: layer); reserve(at(f), 0)
-        }
-        for (i, f) in [0.12, 0.335, 0.48, 0.665, 0.88].enumerated() {
+        for (i, f) in [0.12, 0.38, 0.58, 0.90].enumerated() {
             addHighFiveKid(at: at(f), lane: i % 2 == 0 ? 2 : 0, in: layer); reserve(at(f), 0)
         }
 
         // — Random fillers (kids + wet-floor signs) — stop with clearance
         // before Billy's fixed waiting spot so nothing spawns on top of him.
+        // Wider spacing than the majors above so the hallway breathes between
+        // hazards instead of chaining crash after crash.
         var d = hallLength * 0.05
         while d < billyWaitDist - W * 0.6 {
-            d += CGFloat.random(in: (W * 0.85)...(W * 1.35))
+            d += CGFloat.random(in: (W * 1.1)...(W * 1.7))
             if majorSpans.contains(where: { $0.contains(d) }) { continue }
             let lane = Int.random(in: 0...2)
             if Bool.random() {
@@ -506,25 +497,6 @@ final class MopBucketChaseScene: SKScene {
                                     phase: CGFloat.random(in: 0...(2 * .pi))))
     }
 
-    /// Hall monitor kid pacing side-to-side across the full hall width.
-    private func addHallMonitor(at dist: CGFloat, in layer: SKNode) {
-        let kid = makeTopKid(shirt: SKColor(red: 0.90, green: 0.55, blue: 0.10, alpha: 1),
-                             hair: SKColor(red: 0.10, green: 0.08, blue: 0.05, alpha: 1))
-        // Safety sash.
-        let sash = SKSpriteNode(color: SKColor(red: 0.98, green: 0.85, blue: 0.20, alpha: 1),
-                                size: CGSize(width: 4, height: 14))
-        sash.zRotation = 0.6
-        sash.zPosition = 3
-        kid.addChild(sash)
-        addAuraRing(to: kid, color: SKColor(red: 1.0, green: 0.55, blue: 0.15, alpha: 0.9))
-        kid.position = CGPoint(x: 0, y: dist)
-        kid.zPosition = 22
-        layer.addChild(kid)
-        hallMonitors.append(HallMonitor(dist: dist, node: kid,
-                                        speed: CGFloat.random(in: 1.1...1.7),
-                                        phase: CGFloat.random(in: 0...(2 * .pi))))
-    }
-
     /// Friendly kid at the lockers with a hand out — hug that wall lane for
     /// a free speed burst.
     private func addHighFiveKid(at dist: CGFloat, lane: Int, in layer: SKNode) {
@@ -604,8 +576,8 @@ final class MopBucketChaseScene: SKScene {
         return kid
     }
 
-    /// Pulsing aura ring under a kid — green = friendly (high five),
-    /// orange = hazard on the move (hall monitor). Reads intent at a glance.
+    /// Pulsing aura ring under a kid — green = friendly (high five).
+    /// Reads intent at a glance.
     private func addAuraRing(to kid: SKNode, color: SKColor) {
         let ring = SKShapeNode(circleOfRadius: 13)
         ring.strokeColor = color
@@ -760,25 +732,6 @@ final class MopBucketChaseScene: SKScene {
         help.zPosition = 502
         addChild(help)
 
-        // Zone B — hearts row, centered.
-        let heartSpacing: CGFloat = 20
-        let maxHearts = HeartsManager.shared.maxHearts
-        let startX = -(CGFloat(maxHearts - 1) * heartSpacing) / 2
-        heartSprites.removeAll()
-        for i in 0..<maxHearts {
-            let h = SKLabelNode(fontNamed: "AvenirNext-Heavy")
-            h.text = "♥"
-            h.fontSize = 18
-            h.fontColor = Parchment.heartRed
-            h.horizontalAlignmentMode = .center
-            h.verticalAlignmentMode = .center
-            h.position = CGPoint(x: startX + CGFloat(i) * heartSpacing, y: contentY - 1)
-            h.zPosition = 502
-            addChild(h)
-            heartSprites.append(h)
-        }
-        refreshHearts()
-
         let closeBtn = SKSpriteNode(imageNamed: "closeIcon")
         closeBtn.size = CGSize(width: 22, height: 22)
         closeBtn.position = CGPoint(x: W / 2 - 22, y: contentY)
@@ -786,13 +739,13 @@ final class MopBucketChaseScene: SKScene {
         closeBtn.name = "closeButton"
         addChild(closeBtn)
 
-        // Timer — right-aligned against the close button.
+        // Zone B — the clock is the only fail condition, so it takes center stage.
         let timer = SKLabelNode(fontNamed: "PressStart2P-Regular")
-        timer.fontSize = 9
+        timer.fontSize = 14
         timer.fontColor = Parchment.timerBlue
-        timer.horizontalAlignmentMode = .right
+        timer.horizontalAlignmentMode = .center
         timer.verticalAlignmentMode = .center
-        timer.position = CGPoint(x: W / 2 - 50, y: contentY)
+        timer.position = CGPoint(x: 0, y: contentY)
         timer.zPosition = 502
         addChild(timer)
         timeLabel = timer
@@ -1001,7 +954,6 @@ final class MopBucketChaseScene: SKScene {
             showToast("WAXED FLOOR — GLIDE!", color: SKColor(red: 0.95, green: 0.85, blue: 0.40, alpha: 1))
             HapticsManager.shared.warningFeedback()
             jackCrashWobble()
-            loseHeart()
             settleMop()
             return
         }
@@ -1033,31 +985,6 @@ final class MopBucketChaseScene: SKScene {
         mopNode?.run(.rotate(toAngle: 0.6, duration: 0.25, shortestUnitArc: true))
     }
 
-    // MARK: - Hearts
-
-    /// Every crash costs one universal heart. Hitting zero ends the chase
-    /// immediately, regardless of the clock.
-    private func loseHeart() {
-        guard phase == .racing else { return }
-        HeartsManager.shared.lose()
-        refreshHearts()
-        if HeartsManager.shared.currentHearts <= 0 {
-            phase = .done
-            loseReason = .heartsGone
-            run(.wait(forDuration: 0.3)) { [weak self] in
-                self?.triggerGameOver(playerWon: false)
-            }
-        }
-    }
-
-    private func refreshHearts() {
-        let current = HeartsManager.shared.currentHearts
-        for (i, h) in heartSprites.enumerated() {
-            let filled = i < current
-            h.text = filled ? "♥" : "♡"
-            h.fontColor = filled ? Parchment.heartRed : Parchment.disInk
-        }
-    }
 
     // MARK: - Steering
 
@@ -1196,7 +1123,6 @@ final class MopBucketChaseScene: SKScene {
 
         updateObstacles()
         updateSwingDoors()
-        updateHallMonitors()
         updateProjectiles(fdt)
         updateBillyTaunt()
         scrollFloor(by: jackSpeed * fdt)
@@ -1213,8 +1139,8 @@ final class MopBucketChaseScene: SKScene {
 
         // — Win / lose checks — reaching the end of the hall triggers the
         // crash; running out of time before that means Billy leaves without
-        // you. Hearts hitting zero (loseHeart()) ends things immediately,
-        // independent of this check.
+        // you. Crashes only cost speed, so this clock check is the sole
+        // way the run ends in a loss.
         if jackDist >= finaleZoneStart {
             startFinale()
         } else if raceClock >= raceTimeLimit {
@@ -1226,7 +1152,6 @@ final class MopBucketChaseScene: SKScene {
     private func billyLeaves() {
         guard phase == .racing else { return }
         phase = .done
-        loseReason = .timeOut
         showToast("TIME'S UP!", color: SKColor(red: 0.95, green: 0.45, blue: 0.30, alpha: 1))
         billyNode?.removeAction(forKey: "idleBounce")
         billyNode?.run(.sequence([
@@ -1308,29 +1233,6 @@ final class MopBucketChaseScene: SKScene {
                 HapticsManager.shared.errorFeedback()
                 run(SKAction.playSoundFileNamed("hit.mp3", waitForCompletion: false))
                 jackCrashWobble()
-                loseHeart()
-            }
-        }
-    }
-
-    /// Hall monitors pace the full width of the hall.
-    private func updateHallMonitors() {
-        for i in hallMonitors.indices {
-            let m = hallMonitors[i]
-            let x = sin(CGFloat(raceClock) * m.speed + m.phase) * (hallWidth / 2 - 16)
-            m.node.position.x = x
-            if !m.hit, abs(m.dist - jackDist) < 24, abs(x - jackX) < 26 {
-                hallMonitors[i].hit = true
-                jackSpeed *= 0.40
-                showToast("\"NO ROLLING IN THE HALL!\"", color: SKColor(red: 0.95, green: 0.60, blue: 0.20, alpha: 1))
-                HapticsManager.shared.errorFeedback()
-                run(SKAction.playSoundFileNamed("hit.mp3", waitForCompletion: false))
-                jackCrashWobble()
-                loseHeart()
-                m.node.run(.sequence([
-                    .rotate(toAngle: 0.4, duration: 0.1),
-                    .rotate(toAngle: 0, duration: 0.2),
-                ]))
             }
         }
     }
@@ -1348,7 +1250,6 @@ final class MopBucketChaseScene: SKScene {
                 HapticsManager.shared.errorFeedback()
                 run(SKAction.playSoundFileNamed("hit.mp3", waitForCompletion: false))
                 jackCrashWobble()
-                loseHeart()
                 projectiles[i].node.run(.sequence([
                     .group([.scale(to: 1.6, duration: 0.2), .fadeOut(withDuration: 0.2)]),
                     .removeFromParent(),
@@ -1406,7 +1307,6 @@ final class MopBucketChaseScene: SKScene {
         HapticsManager.shared.errorFeedback()
         run(SKAction.playSoundFileNamed("hit.mp3", waitForCompletion: false))
         jackCrashWobble()
-        loseHeart()
     }
 
     private func shoveKid(_ node: SKNode) {
@@ -2074,17 +1974,11 @@ final class MopBucketChaseScene: SKScene {
             subtitle = "RIGHT INTO BECKY"
             detail = nil
             hint = nil
-        } else if loseReason == .heartsGone {
-            title = "TOO BANGED UP!"
-            subtitle = "COULDN'T KEEP GOING"
-            detail = "TOO MANY CRASHES COST YOU EVERY HEART"
-            hint = ("SWIPE TO DODGE —\nEVERY CRASH COSTS A HEART",
-                    SKColor(red: 0.12, green: 0.82, blue: 0.35, alpha: 1))
         } else {
             title = "TIME'S UP!"
             subtitle = "BILLY LEFT WITHOUT YOU"
             detail = "REACH HIM BEFORE THE CLOCK RUNS OUT"
-            hint = ("TAP FASTER TO KEEP YOUR SPEED UP",
+            hint = ("SWIPE TO DODGE — CRASHES COST SPEED,\nNOT TIME, SO KEEP TAPPING",
                     SKColor(red: 0.12, green: 0.82, blue: 0.35, alpha: 1))
         }
 
@@ -2106,11 +2000,6 @@ final class MopBucketChaseScene: SKScene {
     private func resetForReplay() {
         messageNode?.removeFromParent()
         messageNode = nil
-
-        // Replaying after a loss refills hearts (matches the universal
-        // hearts convention used by every other heart-draining game).
-        if !didWin { HeartsManager.shared.refill() }
-        refreshHearts()
 
         // Tear down the whole world (fresh obstacle layout every run).
         scrollLayer?.removeFromParent()

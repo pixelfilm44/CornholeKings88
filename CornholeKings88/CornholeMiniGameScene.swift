@@ -60,6 +60,10 @@ final class CornholeMiniGameScene: SKScene {
     private(set) var cannonballBagsUsed: Int = 0
     private var cannonballBagSelected = false
 
+    /// Fires once per match: after a round the player is behind and holding an
+    /// unused special bag, nudge them to equip it — before a loss, not after.
+    private var specialBagNudgeShown = false
+
     /// Extra holes punched by cannonball bags this round. Each entry stores the
     /// world-space center and radius. Cleared at the start of every round.
     private var cannonballHoles: [(center: CGPoint, radius: CGFloat)] = []
@@ -361,11 +365,9 @@ final class CornholeMiniGameScene: SKScene {
     private var stormFlashOverlay: SKSpriteNode?
     private var stormAudioNode:   SKAudioNode?
 
-    // Tom's fart ability — 50% chance per round; green fog + faster/wobbling indicator
+    // Tom's fart ability — 50% chance per round; dense green fog obscures the board/hole
     private var tomFartActive    = false
     private var tomFartOverlay:  SKNode?
-    private var fartBaseSpeed:   CGFloat = 0  // saved targetSpeed before doubling
-    private var fartWobbleTimer: CGFloat = 0
 
     // Gopher — only one alive at a time; chases the throw-line bag and steals it
     private var activeGopher: GopherNode?
@@ -534,8 +536,6 @@ final class CornholeMiniGameScene: SKScene {
         if StoreManager.gauntletOwned {
             targetSpeed *= 0.55
         }
-        fartBaseSpeed = targetSpeed
-
         // powerScale chosen so a 38% screen-height swipe lands near the hole
         let distToHole   = abs(holeCenter.y - throwLineY)
         let flightFrames = 2.0 * vzInitial / gravityPerFrame  // ≈ 100 frames
@@ -2021,8 +2021,43 @@ final class CornholeMiniGameScene: SKScene {
             // PLACEHOLDER: add round_end.wav to Copy Bundle Resources
             run(SKAction.playSoundFileNamed("round_end.wav", waitForCompletion: false))
             showBanner()
-            run(SKAction.wait(forDuration: 2.4)) { [weak self] in self?.startRound() }
+            if let nudge = specialBagNudgeIfNeeded() {
+                run(.sequence([
+                    .wait(forDuration: 1.8),
+                    .run { [weak self] in self?.showStreakBanner(lines: [nudge.line], color: nudge.color) },
+                ]))
+                run(.wait(forDuration: 3.8)) { [weak self] in self?.startRound() }
+            } else {
+                run(.wait(forDuration: 2.4)) { [weak self] in self?.startRound() }
+            }
         }
+    }
+
+    /// One-time-per-match contextual nudge toward an unused special bag. Only
+    /// fires when the player is behind after a round, isn't already holding a
+    /// bag selection, and hasn't seen this nudge yet this match — the moment
+    /// this helps is mid-match, not the post-loss hint on the game-over panel.
+    private func specialBagNudgeIfNeeded() -> (line: String, color: SKColor)? {
+        guard !specialBagNudgeShown, aiScore > playerScore else { return nil }
+        guard !bombBagSelected, !magicBagSelected, !fireBagSelected,
+              !cannonballBagSelected, !honeyBagSelected else { return nil }
+
+        let candidates: [(count: Int, line: String, color: SKColor)] = [
+            (availableFireBags,       "🔥 FIRE BAG READY — TAP TO EQUIP",
+             SKColor(red: 0.95, green: 0.40, blue: 0.10, alpha: 1)),
+            (availableMagicBags,      "✨ MAGIC BAG READY — TAP TO EQUIP",
+             SKColor(red: 0.30, green: 1.00, blue: 0.10, alpha: 1)),
+            (availableBombBags,       "💣 BOMB BAG READY — TAP TO EQUIP",
+             SKColor(red: 0.90, green: 0.30, blue: 0.30, alpha: 1)),
+            (availableCannonballBags, "⚫ CANNONBALL READY — TAP TO EQUIP",
+             SKColor(red: 0.75, green: 0.78, blue: 0.85, alpha: 1)),
+            (availableHoneyBags,      "🍯 HONEY BAG READY — TAP TO EQUIP",
+             SKColor(red: 0.95, green: 0.72, blue: 0.10, alpha: 1)),
+        ]
+        guard let pick = candidates.first(where: { $0.count > 0 }) else { return nil }
+
+        specialBagNudgeShown = true
+        return (pick.line, pick.color)
     }
 
     // MARK: - Physics update
@@ -2154,14 +2189,7 @@ final class CornholeMiniGameScene: SKScene {
             targetX -= step
             if targetX <= -targetRange { targetX = -targetRange; targetMovingRight = true }
         }
-        // During a fart round, add a jitter wobble so the indicator shakes unpredictably.
-        var displayX = targetX
-        if tomFartActive {
-            fartWobbleTimer += dt
-            displayX += sin(fartWobbleTimer * 14.0) * targetRange * 0.08
-                      + CGFloat.random(in: -targetRange * 0.04...targetRange * 0.04)
-        }
-        turnIndicator?.position.x = displayX
+        turnIndicator?.position.x = targetX
     }
 
     private func updateBagPhysics(_ bag: MiniGameBag, dt: CGFloat) {
@@ -4004,36 +4032,53 @@ final class CornholeMiniGameScene: SKScene {
 
     private func activateTomFart() {
         tomFartActive    = true
-        fartWobbleTimer  = 0
-        targetSpeed      = fartBaseSpeed * 2.2   // indicator moves ~2× faster
+        // Indicator speed is unchanged — the challenge is visual, not mechanical.
 
-        // Green fog cloud centered over the board + hole area
+        // Dense green fog cloud blanketing the board + hole so the player must
+        // aim from memory/silhouette rather than a clear view of the target.
         let fogContainer = SKNode()
         fogContainer.zPosition = 97   // above board, below chrome
         addChild(fogContainer)
         tomFartOverlay = fogContainer
 
-        // Build several overlapping soft circles to simulate a cloudy fog
+        // Build several overlapping soft circles to simulate a drifting cloud
+        // bank — lighter and moving, so the player can time a throw to a gap
+        // instead of facing a fixed, opaque wall.
         let boardCenterY = boardY + (holeCenter.y - boardY) * 0.5
-        let fogW = size.width * 0.70
-        let fogH = size.height * 0.55
-        for _ in 0..<6 {
+        let fogW = size.width * 0.85
+        let fogH = size.height * 0.65
+        for _ in 0..<9 {
+            let baseAlpha = CGFloat.random(in: 0.30...0.45)
             let blob = SKSpriteNode(
                 color: SKColor(red: CGFloat.random(in: 0.20...0.35),
                                green: CGFloat.random(in: 0.55...0.78),
                                blue:  CGFloat.random(in: 0.10...0.22),
-                               alpha: CGFloat.random(in: 0.18...0.32)),
-                size: CGSize(width: fogW * CGFloat.random(in: 0.45...0.85),
-                             height: fogH * CGFloat.random(in: 0.45...0.85)))
-            blob.position = CGPoint(x: CGFloat.random(in: -fogW * 0.25...fogW * 0.25),
-                                    y: boardCenterY + CGFloat.random(in: -fogH * 0.20...fogH * 0.20))
+                               alpha: baseAlpha),
+                size: CGSize(width: fogW * CGFloat.random(in: 0.55...0.95),
+                             height: fogH * CGFloat.random(in: 0.55...0.95)))
+            let startX = CGFloat.random(in: -fogW * 0.30...fogW * 0.30)
+            let startY = boardCenterY + CGFloat.random(in: -fogH * 0.22...fogH * 0.22)
+            blob.position = CGPoint(x: startX, y: startY)
             fogContainer.addChild(blob)
-            // Gently pulse each blob so the fog feels alive
+
+            // Gently pulse alpha so the fog feels alive and occasionally thins.
             let pulseDur = Double.random(in: 0.6...1.2)
             blob.run(.repeatForever(.sequence([
-                .fadeAlpha(to: blob.alpha * 0.55, duration: pulseDur),
-                .fadeAlpha(to: blob.alpha, duration: pulseDur)
+                .fadeAlpha(to: baseAlpha * 0.55, duration: pulseDur),
+                .fadeAlpha(to: baseAlpha, duration: pulseDur)
             ])))
+
+            // Slow drift — each blob wanders a short, easing loop so the whole
+            // bank shifts and opens brief gaps rather than sitting frozen.
+            let driftX = CGFloat.random(in: fogW * 0.08...fogW * 0.16) * (Bool.random() ? 1 : -1)
+            let driftY = CGFloat.random(in: fogH * 0.05...fogH * 0.10) * (Bool.random() ? 1 : -1)
+            let driftDur = Double.random(in: 3.5...6.0)
+            let drift = SKAction.sequence([
+                .move(to: CGPoint(x: startX + driftX, y: startY + driftY), duration: driftDur),
+                .move(to: CGPoint(x: startX, y: startY), duration: driftDur),
+            ])
+            drift.timingMode = .easeInEaseOut
+            blob.run(.repeatForever(drift))
         }
         fogContainer.alpha = 0
         fogContainer.run(.fadeIn(withDuration: 0.50))
@@ -4051,7 +4096,6 @@ final class CornholeMiniGameScene: SKScene {
 
     private func deactivateTomFart() {
         tomFartActive = false
-        targetSpeed   = fartBaseSpeed
 
         tomFartOverlay?.run(.sequence([
             .fadeOut(withDuration: 0.60),

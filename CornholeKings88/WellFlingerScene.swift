@@ -107,6 +107,10 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
     private var obstacleSpecs: [ObstacleSpec] = []
     private var obstacleNodes: [SKNode] = []     // built stones + webs
     private var placedRocks:   [SKNode] = []     // small rocks the player tapped down
+    /// Constraint over spam: a rock staircase is the dominant strategy without
+    /// a limit, so cap how many the player can have placed at once (tap an
+    /// existing rock to remove it and free up a slot).
+    private let maxPlacedRocks = 3
 
     // MARK: - Lifecycle
 
@@ -1082,6 +1086,12 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
     /// toward the hole. Quietly ignored if the tap is outside the shaft, too
     /// close to the bag, or below the board.
     private func placePlayerRock(at worldPos: CGPoint) {
+        guard placedRocks.count < maxPlacedRocks else {
+            showToast("MAX \(maxPlacedRocks) ROCKS — TAP ONE TO CLEAR")
+            HapticsManager.shared.warningFeedback()
+            return
+        }
+
         let r = shaftHalfW * 0.09     // small, ~half the natural pebble size
 
         // Keep a bag-width of clearance between the rock and either wall so the

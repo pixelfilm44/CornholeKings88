@@ -21,8 +21,75 @@ final class BeeHiveScene: SKScene {
     private(set) var remainingHearts: Int = 3
 
     // MARK: - Global difficulty ramp (persisted across all launches)
-    private static let fightCountKey = "beeHiveFightCount_v1"
-    /// Speed multiplier that increases 12% per completed fight, capped at 2.2×.
+    // Wins-only: a losing streak should never make the hive harder — that's an
+    // anti-comeback mechanic. New key (vs. the old fight-count key) so existing
+    // installs don't inherit an inflated difficulty from a mix of wins/losses.
+    private static let winCountKey = "beeHiveWinCount_v1"
+
+    /// Four discrete difficulty tiers, gated purely on cumulative wins (every 3
+    /// wins bumps a tier, capped at `.savage`). Each tier is a visible step up
+    /// in speed, concurrent bees, and how "upset" the bees look — replacing the
+    /// old silent continuous ramp with something the player can read as
+    /// escalating characterization rather than a hidden rubber-band.
+    private enum BeeDifficultyTier: Int, CaseIterable {
+        case base = 0, angry, furious, savage
+
+        static func forWins(_ wins: Int) -> BeeDifficultyTier {
+            let idx = min(wins / 3, BeeDifficultyTier.allCases.count - 1)
+            return BeeDifficultyTier(rawValue: idx) ?? .base
+        }
+
+        /// Multiplies bee flight speed.
+        var speedMultiplier: CGFloat {
+            switch self {
+            case .base:    return 1.0
+            case .angry:   return 1.4
+            case .furious: return 1.8
+            case .savage:  return 2.2
+            }
+        }
+
+        /// Added on top of the within-match 1→3 concurrent-bee ramp.
+        var concurrentBonus: Int {
+            switch self {
+            case .base:    return 0
+            case .angry:   return 1
+            case .furious: return 2
+            case .savage:  return 3
+            }
+        }
+
+        /// Progressively redder/darker tint applied to the bee sprite.
+        var tintColor: SKColor {
+            switch self {
+            case .base:    return .clear
+            case .angry:   return SKColor(red: 0.95, green: 0.55, blue: 0.10, alpha: 1)
+            case .furious: return SKColor(red: 0.88, green: 0.16, blue: 0.10, alpha: 1)
+            case .savage:  return SKColor(red: 0.45, green: 0.02, blue: 0.05, alpha: 1)
+            }
+        }
+        var tintBlendFactor: CGFloat {
+            switch self {
+            case .base:    return 0.0
+            case .angry:   return 0.30
+            case .furious: return 0.50
+            case .savage:  return 0.70
+            }
+        }
+
+        /// One-time banner shown at match start for any tier above base.
+        var announcement: String? {
+            switch self {
+            case .base:    return nil
+            case .angry:   return "THE BEES ARE ANGRY!"
+            case .furious: return "THE BEES ARE FURIOUS!"
+            case .savage:  return "THE BEES ARE SAVAGE!"
+            }
+        }
+    }
+
+    private var currentTier: BeeDifficultyTier = .base
+    /// Speed multiplier for the current tier, applied to every spawned bee.
     private var globalSpeedMultiplier: CGFloat = 1.0
 
     // MARK: - Private types
@@ -132,8 +199,9 @@ final class BeeHiveScene: SKScene {
 
     override func didMove(to view: SKView) {
         anchorPoint = CGPoint(x: 0.5, y: 0.5)
-        let fightCount = UserDefaults.standard.integer(forKey: Self.fightCountKey)
-        globalSpeedMultiplier = min(1.0 + CGFloat(fightCount) * 0.12, 2.2)
+        let winCount = UserDefaults.standard.integer(forKey: Self.winCountKey)
+        currentTier = BeeDifficultyTier.forWins(winCount)
+        globalSpeedMultiplier = currentTier.speedMultiplier
         preloadAssets()
         playerHearts  = startingHearts
         remainingHearts = playerHearts
@@ -340,6 +408,10 @@ final class BeeHiveScene: SKScene {
     private func makeBeeSprite() -> SKSpriteNode {
         let frames = BeeHiveScene.beeFlyFrames
         let sprite = SKSpriteNode(texture: frames[0], size: CGSize(width: 52, height: 52))
+        // Progressively redder/darker tint per tier — reads as "angrier," not
+        // just faster. `.base` leaves the sprite untouched (blend factor 0).
+        sprite.color = currentTier.tintColor
+        sprite.colorBlendFactor = currentTier.tintBlendFactor
         sprite.run(SKAction.repeatForever(
             SKAction.animate(with: frames, timePerFrame: 0.08, resize: false, restore: false)
         ))
@@ -493,14 +565,37 @@ final class BeeHiveScene: SKScene {
 
     // MARK: - Game flow
 
+    /// One-time flavor beat at the start of a match — read the escalating tier
+    /// as characterization ("the bees are angrier") rather than a silent stat
+    /// change. No banner at `.base`.
+    private func showTierAnnouncementIfNeeded() {
+        guard let text = currentTier.announcement else { return }
+        let banner = makeLabel(text: text, size: 12, color: currentTier.tintColor)
+        banner.horizontalAlignmentMode = .center
+        banner.position  = CGPoint(x: 0, y: 0)
+        banner.zPosition = 900
+        banner.alpha = 0
+        addChild(banner)
+        banner.run(.sequence([
+            .group([.fadeIn(withDuration: 0.25), .scale(to: 1.1, duration: 0.25)]),
+            .scale(to: 1.0, duration: 0.12),
+            .wait(forDuration: 1.2),
+            .fadeOut(withDuration: 0.4),
+            .removeFromParent(),
+        ]))
+    }
+
     private func startGame() {
+        showTierAnnouncementIfNeeded()
         spawnNextBee()
     }
 
     private var maxConcurrent: Int {
-        if beesSpawned < 3 { return 1 }
-        if beesSpawned < 7 { return 2 }
-        return 3
+        let base: Int
+        if beesSpawned < 3 { base = 1 }
+        else if beesSpawned < 7 { base = 2 }
+        else { base = 3 }
+        return base + currentTier.concurrentBonus
     }
 
     private func spawnNextBee() {
@@ -1149,8 +1244,11 @@ final class BeeHiveScene: SKScene {
 
     private func dismissScene(playerWon: Bool) {
         remainingHearts = playerHearts
-        let count = UserDefaults.standard.integer(forKey: Self.fightCountKey)
-        UserDefaults.standard.set(count + 1, forKey: Self.fightCountKey)
+        // Wins-only ramp — a losing streak should never make the hive harder.
+        if playerWon {
+            let count = UserDefaults.standard.integer(forKey: Self.winCountKey)
+            UserDefaults.standard.set(count + 1, forKey: Self.winCountKey)
+        }
         onComplete?(playerWon)
         guard let view = self.view, let prev = previousScene else { return }
         SceneTransition.iris(in: view, to: prev)
