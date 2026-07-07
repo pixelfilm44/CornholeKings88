@@ -4042,13 +4042,14 @@ final class CornholeMiniGameScene: SKScene {
         tomFartOverlay = fogContainer
 
         // Build several overlapping soft circles to simulate a drifting cloud
-        // bank — lighter and moving, so the player can time a throw to a gap
-        // instead of facing a fixed, opaque wall.
+        // bank. Default state is dense enough to hide the hole; the pulse and
+        // drift below occasionally thin/part the bank for a brief clear look,
+        // rather than the player ever facing a fixed, opaque wall.
         let boardCenterY = boardY + (holeCenter.y - boardY) * 0.5
         let fogW = size.width * 0.85
         let fogH = size.height * 0.65
         for _ in 0..<9 {
-            let baseAlpha = CGFloat.random(in: 0.30...0.45)
+            let baseAlpha = CGFloat.random(in: 0.62...0.78)
             let blob = SKSpriteNode(
                 color: SKColor(red: CGFloat.random(in: 0.20...0.35),
                                green: CGFloat.random(in: 0.55...0.78),
@@ -4061,11 +4062,13 @@ final class CornholeMiniGameScene: SKScene {
             blob.position = CGPoint(x: startX, y: startY)
             fogContainer.addChild(blob)
 
-            // Gently pulse alpha so the fog feels alive and occasionally thins.
+            // Deep pulse swing — most of the time it's dense, but it thins to
+            // a real gap for a moment as it "wafts" past.
             let pulseDur = Double.random(in: 0.6...1.2)
             blob.run(.repeatForever(.sequence([
-                .fadeAlpha(to: baseAlpha * 0.55, duration: pulseDur),
-                .fadeAlpha(to: baseAlpha, duration: pulseDur)
+                .fadeAlpha(to: baseAlpha * 0.20, duration: pulseDur),
+                .wait(forDuration: pulseDur * 0.35),
+                .fadeAlpha(to: baseAlpha, duration: pulseDur),
             ])))
 
             // Slow drift — each blob wanders a short, easing loop so the whole
