@@ -854,9 +854,17 @@ final class BridgePiranhaScene: SKScene {
     }
 
     private func showEndPanel(won: Bool) {
-        let rewards: [GameResultModal.Reward] = (awardsRewards && won)
+        var rewards: [GameResultModal.Reward] = (awardsRewards && won)
             ? [.unlock("YOU EARNED A BRIDGE!")]
             : []
+
+        if won {
+            let bagsUsed = (baseBags + availableFloatingBags) - bagsRemaining
+            let tier: MedalTier = bagsUsed <= 8 ? .gold : (bagsUsed <= 10 ? .silver : .bronze)
+            if MedalManager.shared.recordResult(for: .piranha, tier: tier) {
+                rewards.append(.unlock("\(tier.emoji) \(tier.label) MEDAL!"))
+            }
+        }
 
         let panel = GameResultModal.make(
             sceneSize: CGSize(width: W, height: H),

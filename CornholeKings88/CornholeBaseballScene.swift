@@ -66,6 +66,14 @@ final class CornholeBaseballScene: SKScene {
         return BaseballAISettings.shared.multiplier(c, stat)
     }
 
+    /// Session-only (not persisted): consecutive losses against the current opponent
+    /// this sitting. Only the untunable generic BOT gets an automatic ease from this —
+    /// Tim/Jen are already player-adjustable in Settings, so they stay honest.
+    private var storyLossStreak = 0
+    private var bossForgivenessBoost: Double {
+        tuningCharacter == nil ? min(0.24, Double(storyLossStreak) * 0.06) : 0
+    }
+
     // MARK: - HUD (SwiftUI overlay, owned by this scene)
     private let hudViewModel = BaseballHUDViewModel()
     private var hudHostingController: UIHostingController<BaseballHUDView>?
@@ -1099,11 +1107,6 @@ final class CornholeBaseballScene: SKScene {
         aiWillPowerSwing = CGFloat.random(in: 0...1) < 0.50
         if aiWillPowerSwing { aiPowerChargeStartTime = CACurrentMediaTime() }
 
-        // AI hit probability: base 95 %, drops slightly if power-swinging
-        let preMissProb: Double = aiWillPowerSwing ? 0.15 : 0.05
-        // Tunable contact likelihood (Tom/Jen): scale the base hit chance.
-        let preHitProb = min(1.0, max(0.0, (1.0 - preMissProb) * Double(aiMult(.hit))))
-        aiWillHit    = Double.random(in: 0...1) < preHitProb
         aiFrameCount = 0
         let travelFrames = max(10, Int((batY - pitcherY) / pitchSpeed))
         aiSwingFrame = max(5, travelFrames - Int.random(in: 2...7))
@@ -1231,14 +1234,19 @@ final class CornholeBaseballScene: SKScene {
 
     // MARK: - AI swing
 
-    private func aiSwings(pitch: PitchBag) {
+    private func aiSwings(pitch: PitchBag, pitchQuality: CGFloat) {
         let aiCharge: CGFloat = aiWillPowerSwing
             ? min(CGFloat(CACurrentMediaTime() - aiPowerChargeStartTime), 1.0)
             : 0
         aiWillPowerSwing = false
 
-        // Recalculate hit chance — AI is a strong hitter, power swing adds minor risk
-        let missProb = 0.05 + Double(aiCharge) * 0.10
+        // Recalculate hit chance — AI is a strong hitter, power swing adds minor risk.
+        // pitchQuality (0...1: centered in the zone + thrown hard) gives pitching a real
+        // ceiling — a well-placed, fast pitch meaningfully outperforms one that just
+        // clips the zone edge, instead of both getting the same odds once "in zone."
+        // bossForgivenessBoost eases the untunable generic BOT after repeated losses
+        // this sitting (Tim/Jen already have a player-facing difficulty dial; BOT doesn't).
+        let missProb = 0.05 + Double(aiCharge) * 0.10 + Double(pitchQuality) * 0.35 + bossForgivenessBoost
         // Tunable contact likelihood (Tom/Jen): scale the base hit chance.
         let hitProb  = min(1.0, max(0.0, (1.0 - missProb) * Double(aiMult(.hit))))
         aiWillHit    = Double.random(in: 0...1) < hitProb
@@ -1549,13 +1557,18 @@ final class CornholeBaseballScene: SKScene {
         } else if phase == .userPitching {
             aiFrameCount += 1
             let distToAI = batY - pitch.by
-            let inZone   = abs(pitch.bx - strikeZone.position.x) < 29  // half-width of strike zone
+            let zoneHalfWidth: CGFloat = 29
+            let inZone   = abs(pitch.bx - strikeZone.position.x) < zoneHalfWidth  // half-width of strike zone
 
             // Pitch reached batter area — check zone before letting AI swing
             if aiFrameCount >= aiSwingFrame && distToAI < size.height * 0.10 {
                 pitchInFlight = false
                 if inZone {
-                    aiSwings(pitch: pitch)
+                    // How well-pitched this was: centered in the zone, and thrown hard.
+                    let centerQ: CGFloat = max(0, 1.0 - abs(pitch.bx - strikeZone.position.x) / zoneHalfWidth)
+                    let speedQ:  CGFloat = max(0, min(1, (pitch.vy - 11.0) / (20.0 - 11.0)))
+                    let pitchQuality = centerQ * 0.7 + speedQ * 0.3
+                    aiSwings(pitch: pitch, pitchQuality: pitchQuality)
                 } else {
                     // 25% chance AI chases a ball outside the zone — always misses (a strike)
                     if CGFloat.random(in: 0...1) < 0.25 {
@@ -2104,6 +2117,12 @@ final class CornholeBaseballScene: SKScene {
         let userFt    = Int(uAvg * distScale)
         let aiFt      = Int(aAvg * distScale)
 
+        if playerWon {
+            storyLossStreak = 0
+        } else if !tied {
+            storyLossStreak += 1
+        }
+
         // Reward: a bat is earned when beating Tom (greatFielder) completes both
         // baseball wins — Jen already beaten. The bat unlocks Suburban Jousters.
         var rewards: [GameResultModal.Reward] = []
@@ -2111,6 +2130,14 @@ final class CornholeBaseballScene: SKScene {
             && aiDifficulty == .greatFielder
             && CornholeStatsManager.shared.defeatedJenBaseball {
             rewards = [.unlock("EARNED A BAT!"), .unlock("JOUSTERS UNLOCKED")]
+        }
+
+        if playerWon && !tied {
+            let margin = userFt - aiFt
+            let tier: MedalTier = margin >= 30 ? .gold : (margin >= 15 ? .silver : .bronze)
+            if MedalManager.shared.recordResult(for: .baseball, tier: tier) {
+                rewards.append(.unlock("\(tier.emoji) \(tier.label) MEDAL!"))
+            }
         }
 
         let panel = GameResultModal.make(

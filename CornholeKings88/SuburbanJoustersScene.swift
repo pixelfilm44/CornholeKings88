@@ -1365,9 +1365,17 @@ final class SuburbanJoustersScene: SKScene {
         }
 
         // Reward: the Golden Lance on the first jousting win.
-        let rewards: [GameResultModal.Reward] = (awardsRewards && won && !ProgressManager.shared.hasLance)
+        var rewards: [GameResultModal.Reward] = (awardsRewards && won && !ProgressManager.shared.hasLance)
             ? [GameResultModal.Reward(item: .goldenLance, count: 1, text: "EARNED THE GOLDEN LANCE!")]
             : []
+
+        if won {
+            let tier: MedalTier = remainingHearts >= startingHearts ? .gold
+                : (remainingHearts >= 2 ? .silver : .bronze)
+            if MedalManager.shared.recordResult(for: .jousters, tier: tier) {
+                rewards.append(.unlock("\(tier.emoji) \(tier.label) MEDAL!"))
+            }
+        }
 
         let headline = tied && won ? "DRAW — YOU EDGE IT"
                                    : (won ? "VICTORY!" : "DEFEAT")
@@ -1628,8 +1636,13 @@ final class SuburbanJoustersScene: SKScene {
     // MARK: - Dismiss
 
     private func dismissScene(playerWon: Bool) {
-        let count = UserDefaults.standard.integer(forKey: Self.fightCountKey)
-        UserDefaults.standard.set(count + 1, forKey: Self.fightCountKey)
+        // Wins-only, matching BeeHive's pattern: a losing streak must never make a
+        // mandatory story gate harder to retry — that would fight the forgiveness
+        // this beat requires instead of easing it.
+        if playerWon {
+            let count = UserDefaults.standard.integer(forKey: Self.fightCountKey)
+            UserDefaults.standard.set(count + 1, forKey: Self.fightCountKey)
+        }
         onComplete?(playerWon)
         guard let view = self.view, let prev = previousScene else { return }
         SceneTransition.iris(in: view, to: prev)

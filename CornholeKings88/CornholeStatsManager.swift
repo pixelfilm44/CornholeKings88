@@ -54,7 +54,17 @@ final class CornholeStatsManager {
 
     var joustersUnlocked: Bool { defeatedJenBaseball && defeatedTomBaseball }
 
-    var currentRank: String { "Rookie" }
+    /// Derived from medal count across all graded mini-games (MedalManager), not from
+    /// win/loss counters — a "rank" should reflect breadth of mastery, not raw volume.
+    var currentRank: String {
+        let score = MedalManager.shared.totalMedalScore
+        switch score {
+        case 0:      return "Rookie"
+        case 1...9:  return "Contender"
+        case 10...19: return "Champion"
+        default:     return "Cornhole King"
+        }
+    }
 
     func recordWin()      { wins += 1 }
     func recordLoss()     { losses += 1 }
@@ -70,5 +80,6 @@ final class CornholeStatsManager {
         defeatedJenny       = false
         defeatedJenBaseball = false
         defeatedTomBaseball = false
+        MedalManager.shared.reset()
     }
 }

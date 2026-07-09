@@ -111,9 +111,11 @@ final class StatsScene: SKScene {
         let cardH: CGFloat = 60
         let gap: CGFloat = 14
 
+        let medals = MedalManager.shared
         let entries: [(label: String, value: String, sub: String)] = [
             ("RECORD",    "\(stats.wins) - \(stats.losses)",  "wins - losses"),
             ("CORNHOLES", "\(stats.cornholes)",               "bags in the hole"),
+            ("MEDALS",    "\(medals.totalMedalScore) / \(medals.maxMedalScore)", "mastery earned"),
             ("RANK",      stats.currentRank,                  "current rank"),
         ]
 

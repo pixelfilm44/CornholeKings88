@@ -1054,9 +1054,17 @@ final class BeeHiveScene: SKScene {
     private func showGameOverPanel(playerWon: Bool) {
         messageNode?.removeFromParent()
 
-        let rewards: [GameResultModal.Reward] = (awardsRewards && playerWon)
+        var rewards: [GameResultModal.Reward] = (awardsRewards && playerWon)
             ? [GameResultModal.Reward(item: .honeyBag, count: 3)]
             : []
+
+        if playerWon {
+            let tier: MedalTier = playerHearts >= startingHearts ? .gold
+                : (playerHearts * 2 >= startingHearts ? .silver : .bronze)
+            if MedalManager.shared.recordResult(for: .beehive, tier: tier) {
+                rewards.append(.unlock("\(tier.emoji) \(tier.label) MEDAL!"))
+            }
+        }
 
         let panel = GameResultModal.make(
             sceneSize: size,

@@ -18,21 +18,24 @@ final class MiniGamePickerScene: SKScene {
         let subLabel: String
         let name: String
         let isLocked: Bool
+        /// nil for non-graded entries (story, explore, and Kickball — the latter is a
+        /// pure forgiveness-ramp story beat that intentionally isn't graded).
+        var medalGame: MiniGameKey? = nil
     }
 
     private let items: [MenuItem] = [
         MenuItem(label: "STORY MODE",     subLabel: "adventure",  name: "story",      isLocked: false),
-        MenuItem(label: "BEANBAG BIKE",   subLabel: "racing",     name: "bike",       isLocked: false),
-        MenuItem(label: "CORNHOLE",       subLabel: "bag toss",   name: "cornhole",   isLocked: false),
-        MenuItem(label: "BASEBALL",       subLabel: "batting",    name: "baseball",   isLocked: false),
-        MenuItem(label: "BEEHIVE BATTLE", subLabel: "defense",    name: "beehive",    isLocked: false),
-        MenuItem(label: "BEACH BALL",     subLabel: "pool blitz",    name: "beachball",  isLocked: false),
-        MenuItem(label: "PIRANHA BRIDGE", subLabel: "bridge build",  name: "piranha",    isLocked: false),
-        MenuItem(label: "SUBURBAN JOUSTERS", subLabel: "bike joust", name: "jousters",   isLocked: false),
-        MenuItem(label: "WELL DROPPER",   subLabel: "tilt to dodge", name: "wellflinger", isLocked: false),
+        MenuItem(label: "BEANBAG BIKE",   subLabel: "racing",     name: "bike",       isLocked: false, medalGame: .bike),
+        MenuItem(label: "CORNHOLE",       subLabel: "bag toss",   name: "cornhole",   isLocked: false, medalGame: .cornhole),
+        MenuItem(label: "BASEBALL",       subLabel: "batting",    name: "baseball",   isLocked: false, medalGame: .baseball),
+        MenuItem(label: "BEEHIVE BATTLE", subLabel: "defense",    name: "beehive",    isLocked: false, medalGame: .beehive),
+        MenuItem(label: "BEACH BALL",     subLabel: "pool blitz",    name: "beachball",  isLocked: false, medalGame: .beachball),
+        MenuItem(label: "PIRANHA BRIDGE", subLabel: "bridge build",  name: "piranha",    isLocked: false, medalGame: .piranha),
+        MenuItem(label: "SUBURBAN JOUSTERS", subLabel: "bike joust", name: "jousters",   isLocked: false, medalGame: .jousters),
+        MenuItem(label: "WELL DROPPER",   subLabel: "tilt to dodge", name: "wellflinger", isLocked: false, medalGame: .wellFlinger),
         MenuItem(label: "KICKBALL",       subLabel: "dream at bat",  name: "kickball",   isLocked: false),
-        MenuItem(label: "MOP CHASE",      subLabel: "bucket rhythm", name: "mopChase",   isLocked: false),
-        MenuItem(label: "HORSE RACE",     subLabel: "cornhole derby", name: "horseRace",  isLocked: false),
+        MenuItem(label: "MOP CHASE",      subLabel: "bucket rhythm", name: "mopChase",   isLocked: false, medalGame: .mopChase),
+        MenuItem(label: "HORSE RACE",     subLabel: "cornhole derby", name: "horseRace",  isLocked: false, medalGame: .horseRace),
         MenuItem(label: "EXPLORE",        subLabel: "open world",    name: "explore",    isLocked: true),
     ]
 
@@ -226,6 +229,21 @@ final class MiniGamePickerScene: SKScene {
                     .moveBy(x: -3, y: 0, duration: 0.7),
                 ])))
                 card.addChild(arrow)
+            }
+
+            // Medal badge — best tier ever earned, tucked above the arrow/lock corner.
+            if let game = item.medalGame {
+                let tier = MedalManager.shared.medal(for: game)
+                if tier != .none {
+                    let badge = SKLabelNode(fontNamed: "AppleColorEmoji")
+                    badge.text = tier.emoji
+                    badge.fontSize = 9
+                    badge.horizontalAlignmentMode = .right
+                    badge.verticalAlignmentMode   = .center
+                    badge.position = CGPoint(x: btnW / 2, y: rowH / 2 - 8)
+                    badge.name = item.name
+                    card.addChild(badge)
+                }
             }
 
             // Separator line between items

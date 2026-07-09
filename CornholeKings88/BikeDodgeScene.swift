@@ -1936,6 +1936,16 @@ final class BikeDodgeScene: SKScene {
                 rewards.append(GameResultModal.Reward(item: .goldenBag, count: bagCount))
             }
         }
+
+        // Reaching showVictory always means finishRank == 1, so 1st place is the bronze
+        // floor here; silver/gold grade how clean the run was via the crash-free streak
+        // as a fraction of total race time (scale-invariant — no fixed race length needed).
+        let cleanFraction = elapsed > 0 ? timeSinceLastCrash / elapsed : 1
+        let tier: MedalTier = cleanFraction >= 0.5 ? .gold : (cleanFraction >= 0.25 ? .silver : .bronze)
+        if MedalManager.shared.recordResult(for: .bike, tier: tier) {
+            rewards.append(.unlock("\(tier.emoji) \(tier.label) MEDAL!"))
+        }
+
         let ov = buildEndOverlay(won: true, title: "1ST PLACE!", subtitle: timeStr, rewards: rewards)
         onComplete?(true); addChild(ov); overlayNode = ov
     }

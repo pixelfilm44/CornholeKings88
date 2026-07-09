@@ -1257,6 +1257,16 @@ final class HorseRaceCornholeScene: SKScene {
 
     private func showGameOverPanel(playerWon: Bool) {
         messageNode?.removeFromParent()
+
+        var rewards: [GameResultModal.Reward] = []
+        if playerWon {
+            let margin = playerSpaces - aiSpaces
+            let tier: MedalTier = margin >= 8 ? .gold : (margin >= 4 ? .silver : .bronze)
+            if MedalManager.shared.recordResult(for: .horseRace, tier: tier) {
+                rewards.append(.unlock("\(tier.emoji) \(tier.label) MEDAL!"))
+            }
+        }
+
         let panel = GameResultModal.make(
             sceneSize: size,
             won: playerWon,
@@ -1264,7 +1274,7 @@ final class HorseRaceCornholeScene: SKScene {
             subtitle: "RED \(playerSpaces)  -  \(aiSpaces) \(opponentName)",
             detail: "FIRST TO \(totalSpaces)",
             hint: nil,
-            rewards: [],
+            rewards: rewards,
             buttons: [GameResultModal.Button(label: "PLAY AGAIN", name: "playAgainBtn", style: .primary),
                       GameResultModal.Button(label: "EXIT",       name: "exitBtn",      style: .danger)])
         addChild(panel)

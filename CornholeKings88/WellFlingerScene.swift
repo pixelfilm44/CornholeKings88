@@ -747,6 +747,15 @@ final class WellFlingerScene: SKScene, SKPhysicsContactDelegate {
             rewards.append(GameResultModal.Reward(item: .goldenBag, count: goldenBagsEarned))
         }
 
+        if madeCornhole {
+            let startingBags = max(availableBags, 0) + max(availableFireBags, 0)
+            let bagsUsed = startingBags - bagsLeft
+            let tier: MedalTier = bagsUsed <= 1 ? .gold : (bagsLeft >= 1 ? .silver : .bronze)
+            if MedalManager.shared.recordResult(for: .wellFlinger, tier: tier) {
+                rewards.append(.unlock("\(tier.emoji) \(tier.label) MEDAL!"))
+            }
+        }
+
         let panel = GameResultModal.make(
             sceneSize: CGSize(width: W, height: H),
             won: madeCornhole,

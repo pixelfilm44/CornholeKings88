@@ -1369,11 +1369,13 @@ final class BeachBallCornholeScene: SKScene {
         let futureBoardX = boardDriftX + boardDriftVx * CGFloat(flightFrames / 60.0)
         let clampedX     = max(-boardDriftMaxX, min(boardDriftMaxX, futureBoardX))
 
-        // AI accuracy scales with score gap (rubber-band)
+        // AI accuracy scales with score gap (rubber-band). Kept to a narrow band around
+        // baseline so it reads as "the AI is trying harder," never "the AI got perfect
+        // because I was winning" — floor/ceiling are close enough to 1.4 to stay invisible.
         let diff = playerScore - aiScore
         var noiseFactor: CGFloat = 1.4
-        if diff > 2  { noiseFactor = max(0.4, noiseFactor - CGFloat(diff)  * 0.18) }
-        if diff < -2 { noiseFactor = min(3.2, noiseFactor + CGFloat(-diff) * 0.18) }
+        if diff > 2  { noiseFactor = max(1.0, noiseFactor - CGFloat(diff)  * 0.18) }
+        if diff < -2 { noiseFactor = min(2.2, noiseFactor + CGFloat(-diff) * 0.18) }
 
         let noise  = holeRadius * noiseFactor
         let aimX   = clampedX + CGFloat.random(in: -noise...noise)
@@ -1534,9 +1536,17 @@ final class BeachBallCornholeScene: SKScene {
         let tied      = playerScore == aiScore
         let playerWon = playerScore > aiScore
 
-        let rewards: [GameResultModal.Reward] = (awardsRewards && playerWon)
+        var rewards: [GameResultModal.Reward] = (awardsRewards && playerWon)
             ? [GameResultModal.Reward(item: .floatingBag, count: 8)]
             : []
+
+        if playerWon {
+            let margin = playerScore - aiScore
+            let tier: MedalTier = margin >= 8 ? .gold : (margin >= 4 ? .silver : .bronze)
+            if MedalManager.shared.recordResult(for: .beachball, tier: tier) {
+                rewards.append(.unlock("\(tier.emoji) \(tier.label) MEDAL!"))
+            }
+        }
 
         let panel = GameResultModal.make(
             sceneSize: CGSize(width: W, height: H),

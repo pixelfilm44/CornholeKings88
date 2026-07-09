@@ -572,6 +572,22 @@ final class MopBucketChaseScene: SKScene {
         shine.position = CGPoint(x: -1.2, y: 3.0)
         shine.zPosition = 2.5
         kid.addChild(shine)
+        // Simple face — a hint of eyes below the hairline so heads read as
+        // people, not blank scalps, even from this elevated top-down angle.
+        for side: CGFloat in [-1, 1] {
+            let eye = SKSpriteNode(color: ink, size: CGSize(width: 0.9, height: 1.1))
+            eye.position = CGPoint(x: side * 1.4, y: -0.6)
+            eye.zPosition = 2.6
+            kid.addChild(eye)
+        }
+        // Shoe tips peeking out below the shoulders — sells "standing person"
+        // rather than a floating torso block.
+        for side: CGFloat in [-1, 1] {
+            let shoe = SKSpriteNode(color: ink, size: CGSize(width: 3, height: 2))
+            shoe.position = CGPoint(x: side * 4, y: -6.5)
+            shoe.zPosition = 0.2
+            kid.addChild(shoe)
+        }
         if scaled { kid.setScale(characterScale) }
         return kid
     }
@@ -1982,6 +1998,14 @@ final class MopBucketChaseScene: SKScene {
                     SKColor(red: 0.12, green: 0.82, blue: 0.35, alpha: 1))
         }
 
+        var rewards: [GameResultModal.Reward] = []
+        if playerWon {
+            let tier: MedalTier = raceClock <= 25 ? .gold : (raceClock <= 40 ? .silver : .bronze)
+            if MedalManager.shared.recordResult(for: .mopChase, tier: tier) {
+                rewards.append(.unlock("\(tier.emoji) \(tier.label) MEDAL!"))
+            }
+        }
+
         let panel = GameResultModal.make(
             sceneSize: size,
             won: playerWon,
@@ -1989,7 +2013,7 @@ final class MopBucketChaseScene: SKScene {
             subtitle: subtitle,
             detail: detail,
             hint: hint,
-            rewards: [],
+            rewards: rewards,
             buttons: [GameResultModal.Button(label: "PLAY AGAIN", name: "playAgainBtn", style: .primary),
                       GameResultModal.Button(label: playerWon ? "CONTINUE" : "EXIT",
                                              name: "exitBtn", style: playerWon ? .primary : .danger)])

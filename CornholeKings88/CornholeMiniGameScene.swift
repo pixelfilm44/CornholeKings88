@@ -3367,6 +3367,17 @@ final class CornholeMiniGameScene: SKScene {
             }
         }
 
+        // Medal grading — tracked in both story and free-play context (unlike item
+        // rewards, mastery isn't gated by awardsRewards). Gold requires a shutout since
+        // per-opponent bag counts aren't tracked separately from board/hole totals.
+        if playerWon {
+            let margin = playerScore - aiScore
+            let tier: MedalTier = aiScore == 0 ? .gold : (margin >= 6 ? .silver : .bronze)
+            if MedalManager.shared.recordResult(for: .cornhole, tier: tier) {
+                rewards.append(.unlock("\(tier.emoji) \(tier.label) MEDAL!"))
+            }
+        }
+
         let panel = GameResultModal.make(
             sceneSize: size,
             won: playerWon,
