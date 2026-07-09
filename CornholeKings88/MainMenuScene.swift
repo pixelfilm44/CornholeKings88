@@ -121,7 +121,7 @@ final class MainMenuScene: SKScene {
     private func setupTitle() {
         let font = "PressStart2P-Regular"
         let titleFS: CGFloat = min(34, W / 8)
-        let titleColor = Parchment.deep
+        let titleColor = Parchment.paper
         let shadowColor = Parchment.shadow
         let topY = H / 2 - H * 0.28 + 120
 

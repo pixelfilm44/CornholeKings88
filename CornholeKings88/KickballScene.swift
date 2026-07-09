@@ -204,16 +204,76 @@ final class KickballScene: SKScene {
         addChild(cracks)
     }
 
-    /// Tiny two-block pixel kid, tinted per role.
+    /// Pixel-art kid sprite — rounded head with a simple face, capped hair, a
+    /// shirt torso with arm hints, and stubby legs, all vector shapes (no image
+    /// assets), tinted per role via shirt/hair. Same overall footprint as the
+    /// old two-block version so existing positions/scales still read correctly.
     private func makeKid(shirt: SKColor, hair: SKColor) -> SKNode {
-        let kid = SKNode()
-        let body = SKSpriteNode(color: shirt, size: CGSize(width: 10, height: 14))
-        let head = SKSpriteNode(color: SKColor(red: 0.94, green: 0.78, blue: 0.60, alpha: 1),
-                                size: CGSize(width: 9, height: 8))
-        head.position = CGPoint(x: 0, y: 11)
-        let hairCap = SKSpriteNode(color: hair, size: CGSize(width: 9, height: 3))
-        hairCap.position = CGPoint(x: 0, y: 15)
-        kid.addChild(body); kid.addChild(head); kid.addChild(hairCap)
+        let kid  = SKNode()
+        let ink  = SKColor(red: 0.07, green: 0.05, blue: 0.03, alpha: 1)
+        let skin = SKColor(red: 0.94, green: 0.78, blue: 0.60, alpha: 1)
+
+        // Dark silhouette backing — the crisp pixel-art "border" behind everything.
+        let outline = SKShapeNode(rectOf: CGSize(width: 12, height: 23), cornerRadius: 2)
+        outline.fillColor   = ink
+        outline.strokeColor = .clear
+        outline.position    = CGPoint(x: 0, y: 4)
+        outline.zPosition   = -0.5
+        kid.addChild(outline)
+
+        // Legs
+        for side: CGFloat in [-1, 1] {
+            let leg = SKSpriteNode(color: ink, size: CGSize(width: 3.5, height: 4))
+            leg.position  = CGPoint(x: side * 2.2, y: -6.5)
+            leg.zPosition = 0
+            kid.addChild(leg)
+        }
+
+        // Torso (shirt)
+        let body = SKShapeNode(rectOf: CGSize(width: 10, height: 13), cornerRadius: 2)
+        body.fillColor   = shirt
+        body.strokeColor = .clear
+        body.position    = CGPoint(x: 0, y: 1)
+        body.zPosition   = 0.5
+        kid.addChild(body)
+
+        // Arms hanging at the sides
+        for side: CGFloat in [-1, 1] {
+            let arm = SKSpriteNode(color: skin, size: CGSize(width: 3, height: 6))
+            arm.position  = CGPoint(x: side * 6, y: 1)
+            arm.zPosition = 0.4
+            kid.addChild(arm)
+        }
+
+        // Head
+        let head = SKShapeNode(circleOfRadius: 4.6)
+        head.fillColor   = skin
+        head.strokeColor = ink
+        head.lineWidth   = 1
+        head.position    = CGPoint(x: 0, y: 12)
+        head.zPosition   = 1
+        kid.addChild(head)
+
+        // Hair — rounded cap over the crown, with a fringe across the forehead
+        let hairCap = SKShapeNode(circleOfRadius: 4.9)
+        hairCap.fillColor   = hair
+        hairCap.strokeColor = .clear
+        hairCap.position    = CGPoint(x: 0, y: 14.6)
+        hairCap.zPosition   = 1.8
+        kid.addChild(hairCap)
+        let fringe = SKSpriteNode(color: hair, size: CGSize(width: 9, height: 2.5))
+        fringe.position  = CGPoint(x: 0, y: 12.6)
+        fringe.zPosition = 1.9
+        kid.addChild(fringe)
+
+        // Simple face — drawn last so it always shows through the hair
+        for side: CGFloat in [-1, 1] {
+            let eye = SKSpriteNode(color: ink, size: CGSize(width: 1, height: 1.4))
+            eye.position  = CGPoint(x: side * 1.6, y: 12)
+            eye.zPosition = 2.0
+            kid.addChild(eye)
+        }
+
         return kid
     }
 
