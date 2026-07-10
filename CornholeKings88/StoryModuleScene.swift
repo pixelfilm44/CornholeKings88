@@ -50,9 +50,6 @@ final class StoryModuleScene: SKScene {
     private var isTypewriterDone = false
     private var canAdvance = false
 
-    // MARK: - Audio (placeholder — wire up AVAudioPlayer here when assets are ready)
-    // private var bgAudioPlayer: AVAudioPlayer?
-
     // MARK: - Entry
     /// Call this from MainMenuScene before presenting.
     func startAtCurrentProgress() {
@@ -66,6 +63,8 @@ final class StoryModuleScene: SKScene {
         W = size.width
         H = size.height
         backgroundColor = Parchment.bg
+
+        MusicPlayer.shared.play(named: "level-up-again")
 
         if hasSetup {
             // Returning from a mini-game — advance to queued module
