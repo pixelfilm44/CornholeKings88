@@ -124,6 +124,11 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
     private var fencePositions: [CGPoint] = []
     private var nearbyFencePosition: CGPoint?
 
+    // Home door interaction — "home" layer; only interactive while the post-Part-1
+    // "picnic tournament" trigger is pending (set by p4_number_found's spawnOnMap).
+    private var homeDoorPositions: [CGPoint] = []
+    private var nearbyHomeDoorPosition: CGPoint?
+
     // Flashlight pickup — "flashlight" layer; one-time, persisted via UserDefaults.
     // Lights a circle around the player at night.
     private var flashlightPositions: [CGPoint] = []
@@ -958,6 +963,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         extractBridgeStonePositions(from: m)
         extractBridgeWoodPositions(from: m)
         extractFencePositions(from: m)
+        extractHomeDoorPositions(from: m)
         extractFlashlightPositions(from: m)
         extractGravePositions(from: m)
         extractWellPositions(from: m)
@@ -1533,6 +1539,25 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         print("🏚️ Found \(fencePositions.count) fence tile(s) on the map")
     }
 
+    /// Scans the "home" map layer for any non-zero tile and stores one world-space
+    /// center per tile — the front door Dad blocks at the end of Part 1.
+    private func extractHomeDoorPositions(from m: TMXMap) {
+        homeDoorPositions.removeAll()
+        guard let grid = m.layerGIDs["home"] else { return }
+        var seen = Set<String>()
+        for r in 0..<m.rows {
+            for c in 0..<m.cols {
+                let gid = grid[r][c] & 0x0FFF_FFFF
+                guard gid != 0 else { continue }
+                let key = "\(r),\(c)"
+                guard !seen.contains(key) else { continue }
+                seen.insert(key)
+                homeDoorPositions.append(m.tileCenter(col: c, row: r))
+            }
+        }
+        print("🚪 Found \(homeDoorPositions.count) home door tile(s) on the map")
+    }
+
     /// Scans the "flashlight" map layer for any non-zero tile and stores one world-space
     /// center per tile. Pressing A near one collects the flashlight (permanent unlock).
     /// Tiles already collected on a prior launch are hidden on load.
@@ -1866,6 +1891,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         let wellRadius:        CGFloat = 36
         let highChestRadius:   CGFloat = 34
         let axRadius:          CGFloat = 24
+        let homeDoorRadius:    CGFloat = 30
 
         // Find the single closest object across all categories.
         var bestDist         = CGFloat.infinity
@@ -2067,6 +2093,22 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
             }
         }
 
+        // Home door — always shows the prompt; touchesBegan decides whether it's
+        // the Part-1 gate (trigger pending) or just a locked door otherwise.
+        var bestHomeDoor: CGPoint? = nil
+        for pos in homeDoorPositions {
+            let d = hypot(player.position.x - pos.x, player.position.y - pos.y)
+            if d < homeDoorRadius && d < bestDist {
+                bestDist = d
+                bestBoard = nil; bestChest = nil; bestStore = nil; bestBridgeStone = nil
+                bestBaseball = nil; bestTree = nil; bestAppleTree = nil
+                bestBeehive = nil; bestPool = nil; bestCave = nil; bestBridgeWood = nil; bestFence = nil
+                bestGrave = nil; bestWell = nil; bestHighChest = nil; bestAx = nil; bestTorch = nil
+                bestStoryBat = nil
+                bestHomeDoor = pos
+            }
+        }
+
         nearbyBoardPosition       = bestBoard
         nearbyChestPosition       = bestChest
         nearbyStorePosition       = bestStore
@@ -2086,6 +2128,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         nearbyAxPosition          = bestAx
         nearbyTorchPosition       = bestTorch
         nearbyStoryBatPosition    = bestStoryBat
+        nearbyHomeDoorPosition    = bestHomeDoor
 
         // Auto-descend when the player walks away from the tree they climbed.
         if bestTree == nil && player.isInTree { player.descendTree() }
@@ -2111,6 +2154,7 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         else if let p = bestAx            { anchor = CGPoint(x: p.x, y: p.y + 22) }
         else if let p = bestTorch         { anchor = CGPoint(x: p.x, y: p.y + 22) }
         else if let p = bestStoryBat      { anchor = CGPoint(x: p.x, y: p.y + 22) }
+        else if let p = bestHomeDoor      { anchor = CGPoint(x: p.x, y: p.y + 22) }
         else                              { anchor = nil }
 
         if let pos = anchor {
@@ -3613,6 +3657,13 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
                 } else {
                     showHintBanner("In order to joust\non your bike, you need\nsomething to use\nas a lance.")
                 }
+            } else if nearbyHomeDoorPosition != nil {
+                if trigger == StoryManager.triggerHomeDoor {
+                    StoryManager.shared.pendingWorldTrigger = nil
+                    launchStoryAtCurrentModule()
+                } else {
+                    showHintBanner("The door is locked.")
+                }
             } else if let p = nearbyGravePosition {
                 setMiniGameReturnPosition(near: p)
                 openCornholeMiniGame(preSelectedOpponent: .cathy)
@@ -4772,7 +4823,8 @@ final class GameScene: SKScene, SKPhysicsContactDelegate {
         let gameTriggers = clusteredPins(
             cornholeBoardPositions + baseballPositions + appleTreePositions +
             beehivePositions + poolPositions + bridgeStonePositions +
-            bridgeWoodPositions + wellPositions + fencePositions + cavePositions + gravePositions)
+            bridgeWoodPositions + wellPositions + fencePositions + cavePositions + gravePositions +
+            homeDoorPositions)
         for p in gameTriggers where visitedCells.contains(cellKey(for: p)) {
             let pin = SKShapeNode(rectOf: CGSize(width: pinSide, height: pinSide))
             pin.fillColor = dsGold; pin.strokeColor = .clear

@@ -37,6 +37,9 @@ enum ItemType: String, CaseIterable {
     /// Cannot be stolen by the gopher. Passes through ducks/babies without stopping.
     /// Creates a 3-pt hole in the board where it lands; opponents can also score in the new hole that round.
     case cannonballBag
+    /// Won by beating the whole family picnic cornhole tournament (Tim → Grandpa → Chuck →
+    /// Dad → Mom). Marks Part 1's true completion; not consumed by anything yet.
+    case houseKey
 
     var color: SKColor {
         switch self {
@@ -55,6 +58,7 @@ enum ItemType: String, CaseIterable {
         case .flashlight: return SKColor(red: 1.00, green: 0.92, blue: 0.55, alpha: 1.0)
         case .torch:      return SKColor(red: 1.00, green: 0.55, blue: 0.15, alpha: 1.0)
         case .cannonballBag: return SKColor(red: 0.10, green: 0.10, blue: 0.10, alpha: 1.0)
+        case .houseKey:      return SKColor(red: 0.85, green: 0.68, blue: 0.20, alpha: 1.0)
         }
     }
 
@@ -75,6 +79,7 @@ enum ItemType: String, CaseIterable {
         case .flashlight: return "FLASHLIGHT"
         case .torch:      return "TORCH"
         case .cannonballBag: return "CANNONBALL"
+        case .houseKey:      return "HOUSE KEY"
         }
     }
 
@@ -95,6 +100,7 @@ enum ItemType: String, CaseIterable {
         case .flashlight: return "✦"
         case .torch:      return "T"
         case .cannonballBag: return "◉"
+        case .houseKey:      return "🔑"
         }
     }
 }

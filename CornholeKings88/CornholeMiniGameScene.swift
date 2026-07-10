@@ -55,6 +55,8 @@ final class CornholeMiniGameScene: SKScene {
     private var goldenBagSelected = false
     /// Golden bags earned this match (awarded mid-game on a 4x cornhole streak); read by host after onComplete.
     private(set) var goldenBagsEarned: Int = 0
+    /// Set true only by beating Mom, the family tournament's final match; read by host after onComplete.
+    private(set) var houseKeyEarned: Bool = false
 
     var availableCannonballBags: Int = 0
     private(set) var cannonballBagsUsed: Int = 0
@@ -392,7 +394,7 @@ final class CornholeMiniGameScene: SKScene {
     private var batNode: SKNode?
 
     // Opponent selection
-    enum AIOpponent { case tom, jenny, billy, spirit, bully, barnum, cathy, ricky }
+    enum AIOpponent { case tom, jenny, billy, spirit, bully, barnum, cathy, ricky, dad, grandpa, chuck, mom }
     /// Set before presenting to skip the picker and start with a specific opponent.
     var preSelectedOpponent: AIOpponent? = nil
     private var selectedOpponent: AIOpponent = .tom
@@ -408,6 +410,10 @@ final class CornholeMiniGameScene: SKScene {
         case .barnum: return "HERMAN"
         case .cathy:  return "CATHYX"
         case .ricky:  return "RICKY"
+        case .dad:    return "DAD"
+        case .grandpa: return "GRANDPA"
+        case .chuck:   return "CHUCK"
+        case .mom:     return "MOM"
         }
     }
 
@@ -426,6 +432,10 @@ final class CornholeMiniGameScene: SKScene {
     // ankle" mid-throw and airballs it completely — the story's signature moment.
     private var rickyNoiseFactor: CGFloat = 1.3
     private var rickyHasSprained = false
+
+    // Mom — the family tournament's final and toughest match. Tighter aim than
+    // even Ricky; no gimmick, just consistently excellent play.
+    private var momNoiseFactor: CGFloat = 0.9
 
     // Jenny-vs-Becky side score — a narrative ticker shown only during the Ricky
     // match, sells the "doubles" party feel without a real doubles engine. Jenny is
@@ -910,6 +920,128 @@ final class CornholeMiniGameScene: SKScene {
             "M": UIColor(red: 0.55, green: 0.22, blue: 0.18, alpha: 1), // mouth
             "B": UIColor(red: 0.20, green: 0.42, blue: 0.78, alpha: 1), // shirt blue
             "W": UIColor(red: 0.94, green: 0.94, blue: 0.94, alpha: 1), // shirt white
+        ]
+        return pixelPortrait(rows: rows, colors: colors)
+    }
+
+    /// Dad: brown side-parted hair, glasses, mustache, navy polo — the picnic-tournament host.
+    static func makeDadPortraitTexture() -> SKTexture {
+        let rows = [
+            "................",
+            "....HHHHHHHH....",
+            "...HHHHHHHHHH...",
+            "..HHHHHHHHHHHH..",
+            "..HHSSSSSSSSHH..",
+            "..HSSSSSSSSSSH..",
+            "..HSSGGSSSGGSH..",
+            "..HSSSSSSSSSSH..",
+            "...SSSSMMSSSS...",
+            "....SSSSSSSS....",
+            ".....SSSSSS.....",
+            "...NNNWWWWNNN...",
+            "..NWWNNNNNNWWN..",
+            "..WNNWWWWWWNNW..",
+            "..NWWNNNNNNWWN..",
+            "..NN........NN..",
+        ]
+        let colors: [Character: UIColor] = [
+            "H": UIColor(red: 0.42, green: 0.28, blue: 0.16, alpha: 1), // brown hair
+            "S": UIColor(red: 0.94, green: 0.78, blue: 0.62, alpha: 1), // peach skin
+            "G": UIColor(red: 0.15, green: 0.12, blue: 0.10, alpha: 1), // glasses
+            "M": UIColor(red: 0.30, green: 0.20, blue: 0.12, alpha: 1), // mustache
+            "N": UIColor(red: 0.14, green: 0.22, blue: 0.38, alpha: 1), // navy polo
+            "W": UIColor(red: 0.92, green: 0.92, blue: 0.92, alpha: 1), // collar trim
+        ]
+        return pixelPortrait(rows: rows, colors: colors)
+    }
+
+    /// Grandpa: silver hair, glasses, green cardigan over a light collared shirt —
+    /// tournament opponent #2, boom-or-bust aim.
+    static func makeGrandpaPortraitTexture() -> SKTexture {
+        let rows = [
+            "................",
+            "....GGGGGGGG....",
+            "...GGGGGGGGGG...",
+            "..GGGGGGGGGGGG..",
+            "..GGSSSSSSSSGG..",
+            "..GSSSSSSSSSSG..",
+            "..GSSDDSSSDDSG..",
+            "..GSSSSSSSSSSG..",
+            "...SSSSSSSSSS...",
+            "....SSSSSSSS....",
+            ".....SSSSSS.....",
+            "...CCCWWWWCCC...",
+            "..CWWCCCCCCWWC..",
+            "..WCCWWWWWWCCW..",
+            "..CWWCCCCCCWWC..",
+            "..CC........CC..",
+        ]
+        let colors: [Character: UIColor] = [
+            "G": UIColor(red: 0.75, green: 0.75, blue: 0.76, alpha: 1), // silver hair
+            "S": UIColor(red: 0.90, green: 0.72, blue: 0.58, alpha: 1), // weathered skin
+            "D": UIColor(red: 0.15, green: 0.12, blue: 0.10, alpha: 1), // glasses
+            "C": UIColor(red: 0.20, green: 0.38, blue: 0.22, alpha: 1), // green cardigan
+            "W": UIColor(red: 0.78, green: 0.86, blue: 0.90, alpha: 1), // light collar
+        ]
+        return pixelPortrait(rows: rows, colors: colors)
+    }
+
+    /// Chuck: bald and broad-shouldered, gray tank top — tournament opponent #3,
+    /// leans on physical board knockoffs rather than hole accuracy.
+    static func makeChuckPortraitTexture() -> SKTexture {
+        let rows = [
+            "................",
+            "....SSSSSSSS....",
+            "...SSSSSSSSSS...",
+            "..SSSSSSSSSSSS..",
+            "..SSSSSSSSSSSS..",
+            "..SSSSSSSSSSSS..",
+            "..SSEESSSEESSS..",
+            "..SSSSSSSSSSSS..",
+            "...SSSSMMSSSS...",
+            "....SSSSSSSS....",
+            ".....SSSSSS.....",
+            "..TTTTTTTTTTTT..",
+            ".TTTTTTTTTTTTTT.",
+            "TTTTTTTTTTTTTTTT",
+            "TTTTTTTTTTTTTTTT",
+            "TT............TT",
+        ]
+        let colors: [Character: UIColor] = [
+            "S": UIColor(red: 0.85, green: 0.65, blue: 0.48, alpha: 1), // tanned skin
+            "E": UIColor(red: 0.15, green: 0.10, blue: 0.08, alpha: 1), // dark eyes
+            "M": UIColor(red: 0.45, green: 0.20, blue: 0.15, alpha: 1), // stern mouth
+            "T": UIColor(red: 0.35, green: 0.35, blue: 0.35, alpha: 1), // gray tank top
+        ]
+        return pixelPortrait(rows: rows, colors: colors)
+    }
+
+    /// Mom: curly brown hair, navy sweater — the tournament's final, toughest opponent.
+    static func makeMomPortraitTexture() -> SKTexture {
+        let rows = [
+            "....HHHHHHHH....",
+            "...HHHHHHHHHH...",
+            "..HHHHHHHHHHHH..",
+            ".HHHHHHHHHHHHHH.",
+            ".HHHSSSSSSSSHHH.",
+            ".HHSSSSSSSSSSHH.",
+            ".HHSSEESSSEESHH.",
+            ".HHSSSSSSSSSSHH.",
+            ".HHSSSSMMMMSSHH.",
+            ".HHHSSSSSSSSHHH.",
+            ".HHHHSSSSSSHHHH.",
+            ".HHHHHHHHHHHHHH.",
+            "..NNNNNNNNNNNN..",
+            ".NNNNNNNNNNNNNN.",
+            ".NNN........NNN.",
+            ".NN..........NN.",
+        ]
+        let colors: [Character: UIColor] = [
+            "H": UIColor(red: 0.35, green: 0.20, blue: 0.12, alpha: 1), // brown curly hair
+            "S": UIColor(red: 0.94, green: 0.78, blue: 0.62, alpha: 1), // peach skin
+            "E": UIColor(red: 0.25, green: 0.15, blue: 0.10, alpha: 1), // brown eyes
+            "M": UIColor(red: 0.55, green: 0.20, blue: 0.16, alpha: 1), // smile
+            "N": UIColor(red: 0.14, green: 0.22, blue: 0.38, alpha: 1), // navy sweater
         ]
         return pixelPortrait(rows: rows, colors: colors)
     }
@@ -3107,6 +3239,64 @@ final class CornholeMiniGameScene: SKScene {
             return
         }
 
+        // Grandpa — boom or bust. Either a tight, high-percentage hole shot, or (if
+        // that roll fails) a wild throw that sails off the board entirely. No
+        // middle ground — unlike everyone else, he doesn't "settle" for a board point.
+        if selectedOpponent == .grandpa {
+            if Double.random(in: 0..<1) < 0.55 {
+                let grandpaNoise = holeRadius * 0.55
+                let grandpaAimX  = holeCenter.x + CGFloat.random(in: -grandpaNoise...grandpaNoise)
+                let grandpaAimY  = holeCenter.y + CGFloat.random(in: -grandpaNoise * 0.5...grandpaNoise * 0.5)
+                let grandpaVx    = (grandpaAimX - startX) / flightFrames
+                let grandpaVy    = (grandpaAimY - throwLineY) / flightFrames
+                throwBag(owner: .ai, startX: startX, vx: grandpaVx, vy: grandpaVy)
+            } else {
+                let wildX  = CGFloat.random(in: -boardHalfW * 2.4 ... boardHalfW * 2.4)
+                let wildY  = throwLineY + (holeCenter.y - throwLineY) * CGFloat.random(in: 0.10...0.30)
+                let wildVx = (wildX - startX) / flightFrames
+                let wildVy = (wildY - throwLineY) / flightFrames
+                throwBag(owner: .ai, startX: startX, vx: wildVx, vy: wildVy)
+            }
+            return
+        }
+
+        // Chuck — leans on brute force rather than touch: aims at whichever player
+        // bag is already resting on the board and tries to physically knock it off
+        // (ordinary bag-vs-bag collision physics does the rest — no new mechanic
+        // needed). No target on the board? He just lands somewhere on the open board;
+        // he rarely goes for the hole at all.
+        if selectedOpponent == .chuck {
+            let chuckTargets = activeBags.filter {
+                $0.owner == .player && $0.isGrounded && !$0.hasScored &&
+                !$0.hasAppliedGroundScale && checkIsOnBoard($0)
+            }
+            let chuckAimX: CGFloat
+            let chuckAimY: CGFloat
+            if let target = chuckTargets.randomElement(), Double.random(in: 0..<1) < 0.75 {
+                chuckAimX = target.bx + CGFloat.random(in: -8...8)
+                chuckAimY = target.by + CGFloat.random(in: -8...8)
+            } else {
+                chuckAimX = CGFloat.random(in: -boardHalfW * 0.75 ... boardHalfW * 0.75)
+                chuckAimY = boardY + CGFloat.random(in: -boardHalfH * 0.6 ... boardHalfH * 0.6)
+            }
+            let chuckVx = (chuckAimX - startX) / flightFrames
+            let chuckVy = (chuckAimY - throwLineY) / flightFrames
+            throwBag(owner: .ai, startX: startX, vx: chuckVx, vy: chuckVy)
+            return
+        }
+
+        // Mom — the tournament's final and toughest match. Tightest aim in the game,
+        // no gimmick, just consistently excellent play.
+        if selectedOpponent == .mom {
+            let momNoise = holeRadius * momNoiseFactor
+            let momAimX  = holeCenter.x + CGFloat.random(in: -momNoise...momNoise)
+            let momAimY  = holeCenter.y + CGFloat.random(in: -momNoise * 0.5...momNoise * 0.5)
+            let momVx    = (momAimX - startX) / flightFrames
+            let momVy    = (momAimY - throwLineY) / flightFrames
+            throwBag(owner: .ai, startX: startX, vx: momVx, vy: momVy)
+            return
+        }
+
         throwBag(owner: .ai, startX: startX, vx: vx, vy: vy)
     }
 
@@ -3351,8 +3541,11 @@ final class CornholeMiniGameScene: SKScene {
                 rewards = [GameResultModal.Reward(item: .fireBag, count: 3)]
             case .tom, .jenny:
                 // This win completes the baseball unlock (both Tom & Jenny beaten).
-                let beatBoth = (selectedOpponent == .tom && CornholeStatsManager.shared.defeatedJenny)
-                            || (selectedOpponent == .jenny && CornholeStatsManager.shared.defeatedTom)
+                // Guarded so a later rematch (e.g. Tim in the family tournament) never
+                // re-fires the unlock banner once it's already been granted.
+                let beatBoth = !CornholeStatsManager.shared.baseballUnlocked &&
+                    ((selectedOpponent == .tom && CornholeStatsManager.shared.defeatedJenny)
+                  || (selectedOpponent == .jenny && CornholeStatsManager.shared.defeatedTom))
                 if beatBoth {
                     rewards = [.unlock("EARNED A BASEBALL!"),
                                .unlock("BASEBALL UNLOCKED")]
@@ -3364,6 +3557,16 @@ final class CornholeMiniGameScene: SKScene {
             case .ricky:
                 // No item reward — beating Ricky is a pure story beat (the party).
                 rewards = [.unlock("YOU'RE INVITED TO THE PARTY!")]
+            case .dad:
+                // No item reward — beating Dad is one leg of the family tournament.
+                rewards = [.unlock("DAD STEPS ASIDE!")]
+            case .grandpa:
+                rewards = [.unlock("GRANDPA TIPS HIS CAP!")]
+            case .chuck:
+                rewards = [.unlock("CHUCK SHRUGS IT OFF!")]
+            case .mom:
+                // The tournament's final match — this is the one that actually grants the key.
+                rewards = [.unlock("YOU WON THE HOUSE KEY!")]
             }
         }
 
@@ -5812,6 +6015,10 @@ final class CornholeMiniGameScene: SKScene {
         case .bully:  tex = CornholeMiniGameScene.makeBullyPortraitTexture()
         case .cathy:  tex = CornholeMiniGameScene.makeCathyPortraitTexture()
         case .ricky:  tex = CornholeMiniGameScene.makeRickyPortraitTexture()
+        case .dad:    tex = CornholeMiniGameScene.makeDadPortraitTexture()
+        case .grandpa: tex = CornholeMiniGameScene.makeGrandpaPortraitTexture()
+        case .chuck:   tex = CornholeMiniGameScene.makeChuckPortraitTexture()
+        case .mom:     tex = CornholeMiniGameScene.makeMomPortraitTexture()
         }
         let portraitSize = CGSize(width: 48, height: 48)
         let bottomH = size.height * 0.09
@@ -5905,6 +6112,7 @@ final class CornholeMiniGameScene: SKScene {
         if awardsRewards && playerWon && selectedOpponent == .bully  { coinsEarned = 10 }
         if awardsRewards && playerWon && selectedOpponent == .spirit { magicBagsEarned = 6 }
         if awardsRewards && playerWon && selectedOpponent == .barnum { fireBagsEarned  = 3 }
+        if awardsRewards && playerWon && selectedOpponent == .mom    { houseKeyEarned  = true }
         onComplete?(playerWon)
         guard let view = self.view, let prev = previousScene else { return }
         SceneTransition.iris(in: view, to: prev)

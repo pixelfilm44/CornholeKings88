@@ -186,6 +186,7 @@ extension StoryManager {
     static let triggerQuestOffer = "quest_offer"
     static let triggerCave       = "cave_story"
     static let triggerAppleTree  = "appletree_story"
+    static let triggerHomeDoor   = "homedoor_story"
 
     // Bat world position — tune to match the actual map layout.
     static let batWorldPosition = CGPoint(x: 380, y: 260)
@@ -790,8 +791,178 @@ enum StoryContent {
             imageColor: SKColor(red: 0.30, green: 0.55, blue: 0.35, alpha: 1),
             text: "Beneath the tree, Jack found the most incredible array of digits ever seen by man. All 7 numbers of Becky's phone number.\n\nNow, Jack just needed to get back home to a telephone.",
             choices: [],
-            autoOutcome: .nextModule(id: "p4_ending"),
+            autoOutcome: .spawnOnMap(StorySpawnConfig(
+                trigger: StoryManager.triggerHomeDoor,
+                nextModuleID: "p4_dad_gate")),
             imageName: "story_jack"
+        ),
+
+        StoryModule(
+            id: "p4_dad_gate",
+            title: "THE PICNIC TOURNAMENT",
+            imageColor: SKColor(red: 0.45, green: 0.28, blue: 0.08, alpha: 1),
+            text: "Jack's dad swung the door open before he could even knock.\n\n\"It's time for our picnic cornhole tournament, Jack! No time for phone calls. If you win, I'll let you in to make a call. But you'll have to beat me and my friends!\"",
+            choices: [],
+            autoOutcome: .miniGame(.cornholeVs(opponent: .tom),
+                                   winID: "p4_tourney_tim_win",
+                                   loseID: "p4_tourney_tim_lose"),
+            imageName: "scene_dad_gate"
+        ),
+
+        StoryModule(
+            id: "p4_tourney_tim_lose",
+            title: "ROUND ONE, AGAIN",
+            imageColor: SKColor(red: 0.45, green: 0.12, blue: 0.12, alpha: 1),
+            text: "Tim pumps his fist. \"Still got it!\" Give the tournament another shot?",
+            choices: [
+                StoryChoice(label: "REMATCH",
+                            outcome: .miniGame(.cornholeVs(opponent: .tom),
+                                               winID: "p4_tourney_tim_win",
+                                               loseID: "p4_tourney_tim_lose")),
+                StoryChoice(label: "QUIT",
+                            outcome: .spawnOnMap(StorySpawnConfig(
+                                trigger: StoryManager.triggerHomeDoor,
+                                nextModuleID: "p4_dad_gate")))
+            ],
+            autoOutcome: .miniGame(.cornholeVs(opponent: .tom),
+                                   winID: "p4_tourney_tim_win",
+                                   loseID: "p4_tourney_tim_lose")
+        ),
+
+        StoryModule(
+            id: "p4_tourney_tim_win",
+            title: "ONE DOWN",
+            imageColor: SKColor(red: 0.30, green: 0.55, blue: 0.35, alpha: 1),
+            text: "Tim shook his head, laughing. \"Grandpa's up next — good luck.\"\n\nGrandpa cracked his knuckles. \"Either it's in the hole, or it's in the neighbor's yard,\" he grinned. \"There's no in-between with me.\"",
+            choices: [],
+            autoOutcome: .miniGame(.cornholeVs(opponent: .grandpa),
+                                   winID: "p4_tourney_grandpa_win",
+                                   loseID: "p4_tourney_grandpa_lose"),
+            imageName: "story_grandpa"
+        ),
+
+        StoryModule(
+            id: "p4_tourney_grandpa_lose",
+            title: "ALL OR NOTHING",
+            imageColor: SKColor(red: 0.45, green: 0.12, blue: 0.12, alpha: 1),
+            text: "Grandpa's bags land clean, one after another. \"Boom or bust, kiddo!\" Try again?",
+            choices: [
+                StoryChoice(label: "REMATCH",
+                            outcome: .miniGame(.cornholeVs(opponent: .grandpa),
+                                               winID: "p4_tourney_grandpa_win",
+                                               loseID: "p4_tourney_grandpa_lose")),
+                StoryChoice(label: "QUIT",
+                            outcome: .spawnOnMap(StorySpawnConfig(
+                                trigger: StoryManager.triggerHomeDoor,
+                                nextModuleID: "p4_tourney_tim_win")))
+            ],
+            autoOutcome: .miniGame(.cornholeVs(opponent: .grandpa),
+                                   winID: "p4_tourney_grandpa_win",
+                                   loseID: "p4_tourney_grandpa_lose")
+        ),
+
+        StoryModule(
+            id: "p4_tourney_grandpa_win",
+            title: "TWO DOWN",
+            imageColor: SKColor(red: 0.30, green: 0.55, blue: 0.35, alpha: 1),
+            text: "Grandpa tipped his cap, chuckling at his own bad luck. \"Chuck, you're up.\"\n\nChuck rolled his shoulders and grinned. \"I don't need the hole,\" he said, nodding at the board. \"I just need your bags gone.\"",
+            choices: [],
+            autoOutcome: .miniGame(.cornholeVs(opponent: .chuck),
+                                   winID: "p4_tourney_chuck_win",
+                                   loseID: "p4_tourney_chuck_lose"),
+            imageName: "story_chuck"
+        ),
+
+        StoryModule(
+            id: "p4_tourney_chuck_lose",
+            title: "KNOCKED OFF",
+            imageColor: SKColor(red: 0.45, green: 0.12, blue: 0.12, alpha: 1),
+            text: "Chuck's bag barrels onto the board and sends yours flying. \"Nothing personal!\" Try again?",
+            choices: [
+                StoryChoice(label: "REMATCH",
+                            outcome: .miniGame(.cornholeVs(opponent: .chuck),
+                                               winID: "p4_tourney_chuck_win",
+                                               loseID: "p4_tourney_chuck_lose")),
+                StoryChoice(label: "QUIT",
+                            outcome: .spawnOnMap(StorySpawnConfig(
+                                trigger: StoryManager.triggerHomeDoor,
+                                nextModuleID: "p4_tourney_grandpa_win")))
+            ],
+            autoOutcome: .miniGame(.cornholeVs(opponent: .chuck),
+                                   winID: "p4_tourney_chuck_win",
+                                   loseID: "p4_tourney_chuck_lose")
+        ),
+
+        StoryModule(
+            id: "p4_tourney_chuck_win",
+            title: "THREE DOWN",
+            imageColor: SKColor(red: 0.30, green: 0.55, blue: 0.35, alpha: 1),
+            text: "Chuck shrugged it off with a good-natured laugh. \"Your dad's turn, then.\"\n\nDad rubbed his hands together. \"My turn,\" he grinned. \"I've been practicing all summer.\"",
+            choices: [],
+            autoOutcome: .miniGame(.cornholeVs(opponent: .dad),
+                                   winID: "p4_tourney_dad_win",
+                                   loseID: "p4_tourney_dad_lose")
+        ),
+
+        StoryModule(
+            id: "p4_tourney_dad_lose",
+            title: "DAD'S GOT IT TODAY",
+            imageColor: SKColor(red: 0.45, green: 0.12, blue: 0.12, alpha: 1),
+            text: "\"Ha! Not bad — but not good enough,\" Dad grins. \"Give it another go?\"",
+            choices: [
+                StoryChoice(label: "REMATCH",
+                            outcome: .miniGame(.cornholeVs(opponent: .dad),
+                                               winID: "p4_tourney_dad_win",
+                                               loseID: "p4_tourney_dad_lose")),
+                StoryChoice(label: "QUIT",
+                            outcome: .spawnOnMap(StorySpawnConfig(
+                                trigger: StoryManager.triggerHomeDoor,
+                                nextModuleID: "p4_tourney_chuck_win")))
+            ],
+            autoOutcome: .miniGame(.cornholeVs(opponent: .dad),
+                                   winID: "p4_tourney_dad_win",
+                                   loseID: "p4_tourney_dad_lose")
+        ),
+
+        StoryModule(
+            id: "p4_tourney_dad_win",
+            title: "FOUR DOWN",
+            imageColor: SKColor(red: 0.30, green: 0.55, blue: 0.35, alpha: 1),
+            text: "Dad's bag rimmed out at the last second. \"Alright, alright — you've got my throwing arm,\" he laughed.\n\nThen everyone went quiet. Mom picked up a bag like she'd done it a thousand times. \"Alright, sweetheart,\" she smiled. \"Let's see what you've got.\"",
+            choices: [],
+            autoOutcome: .miniGame(.cornholeVs(opponent: .mom),
+                                   winID: "p4_tourney_mom_win",
+                                   loseID: "p4_tourney_mom_lose"),
+            imageName: "story_mom"
+        ),
+
+        StoryModule(
+            id: "p4_tourney_mom_lose",
+            title: "THE CHAMP",
+            imageColor: SKColor(red: 0.45, green: 0.12, blue: 0.12, alpha: 1),
+            text: "Mom doesn't even celebrate — she never does. \"Nice try, honey.\" Give it another go?",
+            choices: [
+                StoryChoice(label: "REMATCH",
+                            outcome: .miniGame(.cornholeVs(opponent: .mom),
+                                               winID: "p4_tourney_mom_win",
+                                               loseID: "p4_tourney_mom_lose")),
+                StoryChoice(label: "QUIT",
+                            outcome: .spawnOnMap(StorySpawnConfig(
+                                trigger: StoryManager.triggerHomeDoor,
+                                nextModuleID: "p4_tourney_dad_win")))
+            ],
+            autoOutcome: .miniGame(.cornholeVs(opponent: .mom),
+                                   winID: "p4_tourney_mom_win",
+                                   loseID: "p4_tourney_mom_lose")
+        ),
+
+        StoryModule(
+            id: "p4_tourney_mom_win",
+            title: "TOURNAMENT CHAMPION",
+            imageColor: SKColor(red: 0.72, green: 0.58, blue: 0.12, alpha: 1),
+            text: "Jack's last bag caught the front lip of the hole and dropped in. The whole yard erupted.\n\nMom just smiled and pulled a brass key from her pocket. \"Well earned,\" she said, pressing it into his hand. \"Go make your call, champ.\"",
+            choices: [],
+            autoOutcome: .nextModule(id: "p4_ending")
         ),
 
         StoryModule(

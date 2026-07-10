@@ -715,6 +715,7 @@ final class StoryModuleScene: SKScene {
                 if let e = s?.fireBagsEarned,  e > 0 { inv.collect(.fireBag,  count: e) }
                 if let e = s?.goldenBagsEarned, e > 0 { inv.collect(.goldenBag, count: e) }
                 if let e = s?.coinsEarned,     e > 0 { inv.collect(.coin,     count: e) }
+                if s?.houseKeyEarned == true { inv.collect(.houseKey, count: 1) }
                 handleResult(won)
             }
             push(to: s)

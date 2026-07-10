@@ -84,6 +84,8 @@ Maps are authored in **Tiled** (.tmx format, CSV encoding) and loaded by `TMXLoa
 
 The **`"fences"` layer** (by layer name, not tileset name) is also scanned — any non-zero tile triggers `SuburbanJoustersScene` on A-press. See **Suburban Jousters** below.
 
+The **`"home"` layer** (by layer name) marks the front-door tile(s) of Jack's house. The `▲A` prompt always shows in range, but pressing A only advances the story (into the family picnic cornhole tournament's gate, `p4_dad_gate`) while `StoryManager.pendingWorldTrigger == StoryManager.triggerHomeDoor` (set by `p4_number_found`'s `spawnOnMap`) — any other visit (before that story beat, or after it's resolved) just shows a "The door is locked." hint banner. See **Cornhole Opponents** (the tournament note) and the Part 1 module chain (Act 4).
+
 Collision tiles still come from the `Collisions` layer (any non-zero GID); water collisions still come from explicit GID ranges in `buildPhysics(from:)`.
 
 ### Physics
@@ -199,7 +201,7 @@ Scenes expose their winnings as `private(set) var …Earned` properties; the hos
 
 ### Cornhole Opponents
 
-`CornholeMiniGameScene` supports opponents selected via `OpponentPickerNode` before the game starts. The host scene can bypass the picker by setting `mini.preSelectedOpponent = .spirit` (etc.) before presenting — used by the apple tree world trigger (Fairy Queen) and the `cave` world trigger (Herman) to drop the player straight into a match. `.ricky` is reachable **only** via `preSelectedOpponent` from the story's party beat — there is no picker card for him.
+`CornholeMiniGameScene` supports opponents selected via `OpponentPickerNode` before the game starts. The host scene can bypass the picker by setting `mini.preSelectedOpponent = .spirit` (etc.) before presenting — used by the apple tree world trigger (Fairy Queen) and the `cave` world trigger (Herman) to drop the player straight into a match. `.ricky`, `.dad`, `.grandpa`, `.chuck`, and `.mom` are reachable **only** via `preSelectedOpponent` from story beats — there is no picker card for any of them.
 
 Enum case names (`.tom`, `.barnum`, `.spirit`, …) predate the story's character renames and are kept as-is to avoid churn to save-data keys and internal call sites; only the **display names** shown to the player use the new names below.
 
@@ -211,6 +213,10 @@ Enum case names (`.tom`, `.barnum`, `.spirit`, …) predate the story's characte
 | Billy Badger | `.billy` | BILLY | 21 | Forced thunderstorm every round; adaptive difficulty; can throw bomb bags (~25% chance) |
 | Fairy Queen | `.spirit` | QUEEN | 21 | Drops magic bags vertically from above (50% cornhole / 50% random board position) |
 | Ricky Rogers | `.ricky` | RICKY | 21 | Tightest aim in the game (`rickyNoiseFactor = 1.3`). Story-only — once per match, at a tied score near the win line, he "tweaks his ankle" and airballs the throw entirely (`showRickySprainAnnouncement()`). During this match only, a narrative Jenny-vs-Becky side score ticker (`addSideScoreLabel()`/`advanceSideScore()`) advances each round below the top ribbon |
+| Dad | `.dad` | DAD | 11 | No dedicated `applyDadSettings()` — falls through to the base aim noise (same friendly baseline as Tim/Jenny) since he's a warm, "good all-around player" leg of the tournament, not a skill wall |
+| Grandpa | `.grandpa` | GRANDPA | 11 | Boom-or-bust: 55% of throws are a tight, high-percentage hole shot (`holeRadius * 0.55` noise); the other 45% is a wild throw that sails off the board entirely (mirrors Ricky's airball template, but on every miss-roll rather than once per match). Never "settles" for a board point |
+| Chuck | `.chuck` | CHUCK | 11 | Leans on brute force over hole accuracy: 75% of the time aims directly at a player bag already resting on the board, trying to physically knock it off — reuses the existing bag-vs-bag collision physics (`resolveBagCollisions()`) rather than any new mechanic, the same way Jenny already targets board bags. No target on the board → lands somewhere open on the board; he rarely goes for the hole at all |
+| Mom | `.mom` | MOM | 11 | The family tournament's final and toughest match — tightest aim in the game (`momNoiseFactor = 0.9`, tighter than Ricky's 1.3). No gimmick, just consistently excellent play |
 
 **Billy adaptive difficulty** — `billyNoiseFactor` starts from career cornhole accuracy (`cornholes / (totalGames × 12)`, clamped to `[1.4, 3.8]`). Each round the player wins tightens Billy by `−0.12`; each round Billy wins eases him by `+0.15`. Range stays within `[1.4, 3.8]`.
 
@@ -220,7 +226,9 @@ Enum case names (`.tom`, `.barnum`, `.spirit`, …) predate the story's characte
 
 **Bag destruction** — `destroyBag(_:)` sets `isDestroyed = true` and plays a scale/fade animation. Destroyed bags are skipped in `calculateRoundScore()` but stay in `activeBags` until round cleanup. `resolveBagCollisions()` skips destroyed bags.
 
-**Rewards** — beating Billy awards 3 bomb bags **+ 10 coins**; beating the Fairy Queen awards 6 magic bags; beating Herman awards 3 fire bags; beating the generic `.bully` awards 10 coins; beating Ricky awards no item (pure story beat — a narrative "YOU'RE INVITED TO THE PARTY!" unlock line only). These are set on `bombBagsEarned` / `magicBagsEarned` / `fireBagsEarned` / `coinsEarned` in `dismissScene` (only when `awardsRewards`) and collected by the host's `onComplete`. See **Result Modal & Reward Context**.
+**The family picnic tournament** (Part 1's finale gate) — five back-to-back matches in a fixed order: Tim (`.tom`, a rematch) → Grandpa → Chuck → Dad → Mom. Each stage is its own story module chain (`p4_tourney_<name>_win`/`_lose`), and a loss only rematches **that** opponent — banked wins from earlier stages are never re-fought; QUIT bounces back to the previous stage's win module (or `p4_dad_gate` for the first match), which re-triggers the same fight via its `autoOutcome`, not the whole gauntlet. All five stages stay at the default win score (11) to keep the mandatory gauntlet from overstaying its welcome. Grandpa and Chuck are new opponent archetypes (see the table above) built entirely from existing engine primitives — no new physics or scoring paths. Beating Mom (the only stage with `houseKeyEarned` set) is what actually grants the reward; Tim/Grandpa/Chuck/Dad wins are pure narrative beats along the way.
+
+**Rewards** — beating Billy awards 3 bomb bags **+ 10 coins**; beating the Fairy Queen awards 6 magic bags; beating Herman awards 3 fire bags; beating the generic `.bully` awards 10 coins; beating Ricky, Grandpa, Chuck, or Dad awards no item (pure story beats — narrative unlock lines only); beating Mom (the tournament's final match) awards the `houseKey` item. These are set on `bombBagsEarned` / `magicBagsEarned` / `fireBagsEarned` / `coinsEarned` / `houseKeyEarned` in `dismissScene` (only when `awardsRewards`) and collected by the host's `onComplete`. See **Result Modal & Reward Context**.
 
 ### Opponent Picker Layout
 
@@ -261,7 +269,7 @@ Navigation: `◄ BACK` strip at top (push-down transition back to `MainMenuScene
 
 Items scattered in the world can be walked over to collect them. The system has four files:
 
-- **`Item.swift`** — `ItemType` enum (`coin`, `bag`, `star`, `honeyBag`, `bombBag`, `magicBag`, `fireBag`, `goldenBag`, `dogBiscuit`, `floatingBag`, `goldenLance`) with `color`, `displayName`, and `hudSymbol`.
+- **`Item.swift`** — `ItemType` enum (`coin`, `bag`, `star`, `honeyBag`, `bombBag`, `magicBag`, `fireBag`, `goldenBag`, `dogBiscuit`, `floatingBag`, `goldenLance`, `wood`, `flashlight`, `torch`, `cannonballBag`, `houseKey`) with `color`, `displayName`, and `hudSymbol`.
 - **`InventoryManager.swift`** — holds `[ItemType: Int]` counts; fires an `onChanged` closure when any item is collected, plus an `onCollect(ItemType)` closure identifying what was collected. `GameScene` owns the instance.
 
 **First-pickup use hints** — the first time a special item type is ever collected, `GameScene.maybeShowItemUseHint(for:)` shows a one-line use hint via `showHintBanner` (e.g. `"BOMB BAG: blows up / rival bags on board!"`). Copy lives in `itemUseHint(for:)`; seen types persist in `UserDefaults` under `"itemUseHintsSeen_v1"`. `inventory.onCollect` is registered **after** the boot-time lance-mirror and test grants in setup so those never fire hints. `floatingBag` and `goldenLance` are excluded — they already get bespoke award banners.
@@ -292,6 +300,7 @@ Items scattered in the world can be walked over to collect them. The system has 
 
 **Permanent unlock items** (not consumed; awarded once and persist via `UserDefaults`):
 - **`goldenLance`** — awarded on first Suburban Jousters win (key `"goldenLanceEarned_v1"`). Reveals the `btnLance` action button in the world HUD. Used to interact with high objects in the world (TBD). The button is a dark gold-bordered circle drawn by `makeLanceButtonContent()` — a diagonal gold shaft, bright tip, and grip wrap.
+- **`houseKey`** — awarded for beating Mom, the final match of the family picnic cornhole tournament (Part 1's finale gate). Unlike `goldenLance`, it has no dedicated `UserDefaults` flag or HUD reveal — it just persists via `InventoryManager`'s own storage (`inventoryCounts_v1`) like any other collected item, since it currently has no world-use action or button of its own (Part 1 ends right after it's earned).
 
 **Fire bag round state** — reset at the start of each round in `startRound()`: `boardOnFire`, `holeFire`, `fireBoardOverlay`, `fireBoardEmitter` node (named `"fireBoardEmitter"`), and `fireBoardLabel` node (named `"fireBoardLabel"`).
 
@@ -596,6 +605,7 @@ Random single-lane fillers (kids ×0.35, wet-floor signs ×0.50) every ~1.1–1.
 | `triggerBridge` | `"bridge_story"` | Bridge wood tile |
 | `triggerCave` | `"cave_story"` | Any cave tile (bypasses `handleCaveInteraction`'s cluster-teleport maze entirely while the trigger is pending) |
 | `triggerAppleTree` | `"appletree_story"` | Apple tree tile |
+| `triggerHomeDoor` | `"homedoor_story"` | Any tile on the `"home"` map layer — gate into the family picnic cornhole tournament at Part 1's end |
 | `triggerBat` | `"bat_story"` | Story bat pickup object — legacy, unused by current content |
 | `triggerBaseball` | `"baseball_story"` | Baseball tile — legacy, unused by current content |
 | `triggerQuestOffer` | `"quest_offer"` | Baseball tile (quest re-offer) — legacy, unused by current content |
@@ -676,7 +686,12 @@ ACT 4 — TIME FOR TIM
 p4_pool_intro → [beachball vs Tim]
   win → p4_pool_win → p4_confession (sets dogsEnabled + bulliesEnabled)
     → [world: apple tree trigger] → p4_queen_intro → [cornhole vs .spirit ("Fairy Queen")]
-      win → p4_queen_win → p4_number_found → p4_ending (— END OF PART 1 —, loops to itself)
+      win → p4_queen_win → p4_number_found → [world: home door trigger] → p4_dad_gate → [cornhole vs .tom ("Tim")]
+        win → p4_tourney_tim_win → [cornhole vs .grandpa]
+          win → p4_tourney_grandpa_win → [cornhole vs .chuck]
+            win → p4_tourney_chuck_win → [cornhole vs .dad ("Dad")]
+              win → p4_tourney_dad_win → [cornhole vs .mom ("Mom")]
+                win → p4_tourney_mom_win (awards houseKey) → p4_ending (— END OF PART 1 —, loops to itself)
 ```
 
 #### Dog gating
