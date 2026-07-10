@@ -18,8 +18,13 @@ final class StoryModuleScene: SKScene {
     // MARK: - Panel sub-nodes (built once in buildPanel)
     private var panelNode: SKNode!
     private var imageNode: SKSpriteNode!
+    private var imageFrameOverlay: SKSpriteNode!
     private var titleLabel: SKLabelNode!
     private var textLabel: SKLabelNode!
+    private var textClipNode: SKCropNode!
+    private var textScrollNode: SKNode!
+    private var scrollUpBtn: SKNode!
+    private var scrollDownBtn: SKNode!
     private var continueArrow: SKLabelNode!
     private var choiceContainer: SKNode!
 
@@ -30,6 +35,15 @@ final class StoryModuleScene: SKScene {
     private var panelH: CGFloat = 0
     private var imageAreaH: CGFloat = 0
     private var ribbonBottomY: CGFloat = 0   // scene-Y of bottom edge of the top ribbon
+
+    // MARK: - Title (wraps up to 2 lines; shrinks to fit long titles within that budget)
+    private var titleBaseFontSize: CGFloat = 0
+    private var titleViewportH: CGFloat = 0
+
+    // MARK: - Text scroll (body text can exceed the panel's fixed vertical space)
+    private var textViewportH: CGFloat = 0
+    private var maxTextScroll: CGFloat = 0
+    private var currentTextScroll: CGFloat = 0
 
     // MARK: - Typewriter
     private var fullText: String = ""
@@ -106,6 +120,15 @@ final class StoryModuleScene: SKScene {
         imageNode.zPosition = 1
         panelNode.addChild(imageNode)
 
+        // Frame overlay (vignette + corner marks) drawn once, shown only over real photos —
+        // the placeholder path bakes its own vignette directly into imageNode's texture.
+        imageFrameOverlay = SKSpriteNode(texture: makeFrameOverlayTexture(size: imageNode.size),
+                                          size: imageNode.size)
+        imageFrameOverlay.position = imageNode.position
+        imageFrameOverlay.zPosition = 2
+        imageFrameOverlay.alpha = 0
+        panelNode.addChild(imageFrameOverlay)
+
         // Corner rivets on image frame (matches design Scene plate style)
         let rivetRadius: CGFloat = 3.5
         let imgTop  = panelH/2 - 2
@@ -128,18 +151,45 @@ final class StoryModuleScene: SKScene {
         divLine.lineWidth = 1
         panelNode.addChild(divLine)
 
-        // Title label — sits just below divider
+        // Title label — sits just below divider. Wraps up to 2 lines; showModule()
+        // shrinks the font further for the rare title that still doesn't fit that,
+        // so a long title is never clipped or run off the panel edge.
+        titleBaseFontSize = min(24, W / 13)
+        let titleLineH = titleBaseFontSize * 1.3
+        titleViewportH = titleLineH * 2
+
         titleLabel = SKLabelNode(fontNamed: "PressStart2P-Regular")
-        titleLabel.fontSize = min(24, W / 13)
+        titleLabel.fontSize = titleBaseFontSize
         titleLabel.fontColor = Parchment.deep
+        titleLabel.numberOfLines = 0
+        titleLabel.preferredMaxLayoutWidth = panelW - 20
         titleLabel.horizontalAlignmentMode = .left
         titleLabel.verticalAlignmentMode   = .top
         titleLabel.position  = CGPoint(x: -panelW/2 + 10, y: divY - 4)
         titleLabel.zPosition = 5
         panelNode.addChild(titleLabel)
 
-        // Body text label (multi-line, anchored top-left)
-        let textY = divY - titleLabel.fontSize - 14
+        // Body text label (multi-line, anchored top-left), clipped to a fixed viewport
+        // so long modules never bleed into the choice/continue controls below —
+        // overflow is reached instead via the scroll arrows built below. The title
+        // area above always reserves 2 lines, whether or not the current title needs it.
+        let textY = divY - 4 - titleViewportH - 10
+        let controlsReserve: CGFloat = 56   // clears the choice-button row / continue arrow
+        let textBottomLimit = -panelH/2 + controlsReserve
+        textViewportH = max(40, textY - textBottomLimit)
+        let maskCenterY = textY - textViewportH / 2
+
+        textClipNode = SKCropNode()
+        textClipNode.zPosition = 5
+        panelNode.addChild(textClipNode)
+
+        let mask = SKSpriteNode(color: .white, size: CGSize(width: panelW - 6, height: textViewportH))
+        mask.position = CGPoint(x: 0, y: maskCenterY)
+        textClipNode.maskNode = mask
+
+        textScrollNode = SKNode()
+        textClipNode.addChild(textScrollNode)
+
         textLabel = SKLabelNode(fontNamed: "PressStart2P-Regular")
         textLabel.fontSize = min(14, W / 17)
         textLabel.fontColor = Parchment.ink
@@ -148,8 +198,22 @@ final class StoryModuleScene: SKScene {
         textLabel.horizontalAlignmentMode = .left
         textLabel.verticalAlignmentMode   = .top
         textLabel.position  = CGPoint(x: -panelW/2 + 12, y: textY)
-        textLabel.zPosition = 5
-        panelNode.addChild(textLabel)
+        textScrollNode.addChild(textLabel)
+
+        // Scroll arrows — a fixed, always-in-the-same-place widget on the text area's
+        // right edge. Hidden when the module's text fits; shown (and individually
+        // dimmed at each end) whenever it doesn't.
+        scrollUpBtn = makeScrollArrowButton(text: "▲", name: "scrollUp")
+        scrollUpBtn.position = CGPoint(x: panelW/2 - 16, y: maskCenterY + 20)
+        scrollUpBtn.zPosition = 6
+        scrollUpBtn.alpha = 0
+        panelNode.addChild(scrollUpBtn)
+
+        scrollDownBtn = makeScrollArrowButton(text: "▼", name: "scrollDown")
+        scrollDownBtn.position = CGPoint(x: panelW/2 - 16, y: maskCenterY - 20)
+        scrollDownBtn.zPosition = 6
+        scrollDownBtn.alpha = 0
+        panelNode.addChild(scrollDownBtn)
 
         // Continue arrow (blinking ▼)
         continueArrow = SKLabelNode(fontNamed: "PressStart2P-Regular")
@@ -221,6 +285,59 @@ final class StoryModuleScene: SKScene {
         panelNode.addChild(r)
     }
 
+    private func makeScrollArrowButton(text: String, name: String) -> SKNode {
+        let container = SKNode()
+        container.name = name
+
+        let bg = SKShapeNode(circleOfRadius: 11)
+        bg.fillColor   = Parchment.surface2.withAlphaComponent(0.92)
+        bg.strokeColor = Parchment.edge.withAlphaComponent(0.75)
+        bg.lineWidth   = 1
+        bg.name        = name
+        container.addChild(bg)
+
+        let lbl = SKLabelNode(fontNamed: "PressStart2P-Regular")
+        lbl.text      = text
+        lbl.fontSize  = 10
+        lbl.fontColor = Parchment.amber
+        lbl.horizontalAlignmentMode = .center
+        lbl.verticalAlignmentMode   = .center
+        lbl.position  = CGPoint(x: 0, y: -1)
+        lbl.name      = name
+        container.addChild(lbl)
+
+        return container
+    }
+
+    // MARK: - Text scroll
+    /// Recomputes overflow and dims/hides the scroll arrows to match. Call after
+    /// the body text or the scroll offset changes.
+    private func updateScrollUI() {
+        let contentH = textLabel.frame.height
+        maxTextScroll = max(0, contentH - textViewportH)
+        let hasOverflow = maxTextScroll > 1
+        scrollUpBtn.alpha   = hasOverflow ? (currentTextScroll > 1 ? 1.0 : 0.35) : 0
+        scrollDownBtn.alpha = hasOverflow ? (currentTextScroll < maxTextScroll - 1 ? 1.0 : 0.35) : 0
+    }
+
+    /// While the typewriter is revealing characters, keep the newest line in view —
+    /// same idea as a terminal auto-scrolling to the latest output.
+    private func autoScrollToBottomIfNeeded() {
+        let contentH = textLabel.frame.height
+        maxTextScroll = max(0, contentH - textViewportH)
+        currentTextScroll = maxTextScroll
+        textScrollNode.position.y = currentTextScroll
+        updateScrollUI()
+    }
+
+    private func scrollText(direction: CGFloat) {
+        guard maxTextScroll > 0 else { return }
+        let pageStep = textViewportH * 0.85
+        currentTextScroll = min(maxTextScroll, max(0, currentTextScroll + direction * pageStep))
+        textScrollNode.position.y = currentTextScroll
+        updateScrollUI()
+    }
+
     // MARK: - Show module
     private func showModule(_ m: StoryModule) {
         currentModule = m
@@ -228,17 +345,84 @@ final class StoryModuleScene: SKScene {
         isTypewriterDone = false
         canAdvance       = false
 
-        // Image area
+        // Title — reset to base size, then shrink in whole-point steps until the
+        // (already-wrapping) label's rendered height fits the reserved 2-line budget.
+        titleLabel.fontSize = titleBaseFontSize
         titleLabel.text = m.title
-        refreshImagePlaceholder(color: m.imageColor)
+        while titleLabel.frame.height > titleViewportH && titleLabel.fontSize > 10 {
+            titleLabel.fontSize -= 1
+        }
+
+        // Image area
+        if let name = m.imageName, let tex = croppedImageTexture(named: name) {
+            imageNode.texture = tex
+            imageNode.color = .clear
+            imageNode.colorBlendFactor = 0
+            imageFrameOverlay.alpha = 1
+        } else {
+            refreshImagePlaceholder(color: m.imageColor)
+            imageFrameOverlay.alpha = 0
+        }
 
         // Reset text / choices
         textLabel.text = ""
         choiceContainer.removeAllChildren()
         continueArrow.alpha = 0
+        currentTextScroll = 0
+        textScrollNode.position.y = 0
+        updateScrollUI()
 
         fullText = m.text
         startTypewriter()
+    }
+
+    /// Aspect-fill crop of a bundled scene/portrait image to exactly match imageNode's
+    /// frame, so wide reference photos never stretch or letterbox inside the panel.
+    private func croppedImageTexture(named name: String) -> SKTexture? {
+        guard let ui = UIImage(named: name) else { return nil }
+        let base = SKTexture(image: ui)
+        base.filteringMode = .linear
+        let targetAspect = imageNode.size.width / imageNode.size.height
+        let texSize = base.size()
+        let texAspect = texSize.width / texSize.height
+
+        var rect = CGRect(x: 0, y: 0, width: 1, height: 1)
+        if texAspect > targetAspect {
+            let cropW = targetAspect / texAspect
+            rect = CGRect(x: (1 - cropW) / 2, y: 0, width: cropW, height: 1)
+        } else if texAspect < targetAspect {
+            let cropH = texAspect / targetAspect
+            rect = CGRect(x: 0, y: (1 - cropH) / 2, width: 1, height: cropH)
+        }
+        let cropped = SKTexture(rect: rect, in: base)
+        cropped.filteringMode = .linear
+        return cropped
+    }
+
+    /// Static vignette + corner-mark overlay, drawn once and reused for every real photo
+    /// (mirrors the framing baked into the color placeholder, minus the "[IMAGE]" label).
+    private func makeFrameOverlayTexture(size sz: CGSize) -> SKTexture {
+        let fmt = UIGraphicsImageRendererFormat(); fmt.scale = 1
+        let img = UIGraphicsImageRenderer(size: sz, format: fmt).image { ctx in
+            let c = ctx.cgContext
+
+            c.setFillColor(UIColor.black.withAlphaComponent(0.22).cgColor)
+            let edgeW: CGFloat = 6
+            c.fill(CGRect(x: 0, y: 0, width: sz.width, height: edgeW))
+            c.fill(CGRect(x: 0, y: sz.height - edgeW, width: sz.width, height: edgeW))
+            c.fill(CGRect(x: 0, y: 0, width: edgeW, height: sz.height))
+            c.fill(CGRect(x: sz.width - edgeW, y: 0, width: edgeW, height: sz.height))
+
+            c.setFillColor(UIColor.white.withAlphaComponent(0.30).cgColor)
+            let dot: CGFloat = 3
+            c.fill(CGRect(x: 2, y: 2, width: dot, height: dot))
+            c.fill(CGRect(x: sz.width - dot - 2, y: 2, width: dot, height: dot))
+            c.fill(CGRect(x: 2, y: sz.height - dot - 2, width: dot, height: dot))
+            c.fill(CGRect(x: sz.width - dot - 2, y: sz.height - dot - 2, width: dot, height: dot))
+        }
+        let tex = SKTexture(image: img)
+        tex.filteringMode = .nearest
+        return tex
     }
 
     private func refreshImagePlaceholder(color: SKColor) {
@@ -300,6 +484,7 @@ final class StoryModuleScene: SKScene {
                     revealed += 1
                     let end = chars.index(chars.startIndex, offsetBy: min(revealed, total))
                     self.textLabel.text = String(chars[..<end])
+                    self.autoScrollToBottomIfNeeded()
                     if revealed >= total { self.finishTypewriter() }
                 },
                 SKAction.wait(forDuration: 0.045)
@@ -318,6 +503,7 @@ final class StoryModuleScene: SKScene {
         guard !isTypewriterDone else { return }
         isTypewriterDone = true
         textLabel.text = fullText
+        autoScrollToBottomIfNeeded()
 
         guard let m = currentModule else { return }
         if m.choices.isEmpty {
@@ -415,6 +601,15 @@ final class StoryModuleScene: SKScene {
         if name == "backToMenu" {
             returnToMenu()
             return
+        }
+
+        if name == "scrollUp" || name == "scrollDown" {
+            // Only intercept once the text is fully revealed and actually overflows —
+            // otherwise fall through so a tap there still skips/advances as normal.
+            if isTypewriterDone && maxTextScroll > 0 {
+                scrollText(direction: name == "scrollUp" ? -1 : 1)
+                return
+            }
         }
 
         if name.hasPrefix("choice_"), let idx = Int(name.dropFirst(7)) {

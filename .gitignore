@@ -28,3 +28,6 @@ Podfile.lock
 *.xcodeproj/xcuserdata/
 *.xcworkspace/xcuserdata/
 .claude/
+
+# nano-banana generation scratch output (final picks are copied into Assets.xcassets)
+generated_imgs/

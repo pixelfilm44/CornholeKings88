@@ -676,7 +676,7 @@ ACT 4 — TIME FOR TIM
 p4_pool_intro → [beachball vs Tim]
   win → p4_pool_win → p4_confession (sets dogsEnabled + bulliesEnabled)
     → [world: apple tree trigger] → p4_queen_intro → [cornhole vs .spirit ("Fairy Queen")]
-      win → p4_queen_win → p4_ending (— END OF PART 1 —, loops to itself)
+      win → p4_queen_win → p4_number_found → p4_ending (— END OF PART 1 —, loops to itself)
 ```
 
 #### Dog gating
