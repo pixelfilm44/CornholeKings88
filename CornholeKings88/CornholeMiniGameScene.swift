@@ -120,6 +120,34 @@ final class CornholeMiniGameScene: SKScene {
         /// While true, physics and deform are skipped — the bat action drives position.
         var isCarriedByBat = false
 
+        // MARK: Hangers (partially-committed rest states)
+        /// Balanced on the cup's lip — part of the bag is over the hole, but it hasn't
+        /// dropped. Worth **0 pts**: it isn't in the hole and it isn't flat on the board.
+        /// Any later bag that shoves it holeward tips it in for the full hole score.
+        var isHoleHanger = false
+        /// Balanced on the board's outer edge with part of the bag hanging into space.
+        /// Still worth the normal **1 pt**, but a solid hit sends it to the ground for 0.
+        var isEdgeHanger = false
+        /// Unit vector the bag droops along (toward the cup, or out over the rail).
+        var hangDirX: CGFloat = 0
+        var hangDirY: CGFloat = 0
+        /// Spring-eased 0…1 blend into the hanging pose, so tipping in/out is animated
+        /// rather than snapping between flat and dangling.
+        var hangLean: CGFloat = 0
+        var hangLeanV: CGFloat = 0
+        /// Teeter oscillator phase — seeded randomly so two hangers never wobble in sync.
+        var hangPhase: CGFloat = CGFloat.random(in: 0...(.pi * 2))
+        /// Prevents the "HANGER!" callout firing repeatedly while a bag jitters.
+        var hangAnnounced = false
+        /// Set when a hanger was tipped in by a later bag rather than sinking on its own.
+        var wasPushedIn = false
+
+        /// Earned special bags never balance on the cup's lip — their value comes from a
+        /// guaranteed effect, so they score their normal board/hole points instead of
+        /// gambling on a nudge. (They can still hang off the board's outer edge, which
+        /// only ever gains them a point.)
+        var isSpecialBag: Bool { isHoney || isBomb || isMagic || isFire || isCannonball }
+
         // MARK: Soft-bag deformation (Tier 1/2 — pure visual, volume-preserving)
         /// Signed deform driven by a damped spring. >0 = flattened (wide + short, like a
         /// beanbag slapping the board); <0 = stretched (tall + narrow, e.g. leaning into a
@@ -472,6 +500,12 @@ final class CornholeMiniGameScene: SKScene {
     private var aiScoreLabel:     SKLabelNode?
     private var windLabel:        SKLabelNode?
     private var messageNode: SKNode?
+
+    /// Pulsing ring shown at the cup while any bag is balanced on its lip.
+    private var holeLipRing: SKShapeNode?
+    /// The "= 0 PTS" / "= 1 PT" spellings are shown once per match, then shortened.
+    private var hasExplainedHoleHanger = false
+    private var hasExplainedEdgeHanger = false
     private var satchelButton: SKNode?
     private var satchelPanel: SKNode?
     private var satchelOpen = false
@@ -1960,6 +1994,9 @@ final class CornholeMiniGameScene: SKScene {
         }
         activeBags.removeAll()
 
+        holeLipRing?.removeFromParent()
+        holeLipRing = nil
+
         clearGopher()
 
         removeAction(forKey: "crowSchedule")
@@ -2050,7 +2087,9 @@ final class CornholeMiniGameScene: SKScene {
         for bag in activeBags {
             guard !bag.isDestroyed else { continue }
             let isInHole  = bag.hasScored
-            let isOnBoard = !isInHole && checkIsOnBoard(bag)
+            // Balanced on the lip: not in the hole, not flat on the board — no points.
+            let isHanger  = !isInHole && bag.isHoleHanger
+            let isOnBoard = !isInHole && !isHanger && checkIsOnBoard(bag)
             let pts: Int
             if isInHole        { pts = bag.isGolden ? 6 : 3 }
             else if isOnBoard  { pts = bag.isGolden ? 2 : 1 }
@@ -2101,6 +2140,8 @@ final class CornholeMiniGameScene: SKScene {
             guard !bag.isDestroyed else { continue }
             if bag.hasScored {                       // dropped in the hole
                 if bag.owner == .player { playerSank = true } else { aiSank = true }
+            } else if bag.isHoleHanger {             // teetering on the lip → no points
+                continue
             } else if checkIsOnBoard(bag) {          // rests on the board → normal points
                 let pts = bag.isGolden ? 2 : 1
                 if bag.owner == .player { playerBoard += pts } else { aiBoard += pts }
@@ -2207,6 +2248,10 @@ final class CornholeMiniGameScene: SKScene {
             if !bag.isGrounded || bag.isMoving {
                 updateBagPhysics(bag, dt: dt)
             }
+            // Hanger state is re-derived every frame — including for settled bags — so a
+            // bag shoved off the lip or back onto solid wood updates the same frame it
+            // moves, and scoring reads the truth whenever the round happens to end.
+            updateHangerState(bag)
             // Soft-bag deformation spring runs every frame — even for a grounded,
             // stationary bag — so its landing jiggle keeps settling after the bag
             // stops moving. Pure visual; does not touch position or scoring.
@@ -2218,6 +2263,8 @@ final class CornholeMiniGameScene: SKScene {
 
         // Re-check movement after collisions may have woken grounded bags
         for bag in activeBags where bag.isMoving { anyMoving = true }
+
+        refreshHoleLipRing()
 
         updateGopher(dt: dt)
         checkCrowCollisions()
@@ -2343,7 +2390,8 @@ final class CornholeMiniGameScene: SKScene {
 
         if bag.bz <= 0 {
             bag.bz = 0
-            if checkIsOnBoard(bag) {
+            let zone = boardZone(bag)
+            if zone != .off {
                 // Haptic on first board touchdown
                 if !bag.hasLanded {
                     bag.hasLanded = true
@@ -2391,6 +2439,38 @@ final class CornholeMiniGameScene: SKScene {
                     bag.rotV *= slippery ? 0.88 : 0.65
                 }
 
+                // Caught on the outer rail: half the bag is unsupported, so it bleeds
+                // speed fast and settles hanging over the edge instead of skating clean
+                // off. A genuinely hard hit still carries it past the point of balance —
+                // the catch is speed-gated by nothing more than this extra drag.
+                if zone == .edgeHang && !bag.isHoney {
+                    bag.vx   *= 0.62
+                    bag.vy   *= 0.62
+                    bag.rotV *= 0.55
+                }
+
+                // The cup's lip is a funnel, not flat wood: a bag perched on it sits on a
+                // slope running downhill into the hole from every side. Static friction
+                // holds a settled hanger in place, but the moment something knocks it
+                // loose the slope takes over — so a bumped hanger drops in rather than
+                // skating off across the board. (Without this, a hanger perched past the
+                // cup gets shoved *away* by an incoming bag and slides to the far rail.)
+                // Gated on `hangAnnounced` for the same reason as the tip-in below: only a
+                // bag that actually came to rest there is perched. A hard enough direct
+                // hit still carries it clean out of the band — that gradient is the point.
+                if bag.isHoleHanger, bag.hangAnnounced, !bag.isHoney, bag.isMoving {
+                    let tx = holeCenter.x - bag.bx
+                    let ty = holeCenter.y - bag.by
+                    let m  = hypot(tx, ty)
+                    if m > 0.001 {
+                        bag.vx += tx / m * 0.22
+                        bag.vy += ty / m * 0.22
+                        // Perched, not planted — it sheds speed fast.
+                        bag.vx *= 0.72
+                        bag.vy *= 0.72
+                    }
+                }
+
                 // Hole detection.
                 // In the long-distance variant the hole radius is half-size, so a bag
                 // sliding with moderate per-frame velocity can step *over* the hole
@@ -2426,8 +2506,27 @@ final class CornholeMiniGameScene: SKScene {
                         }
                     }
                 }
+                // A bag already balanced on the lip drops the instant anything shoves it
+                // holeward — far less force than it would take to slide a flat bag the
+                // same distance. This is the whole point of a hanger: it's live.
+                // `hangAnnounced` means it came to rest there — a bag still skimming
+                // across the band on its way in is left to the normal distance test.
+                if !captured, bag.isHoleHanger, bag.hangAnnounced {
+                    let tx = holeCenter.x - bag.bx
+                    let ty = holeCenter.y - bag.by
+                    let m  = hypot(tx, ty)
+                    if m > 0.001, (bag.vx * tx + bag.vy * ty) / m > 0.20 {
+                        captured        = true
+                        bag.wasPushedIn = true
+                        bag.bx = holeCenter.x
+                        bag.by = holeCenter.y
+                    }
+                }
+
                 if captured && !bag.hasScored {
                     bag.hasScored  = true
+                    bag.isHoleHanger = false
+                    bag.isEdgeHanger = false
                     CornholeStatsManager.shared.recordCornhole()
                     // In a CathyX match a hole-in is a penalty, not an achievement — no
                     // celebratory streak banner or fire-bag rewards for sinking it.
@@ -2439,6 +2538,10 @@ final class CornholeMiniGameScene: SKScene {
                     run(SKAction.playSoundFileNamed("hole_score.wav", waitForCompletion: false))
                     run(SKAction.playSoundFileNamed("cornhole.wav", waitForCompletion: false))
                     showHoleEffect(at: CGPoint(x: bag.bx, y: bag.by))
+                    if bag.wasPushedIn {
+                        showBagTag("PUSHED IN!", at: CGPoint(x: bag.bx, y: bag.by),
+                                   color: SKColor(red: 1.0, green: 0.90, blue: 0.35, alpha: 1))
+                    }
                     let sink = SKAction.sequence([
                         SKAction.group([
                             SKAction.scale(to: 0.3, duration: 0.20),
@@ -2498,9 +2601,15 @@ final class CornholeMiniGameScene: SKScene {
                 fallIntoChasm(bag)
                 return
             } else {
-                // Lands off-board — stop dead and shrink to show depth vs. board level
+                // Lands off-board — stop dead and shrink to show depth vs. board level.
+                // A bag that had settled hanging over the rail and has now been shoved
+                // past the point of balance gets a tumble + callout on its way down.
+                let fellOffLip = bag.isEdgeHanger && !bag.hasAppliedGroundScale
+                bag.isEdgeHanger = false
+                bag.isHoleHanger = false
                 bag.isGrounded = true
                 bag.vx = 0; bag.vy = 0; bag.vz = 0; bag.rotV = 0
+                if fellOffLip { tumbleOffLip(bag) }
                 if !bag.hasAppliedGroundScale {
                     bag.hasAppliedGroundScale = true
                     // Tier 3: this bag is now action-owned (updateBagDeform skips it), so
@@ -2571,6 +2680,58 @@ final class CornholeMiniGameScene: SKScene {
         bag.node.xScale = base * (1 + bag.deform)
         bag.node.yScale = base * (1 - bag.deform * 0.88)
 
+        // Hanger pose. A bag balanced on the cup's lip or the board's rail tips into the
+        // drop and teeters there rather than lying flat — the pose *is* the readout for
+        // "this one hasn't committed yet". Springs in and out, so knocking a hanger back
+        // onto solid wood settles it flat again instead of snapping.
+        let hangTarget: CGFloat = (bag.isHoleHanger || bag.isEdgeHanger) ? 1 : 0
+        bag.hangLeanV += (-90 * (bag.hangLean - hangTarget) - 13 * bag.hangLeanV) * dt
+        bag.hangLean  += bag.hangLeanV * dt
+        bag.hangLean   = max(0, min(1.15, bag.hangLean))
+
+        if bag.hangLean > 0.002 {
+            let t = bag.hangLean
+            bag.hangPhase += dt * (bag.isHoleHanger ? 2.4 : 1.7)
+            let teeter = sin(bag.hangPhase) * 0.06 * t
+
+            // Visual dip only — bx/by never move, so collisions and scoring stay honest.
+            let dip: CGFloat = bag.isHoleHanger ? holeRadius * 0.30 : edgeHangBand * 0.55
+            // Losing support means losing height, and height reads as screen-Y here (the
+            // same axis `bz * 0.50` rides on). Without this an edge hanger sits at board
+            // level with nothing under it and just looks airborne.
+            let heightDrop: CGFloat = bag.isHoleHanger ? 3.5 : 8.0
+            // Off-board bags render at 0.75 to sit at ground level; a hanger is part-way
+            // down, so it shrinks part-way there too.
+            let shrink = 1 - (bag.isHoleHanger ? 0.16 : 0.20) * t
+            // Roll the outer edge down. Only meaningful for a side overhang — a bag off
+            // the near/far rail is bent by the droop warp below, not spun.
+            let tilt: CGFloat = bag.isHoleHanger ? 0 : -bag.hangDirX * 0.22 * t
+
+            let poseX = bag.bx + bag.hangDirX * dip * t
+            let poseY = bag.by + bag.bz * 0.50 + bag.hangDirY * dip * t - heightDrop * t
+
+            bag.node.xScale *= shrink
+            bag.node.yScale *= shrink
+            bag.node.zRotation = bag.rot + teeter + tilt
+            bag.node.position  = CGPoint(x: poseX, y: poseY)
+
+            if bag.isHoleHanger {
+                // Hanging over the cup — there's no floor beneath it to catch a shadow.
+                bag.shadow.alpha = max(0.06, 0.35 * (1 - 0.62 * t))
+            } else {
+                // Hanging over the grass — keep a solid shadow tucked just under it. This
+                // is the strongest "it is resting on something, not hovering" cue there is.
+                bag.shadow.position = CGPoint(x: poseX + 2 * t, y: poseY - 6 * t)
+                bag.shadow.alpha    = 0.34
+                bag.shadow.setScale((1 - 0.10 * t) * distanceScale)
+                // Depth-sorts as an ordinary board bag. Tucking a far-rail hanger *behind*
+                // the board (zPosition below the board's 5) reads wrong in this projection:
+                // opaque wood hides the supported half, so the bag looks like it's lying on
+                // the grass behind the board rather than perched on its edge. The droop
+                // warp, drop shadow and height drop carry the read without occlusion.
+            }
+        }
+
         // Tier 3: spring the directional warp vector back to rest. While it's meaningfully
         // displaced, rebuild the bag's mesh-warp grid so the leading edge drapes; once it
         // settles, drop the warp entirely so the sprite renders crisp (and no warp pass).
@@ -2582,6 +2743,13 @@ final class CornholeMiniGameScene: SKScene {
         bag.warpY  += bag.warpVY * dt
         if abs(bag.warpX) > 0.004 || abs(bag.warpY) > 0.004 {
             bag.node.warpGeometry = makeDrapeGrid(warpX: bag.warpX, warpY: bag.warpY)
+        } else if bag.isEdgeHanger && bag.hangLean > 0.002 {
+            // Drape spring is at rest, so the droop owns the mesh: fold the unsupported
+            // half down over the rail instead of leaving the bag flat and levitating.
+            bag.warpX = 0; bag.warpY = 0; bag.warpVX = 0; bag.warpVY = 0
+            bag.node.warpGeometry = makeEdgeDroopGrid(dirX: bag.hangDirX, dirY: bag.hangDirY,
+                                                      rot: bag.node.zRotation,
+                                                      amount: 0.55 * bag.hangLean)
         } else if bag.node.warpGeometry != nil {
             bag.warpX = 0; bag.warpY = 0; bag.warpVX = 0; bag.warpVY = 0
             bag.node.warpGeometry = nil
@@ -2630,11 +2798,199 @@ final class CornholeMiniGameScene: SKScene {
                                   sourcePositions: src, destinationPositions: dst)
     }
 
+    // MARK: - Board Zones & Hangers
+
+    /// Where a bag is resting relative to the board surface.
+    /// - `on`: fully supported by the wood.
+    /// - `edgeHang`: centre is past the edge but the bag still balances on the rail,
+    ///   part of it hanging into space. Counts as a board bag (1 pt) — until it's hit.
+    /// - `off`: past the point of balance; it's on the grass.
+    private enum BoardZone { case on, edgeHang, off }
+
+    /// `boardContainer` is drawn at `setScale(0.90)`, so this is where the wood the player
+    /// can actually see ends. Anchoring the rest/hang zones here (rather than the old 0.95
+    /// hit-zone fudge) is what keeps a hanging bag straddling the visible rail instead of
+    /// appearing to float over the grass beyond it.
+    private var boardRestHalfW: CGFloat { boardHalfW * 0.90 }
+    private var boardRestHalfH: CGFloat { boardHalfH * 0.90 }
+
+    /// How far a bag's centre may sit past the visible rail and still balance on it —
+    /// roughly half a bag, past which too much of it is unsupported.
+    private var edgeHangBand: CGFloat { min(11, boardHalfW * 0.11) }
+
+    /// Ring outside the cup where a bag rests part-way over the drop instead of
+    /// lying flat on the wood.
+    private var holeLipBand: CGFloat { holeRadius * 0.50 }
+
+    /// How far past the board edge the bag's centre sits (≤ 0 means fully on).
+    private func boardOverhang(_ bag: MiniGameBag) -> CGFloat {
+        max(abs(bag.bx) - boardRestHalfW,
+            max(bag.by - (boardY + boardRestHalfH),
+                (boardY - boardRestHalfH) - bag.by))
+    }
+
+    private func boardZone(_ bag: MiniGameBag) -> BoardZone {
+        let over = boardOverhang(bag)
+        if over <= 0            { return .on }
+        if over <= edgeHangBand { return .edgeHang }
+        return .off
+    }
+
+    /// Unit vector pointing out over whichever edge(s) the bag is overhanging.
+    private func edgeOverhangDirection(_ bag: MiniGameBag) -> (CGFloat, CGFloat) {
+        var dx: CGFloat = 0, dy: CGFloat = 0
+        if abs(bag.bx) - boardRestHalfW > 0        { dx = bag.bx >= 0 ? 1 : -1 }
+        if bag.by - (boardY + boardRestHalfH) > 0  { dy =  1 }
+        else if (boardY - boardRestHalfH) - bag.by > 0 { dy = -1 }
+        let m = hypot(dx, dy)
+        return m > 0.001 ? (dx / m, dy / m) : (0, -1)
+    }
+
+    /// A bag is "on the board" for every existing purpose (scoring, bomb/fire triggers,
+    /// AI targeting) as long as it's still balanced on it — including edge hangers.
     private func checkIsOnBoard(_ bag: MiniGameBag) -> Bool {
-        // Use 95% of board dimensions to match the visually scaled boardContainer
-        abs(bag.bx) <= boardHalfW * 0.95 &&
-        bag.by >= boardY - boardHalfH * 0.95 &&
-        bag.by <= boardY + boardHalfH * 0.95
+        boardZone(bag) != .off
+    }
+
+    /// Warp grid that folds the unsupported half of a bag down over the board's rail: the
+    /// overhanging vertices foreshorten back toward the bag's centre and slide down-screen,
+    /// so the bag reads as bent over the edge rather than lying flat in mid-air past it.
+    private func makeEdgeDroopGrid(dirX: CGFloat, dirY: CGFloat,
+                                   rot: CGFloat, amount: CGFloat) -> SKWarpGeometryGrid {
+        let cols = 2, rows = 2
+        let cosR = cos(rot), sinR = sin(rot)
+        // Overhang direction, world → bag-local texture frame (undo the sprite's spin).
+        let lx =  dirX * cosR + dirY * sinR
+        let ly = -dirX * sinR + dirY * cosR
+        // Screen-down (0, -1), world → the same local frame.
+        let dnX = -sinR, dnY = -cosR
+
+        var src: [SIMD2<Float>] = []; src.reserveCapacity(9)
+        var dst: [SIMD2<Float>] = []; dst.reserveCapacity(9)
+        for r in 0...rows {
+            for c in 0...cols {
+                let u = CGFloat(c) / CGFloat(cols)
+                let v = CGFloat(r) / CGFloat(rows)
+                src.append(SIMD2<Float>(Float(u), Float(v)))
+                // How far past the rail this vertex sits (0 for the supported half).
+                let lead = max(0, (u - 0.5) * lx + (v - 0.5) * ly)
+                let fold = lead * amount
+                let ex = u - lx * fold * 0.85 + dnX * fold * 0.55
+                let ey = v - ly * fold * 0.85 + dnY * fold * 0.55
+                dst.append(SIMD2<Float>(Float(ex), Float(ey)))
+            }
+        }
+        return SKWarpGeometryGrid(columns: cols, rows: rows,
+                                  sourcePositions: src, destinationPositions: dst)
+    }
+
+    /// Re-evaluates a resting bag's hanger state. Cheap enough to run every frame for
+    /// every bag, which is what keeps a knocked hanger's state honest mid-shove.
+    private func updateHangerState(_ bag: MiniGameBag) {
+        guard !bag.hasScored, !bag.isDestroyed, !bag.hasAppliedGroundScale,
+              !bag.isCarriedByBat, !bag.isFallingInChasm, bag.bz <= 0.6,
+              boardZone(bag) != .off else {
+            bag.isHoleHanger = false
+            bag.isEdgeHanger = false
+            bag.hangAnnounced = false
+            return
+        }
+
+        let dist  = hypot(bag.bx - holeCenter.x, bag.by - holeCenter.y)
+        let onLip = !bag.isSpecialBag && dist > holeRadius && dist <= holeRadius + holeLipBand
+        bag.isHoleHanger = onLip
+        bag.isEdgeHanger = !onLip && boardZone(bag) == .edgeHang
+
+        if onLip, dist > 0.001 {
+            bag.hangDirX = (holeCenter.x - bag.bx) / dist
+            bag.hangDirY = (holeCenter.y - bag.by) / dist
+        } else if bag.isEdgeHanger {
+            (bag.hangDirX, bag.hangDirY) = edgeOverhangDirection(bag)
+        }
+
+        // Call it out only once the bag has actually come to rest there — a bag merely
+        // sliding across the lip shouldn't flash a label on its way past.
+        if !bag.isHoleHanger && !bag.isEdgeHanger {
+            bag.hangAnnounced = false
+        } else if !bag.hangAnnounced && !bag.isMoving {
+            bag.hangAnnounced = true
+            announceHang(bag)
+        }
+    }
+
+    private func announceHang(_ bag: MiniGameBag) {
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        let pos = CGPoint(x: bag.bx, y: bag.by)
+        if bag.isHoleHanger {
+            // Spell the rule out the first time it happens in a match, then stay terse.
+            let text = hasExplainedHoleHanger ? "HANGER!" : "HANGER = 0 PTS"
+            hasExplainedHoleHanger = true
+            showBagTag(text, at: pos, color: SKColor(red: 1.0, green: 0.82, blue: 0.25, alpha: 1))
+        } else {
+            let text = hasExplainedEdgeHanger ? "ON THE EDGE!" : "EDGE HANG = 1 PT"
+            hasExplainedEdgeHanger = true
+            showBagTag(text, at: pos, color: SKColor(red: 1.0, green: 0.70, blue: 0.35, alpha: 1))
+        }
+    }
+
+    /// A settled edge hanger that finally gets shoved past the point of balance.
+    private func tumbleOffLip(_ bag: MiniGameBag) {
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        run(SKAction.playSoundFileNamed("hit.mp3", waitForCompletion: false))
+        showBagTag("OFF THE EDGE!", at: CGPoint(x: bag.bx, y: bag.by),
+                   color: SKColor(red: 1.0, green: 0.45, blue: 0.32, alpha: 1))
+        bag.node.run(SKAction.rotate(byAngle: (Bool.random() ? 1 : -1) * 1.5, duration: 0.30))
+    }
+
+    /// Pulsing ring around the cup, shown whenever a bag is balanced on its lip, so the
+    /// "there are points sitting there for whoever taps them in" state reads from across
+    /// the board and not just from the bag's pose.
+    private func refreshHoleLipRing() {
+        let hasLipBag = activeBags.contains { $0.isHoleHanger && !$0.isDestroyed }
+        if hasLipBag, holeLipRing == nil {
+            let ring = SKShapeNode(circleOfRadius: holeRadius + holeLipBand * 0.55)
+            ring.strokeColor = SKColor(red: 1.0, green: 0.84, blue: 0.30, alpha: 0.9)
+            ring.fillColor   = .clear
+            ring.lineWidth   = 2
+            ring.glowWidth   = 2
+            ring.position    = holeCenter
+            ring.zPosition   = 18
+            ring.run(SKAction.repeatForever(SKAction.sequence([
+                SKAction.fadeAlpha(to: 0.25, duration: 0.45),
+                SKAction.fadeAlpha(to: 0.95, duration: 0.45),
+            ])))
+            gameWorldNode.addChild(ring)
+            holeLipRing = ring
+        } else if !hasLipBag, let ring = holeLipRing {
+            holeLipRing = nil
+            ring.run(SKAction.sequence([
+                SKAction.fadeOut(withDuration: 0.20),
+                SKAction.removeFromParent(),
+            ]))
+        }
+    }
+
+    /// Short floating caption pinned above a bag (hanger callouts, knock-offs).
+    private func showBagTag(_ text: String, at pos: CGPoint, color: SKColor) {
+        let lbl = makeLabel(text: text, size: max(6, size.width * 0.028), color: color)
+        lbl.position  = CGPoint(x: pos.x, y: pos.y + 26)
+        lbl.zPosition = 300
+        lbl.alpha     = 0
+        lbl.setScale(0.7)
+        gameWorldNode.addChild(lbl)
+        lbl.run(SKAction.sequence([
+            SKAction.group([
+                SKAction.scale(to: 1.0, duration: 0.14),
+                SKAction.fadeIn(withDuration: 0.14),
+                SKAction.moveBy(x: 0, y: 10, duration: 0.14),
+            ]),
+            SKAction.wait(forDuration: 0.75),
+            SKAction.group([
+                SKAction.fadeOut(withDuration: 0.26),
+                SKAction.moveBy(x: 0, y: 8, duration: 0.26),
+            ]),
+            SKAction.removeFromParent(),
+        ]))
     }
 
     // MARK: - Bomb Bag
@@ -3138,6 +3494,19 @@ final class CornholeMiniGameScene: SKScene {
         let startX       = pendingAIStartX
         let flightFrames = 2.0 * vzInitial / gravityPerFrame  // ≈ 60 frames
 
+        // Opponents read the lip too: a bag of theirs teetering over the cup is worth
+        // nothing until something taps it in, so they'll spend a throw converting it.
+        // Seeing the AI do this is how the player learns the rule without being told.
+        // Sitting out: the Fairy Queen (drops from above, never rolls a bag in), CathyX
+        // (the hole is a penalty for her), and Grandpa (boom-or-bust; he never settles).
+        if selectedOpponent != .spirit, selectedOpponent != .cathy, selectedOpponent != .grandpa,
+           Double.random(in: 0..<1) < 0.55, let lip = aiLipTarget() {
+            let lipVx = (lip.x - startX) / flightFrames
+            let lipVy = (lip.y - throwLineY) / flightFrames
+            throwBag(owner: .ai, startX: startX, vx: lipVx, vy: lipVy)
+            return
+        }
+
         // Base aim: hole with noise scaled by weather. Herman is "good but not great" —
         // a fixed, tighter-than-Tom/Jenny aim that doesn't adapt like Billy.
         let noiseFactor: CGFloat = rainActive ? 3.4 : (selectedOpponent == .barnum ? barnumNoiseFactor : 2.5)
@@ -3298,6 +3667,30 @@ final class CornholeMiniGameScene: SKScene {
         }
 
         throwBag(owner: .ai, startX: startX, vx: vx, vy: vy)
+    }
+
+    /// Aim point for converting one of the AI's own lip hangers, or `nil` if it has none
+    /// worth shooting at. Only returns a target when a bag arriving from the throw line
+    /// would actually carry the hanger *toward* the cup — a hanger sitting beyond the
+    /// hole would just get shoved further away, so the AI leaves it alone.
+    private func aiLipTarget() -> CGPoint? {
+        let hangers = activeBags.filter {
+            $0.owner == .ai && $0.isHoleHanger && !$0.isDestroyed && !$0.isMoving
+        }
+        guard let bag = hangers.randomElement() else { return nil }
+
+        let tx = holeCenter.x - bag.bx
+        let ty = holeCenter.y - bag.by
+        let m  = hypot(tx, ty)
+        guard m > 0.001 else { return nil }
+
+        let ax = bag.bx - pendingAIStartX
+        let ay = bag.by - throwLineY
+        let am = hypot(ax, ay)
+        guard am > 0.001, (ax * tx + ay * ty) / (am * m) > 0.10 else { return nil }
+
+        // Land just past it on the hole side, so the impact nudges it in.
+        return CGPoint(x: bag.bx + tx / m * 16, y: bag.by + ty / m * 16)
     }
 
     /// Creates a Spirit magic bag that materialises high above the board and falls straight down.
@@ -4582,6 +4975,9 @@ final class CornholeMiniGameScene: SKScene {
             .hint(at: CGPoint(x: 0, y: size.height * 0.08),
                   title: "SCORING",
                   body:  "EACH ROUND, ONLY THE LEADER SCORES THE DIFFERENCE. WATCH THE BOARD — KNOCK RIVAL BAGS OFF!"),
+            .hint(at: holeCenter,
+                  title: "HANGERS",
+                  body:  "A BAG TEETERING ON THE HOLE'S EDGE SCORES 0 — TAP IT IN WITH A LATER THROW FOR THE FULL 3. A BAG HANGING OFF THE BOARD STILL SCORES 1 — UNTIL SOMEONE KNOCKS IT OFF."),
         ]
         let overlay = TutorialOverlay(steps: steps, sceneSize: size) { [weak self] in
             guard let self = self else { return }
